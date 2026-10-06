@@ -40,7 +40,7 @@ arm-none-eabi-gcc -Wall -Os -Werror -fno-common -mcpu=cortex-m3 -mthumb -msoft-f
   ../library/STM32F10x_StdPeriph_Driver/src/stm32f10x_usart.c \
   ../library/STM32F10x_StdPeriph_Driver/src/misc.c
 
-arm-none-eabi-g++ -Wall -Os -Werror -fno-common -mcpu=cortex-m3 -mthumb -msoft-float -MD -fno-exceptions -fno-rtti -fno-threadsafe-statics -Wno-psabi -c -Wall -Werror \
+arm-none-eabi-g++ -Wall -Os -Werror -fno-common -mcpu=cortex-m3 -mthumb -msoft-float -MD -fno-exceptions -fno-rtti -fno-threadsafe-statics -Wno-psabi -Wno-register -Wno-array-bounds -Wno-overloaded-virtual -c -Wall -Werror \
   -D __USER__=\"$USER\" \
   -D __OSTYPE__=\"$OSTYPE\" \
   -D __GITREVISION__=\"$GITREVISION\" \
