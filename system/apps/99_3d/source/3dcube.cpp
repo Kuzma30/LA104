@@ -1,5 +1,7 @@
-#include <library.h>
+// math.h first: newer libstdc++ pulls <limits> through it, which breaks
+// after library.h defines min/max as macros
 #include <math.h>
+#include <library.h>
 
 #ifdef __APPLE__
 #define min(a, b) ((a)<(b)?(a):(b))

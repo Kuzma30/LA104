@@ -5,12 +5,20 @@ class CStream;
 
 #define _E(x) ((NATIVEENUM*)(&x))
 
+// CBufferedReader/Writer intentionally add operator<< / >> overloads taking
+// const CStream& next to these virtual ones. Newer GCC reports it as
+// -Woverloaded-virtual at this declaration and -Werror breaks the build.
+// Exposing the base overloads in derived classes would change which one
+// gets picked, so only the warning is silenced.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Woverloaded-virtual"
 class CSerialize
 {
 public:
 	virtual CSerialize& operator <<( CStream& stream );
 	virtual CSerialize& operator >>( CStream& stream );
 };
+#pragma GCC diagnostic pop
 
 class CStream
 {

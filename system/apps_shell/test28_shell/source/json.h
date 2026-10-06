@@ -240,6 +240,21 @@ public:
         return strValue;
     }
 
+    // atoi() pulls strtol -> errno -> stdio -> syscalls from newlib 4.x, which
+    // apps without libc syscalls can not link. Same semantics, no libc.
+    static int ParseInt(const char* p)
+    {
+        while (*p == ' ' || *p == '\t')
+            p++;
+        bool bNegative = *p == '-';
+        if (*p == '-' || *p == '+')
+            p++;
+        int nValue = 0;
+        while (*p >= '0' && *p <= '9')
+            nValue = nValue * 10 + (*p++ - '0');
+        return bNegative ? -nValue : nValue;
+    }
+
     int GetNumber()
     {
         static int nResult;
@@ -248,7 +263,7 @@ public:
         
         TraverseNumber(copyString, [](const CSubstring& s)
         {
-            nResult = atoi(s.GetBuffer());
+            nResult = ParseInt(s.GetBuffer());
         });
         
         return nResult;
