@@ -59,9 +59,9 @@ public:
 			if ( m_pMarker->Type == CSettings::Marker::_Time )
 			{ 
 				float fTimeRes = Settings.Runtime.m_fTimeRes / CWndGraph::BlkX;
-				float fValue = fTimeRes * ( m_pMarker->nValue - ( Settings.Trig.nTime - Settings.Time.Shift) );
+				float fValue = fTimeRes * ( m_pMarker->nValue - CSettings::Trigger::Position );
 				
-				x += BIOS::LCD::Printf( x, y, clr, RGBTRANS, "%f", fValue*1000 );
+				x += BIOS::LCD::Printf( x, y, clr, RGBTRANS, "%f", F2D(fValue*1000) );
 				if (!HasFocus())
 				{
 					x += 2;
@@ -77,7 +77,7 @@ public:
 					Settings.CH2Calib.Prepare( &Settings.CH2, fastCalc );
 
 				float fValue = Settings.CH1Calib.Voltage( fastCalc, (float)m_pMarker->nValue );
-				x += BIOS::LCD::Printf( x, y, clr, RGBTRANS, "%f", fValue );
+				x += BIOS::LCD::Printf( x, y, clr, RGBTRANS, "%f", F2D(fValue) );
 				if (!HasFocus())
 				{
 					x += 2;
@@ -102,7 +102,7 @@ public:
 		}
 		if ( nKey == BIOS::KEY::Right )
 		{
-			if ( m_pMarker->Type == CSettings::Marker::_Time && m_pMarker->nValue < 1024 )
+			if ( m_pMarker->Type == CSettings::Marker::_Time && m_pMarker->nValue < BIOS::ADC::NumSamples-1 )
 				m_pMarker->nValue++;
 			if ( m_pMarker->Type == CSettings::Marker::_Voltage && m_pMarker->nValue < 256 )
 				m_pMarker->nValue++;

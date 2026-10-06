@@ -33,4 +33,8 @@ public:
 
 	virtual void Create(CWnd *pParent, int dwFlags);
 	virtual void OnMessage(CWnd* pSender, int code, uintptr_t data) override;
+
+private:
+	void _ApplyTrigger();
+	void _CenterTriggerLevel();
 };

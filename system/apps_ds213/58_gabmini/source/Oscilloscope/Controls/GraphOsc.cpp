@@ -224,29 +224,10 @@ void CWndOscGraph::OnPaintTY()
 	ui8 en2 = Settings.CH2.Enabled == CSettings::AnalogChannel::_YES;
 	ui8 en3 = Settings.CH3.Enabled == CSettings::DigitalChannel::_YES;
 	ui8 en4 = Settings.CH4.Enabled == CSettings::DigitalChannel::_YES;
-	ui16 clrSource = RGB565(ff00ff);
-	switch ( Settings.Trig.Source )
-	{
-		case CSettings::Trigger::_CH1: 
-			clrSource = Settings.CH1.u16Color; 
-			break;
-		case CSettings::Trigger::_CH2: 
-			clrSource = Settings.CH2.u16Color; 
-			break;
-		case CSettings::Trigger::_CH3: 
-			clrSource = Settings.CH3.u16Color; 
-			break;
-		case CSettings::Trigger::_CH4: 
-			clrSource = Settings.CH4.u16Color; 
-			break;
-		case CSettings::Trigger::_Math: 
-			_ASSERT(0);
-	}
-
 	ui16 clrShade1 = 0, clrShade2 = 0, clrShade12 = 0;
 
 	ui8 bTrigger = (BIOS::SYS::GetTick() - Settings.Trig.nLastChange) < 5000;
-	ui16 nTriggerTime = (Settings.Trig.nTime - Settings.Time.Shift);
+	ui16 nTriggerTime = (CSettings::Trigger::Position - Settings.Time.Shift);
 	if (!bTrigger)
 		nTriggerTime = -1;
 
@@ -275,6 +256,9 @@ void CWndOscGraph::OnPaintTY()
 	int nMarkerT1 = -1, nMarkerT2 = -1, nMarkerY1 = -1, nMarkerY2 = -1;
 	bool bAreaT = false;
 	int nSampleY2 = 0, nSampleY1 = 0;
+	// cursors were declared but never filled, so they were never drawn
+	SetupMarkers( Ch1fast, Ch2fast, nMarkerT1, nMarkerT2, nMarkerY1, nMarkerY2 );
+	SetupSelection( bAreaT, nMarkerT1, nMarkerT2 );
 
 	int nY3High = 0;
 	int nY3Low = 0;
@@ -315,7 +299,7 @@ void CWndOscGraph::OnPaintTY()
 
 	for (ui16 x=0; x<nMax; x++, nIndex++)
 	{
-		int clrCol = (nTriggerTime != x) ? 0x0101 : 0x00;
+		int clrCol = 0x0101;
 
 		if ( bAreaT && nIndex > nMarkerT1 && nIndex < nMarkerT2 )
 			clrCol = RGB565(101060);
@@ -470,10 +454,17 @@ void CWndOscGraph::OnPaintTY()
 			}
 		}
 
+		// trigger cursor drawn over the traces in white, so it stays visible
+		// while the level (Y) or position (X) is being changed
 		if ( bTrigger && (x & 1) == 1 )
 		{
 			ui16 y = (Settings.Trig.nLevel*(DivsY*BlkY))>>8;
-			column[y] = clrSource;
+			column[y] = RGB565(ffffff);
+		}
+		if ( nTriggerTime == x )
+		{
+			for ( int _y = 0; _y < DivsY*BlkY; _y += 3 )
+				column[_y] = RGB565(ffffff);
 		}
 		if ( nMarkerY1 > 0 )
 			column[nMarkerY1] = Settings.MarkY1.u16Color;

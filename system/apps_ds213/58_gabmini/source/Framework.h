@@ -9,6 +9,7 @@
 #include "Framework/ListItems.h"
 #include "Framework/Midi.h"
 #include "Framework/Sampler.h"
+#include "Framework/F2D.h"
 #include "Windows/MessageBox.h"
 
 #define DecEnum(e) *((uint8_t*)&(e))-=1

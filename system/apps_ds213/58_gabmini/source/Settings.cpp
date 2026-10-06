@@ -174,7 +174,6 @@ void CSettings::Reset()
 	Trig.nLevel = 160;
 	Trig.nTime = 30*5;
 	Trig.nHoldOff = 0;
-	Trig.nPosition = 150;
 	Trig.nLastChange = 0;
 	
 	MarkT1.Mode = Marker::_On;

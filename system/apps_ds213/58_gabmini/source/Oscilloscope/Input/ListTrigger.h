@@ -10,7 +10,7 @@ public:
 	CProviderNum	m_proLevel;
 	CProviderNum	m_proTime;
 	CProviderNum	m_proHoldoff;
-	CProviderNum	m_proTrigPosition;
+	CProviderBtn	m_proCenter;
 
 	CLPItem			m_itmSync;
 	CLPItem			m_itmType;
@@ -18,8 +18,9 @@ public:
 	CLPItem			m_itmLevel;
 	CLPItem			m_itmTime;
 	CLPItem			m_itmHoldoff;
-	CLPItem			m_itmTrigPosition;
-	// DSO does not allow to change the time offset
+	CLPItem			m_itmCenter;
+	// DSO does not allow to change the time offset, trigger is always
+	// at CSettings::Trigger::Position
 
 public:
 	void Create( CWnd* pParent )
@@ -35,15 +36,17 @@ public:
 		m_proLevel.Create( &Settings.Trig.nLevel, 0, 255 );
 		m_proTime.Create( &Settings.Trig.nTime, 0, 4096 );
 		m_proHoldoff.Create( &Settings.Trig.nHoldOff, 0, 4096 );
-		m_proTrigPosition.Create( &Settings.Trig.nPosition, 0, 4096 );
+		m_proCenter.Create( "Set" );
 
 		m_itmSync.Create( "Mode", CWnd::WsVisible, &m_proSync, this );
 		m_itmType.Create( "Type", CWnd::WsVisible, &m_proType, this );
 		m_itmSource.Create( "Source", CWnd::WsVisible, &m_proSource, this );
 		m_itmLevel.Create( "Threshold", CWnd::WsVisible, &m_proLevel, this );
-		m_itmTime.Create( "Time", CWnd::WsVisible, &m_proTime, this );
-		m_itmHoldoff.Create( "HoldOff", CWnd::WsVisible, &m_proHoldoff, this );
-		m_itmTrigPosition.Create( "Trig. pos", CWnd::WsVisible, &m_proTrigPosition, this );
+		// pulse width limit, used only by the "<dT" / ">dT" trigger types
+		m_itmTime.Create( "Pulse dT", CWnd::WsVisible, &m_proTime, this );
+		m_itmHoldoff.Create( "HoldOff ms", CWnd::WsVisible, &m_proHoldoff, this );
+		// sets threshold to the middle of the signal in current view
+		m_itmCenter.Create( "Level 50%", CWnd::WsVisible, &m_proCenter, this );
 	}
 };
 

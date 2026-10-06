@@ -126,8 +126,10 @@ class AnalogChannel : public CSerialize
 			State;
 		si16 nLevel;
 		si16 nTime;
-		si16 nHoldOff;
-		si16 nPosition;
+		si16 nHoldOff; // software hold-off after trigger in ms
+		// FPGA keeps fixed number of samples before trigger, the trigger
+		// event is always at this index of the sample buffer
+		enum { Position = 150 };
 		ui32 nLastChange;
 
 		virtual CSerialize& operator <<( CStream& stream )
@@ -137,7 +139,7 @@ class AnalogChannel : public CSerialize
 		}
 		virtual CSerialize& operator >>( CStream& stream )
 		{
-			stream >> _E(Sync) >> _E(Type) >> _E(Source) >> _E(State) >> nLevel >> nTime >> nPosition;
+			stream >> _E(Sync) >> _E(Type) >> _E(Source) >> _E(State) >> nLevel >> nTime >> nHoldOff;
 			return *this;
 		}
 	};

@@ -50,6 +50,10 @@
 		BIOS::ADC::ConfigureTrigger(Settings.Trig.nTime, Settings.Trig.nLevel*4, 
 			(BIOS::ADC::ETriggerType)Settings.Trig.Type, (BIOS::ADC::EInput)Settings.Trig.Source);
 	}
+	// FPGA uses the new trigger condition only for a new acquisition. Without the
+	// restart (Norm/Single waiting for the old condition) the change appeared only
+	// after some other setting restarted the ADC
+	BIOS::ADC::Restart(0);
 }
 
 /*static*/ void CCoreOscilloscope::UpdateConstants()

@@ -5,6 +5,7 @@ CSettings m_Settings; // TODO:!
 
 long m_lLastAcquired = 0;
 long m_lLastRequested = 0;
+long m_lHoldUntil = 0; // non zero while waiting for trigger hold-off to expire
 
 void CMainWnd::Create()
 {	
@@ -97,21 +98,54 @@ bool CMainWnd::IsRunning()
 		bool triggered = state == BIOS::ADC::EState::Triggered;
 #endif
 
-		if ( (Settings.Trig.Sync != CSettings::Trigger::_None) && triggered )
+		long lNow = BIOS::SYS::GetTick();
+		bool bStopped = Settings.Trig.State == CSettings::Trigger::_Stop;
+
+		if ( m_lHoldUntil && lNow - m_lHoldUntil >= 0 )
 		{
-			m_lLastAcquired = BIOS::SYS::GetTick();
-			Sampler::Copy();
+			m_lHoldUntil = 0;
 			BIOS::ADC::Restart(0);
-         		m_lLastRequested = BIOS::SYS::GetTick();
+			m_lLastRequested = lNow;
+		}
+
+		if ( (Settings.Trig.Sync != CSettings::Trigger::_None) && triggered && !bStopped && !m_lHoldUntil )
+		{
+			m_lLastAcquired = lNow;
+			Sampler::Copy();
+			if ( Settings.Trig.Sync == CSettings::Trigger::_Single )
+			{
+				// keep the captured waveform, any trigger change re-arms
+				Settings.Trig.State = CSettings::Trigger::_Stop;
+				if ( m_wndMenuInput.m_itmTrig.IsVisible() )
+					m_wndMenuInput.m_itmTrig.Invalidate();
+			} else
+			if ( Settings.Trig.nHoldOff > 0 )
+			{
+				m_lHoldUntil = lNow + Settings.Trig.nHoldOff;
+				if ( !m_lHoldUntil )
+					m_lHoldUntil = 1;
+			} else
+			{
+				BIOS::ADC::Restart(0);
+				m_lLastRequested = lNow;
+			}
 
 			CWnd::WindowMessage( CWnd::WmBroadcast, ToWord('d', 'g') );
 		}
 
-	if ( ready && Settings.Trig.Sync == CSettings::Trigger::_Auto )
+	if ( ready && Settings.Trig.Sync == CSettings::Trigger::_Auto && !m_lHoldUntil )
 	{
                 // we dont need to wait for the screen to be fully reloaded - on slow sampling modes
 		int screenDuration = Settings.Runtime.m_nScreenDuration*3/2+20;
-		if ( BIOS::SYS::GetTick() - m_lLastAcquired > 500 && BIOS::SYS::GetTick() - m_lLastRequested > screenDuration)
+		// Fall back to untriggered display only when the trigger had a fair chance.
+		// Triggered transfer is reported when the whole buffer is filled, that takes
+		// NumSamples/300 screens. With the fixed 500 ms timeout, every timebase slower
+		// than ~1 ms/div restarted the acquisition before it could ever trigger and
+		// Auto behaved exactly like Scan. Very slow timebases still fall back after
+		// 3 s so that the screen keeps updating (roll-like behaviour).
+		int nAutoTimeout = Settings.Runtime.m_nScreenDuration * (BIOS::ADC::NumSamples / 300) + 100;
+		nAutoTimeout = max(500, min(nAutoTimeout, 3000));
+		if ( lNow - m_lLastAcquired > nAutoTimeout && lNow - m_lLastRequested > screenDuration)
 		{
 // If we enter this point, we will lost buffer-full synchronization - because we immediatelly 
 // request new transfer after the wptr reaches end of screen. So the "FULL" flag will be never

@@ -58,31 +58,7 @@ CWndMenuInput::CWndMenuInput()
 	}
 	if ( code == ToWord('u', 'p') && pSender->m_pParent == &m_wndListTrigger )
 	{
-		if ( pSender == &m_wndListTrigger.m_itmLevel )
-			MainWnd.m_wndLReferences.Invalidate();
-//		if ( pSender == &m_wndListTrigger.m_itmTime )
-//			MainWnd.m_wndTReferences.Invalidate();
-		// first 150 samples in buffer are for storing pre-trigger
-		// samples. When no trigger is set, these samples are invalid.
-		int nInvalid = Settings.Trig.Sync == CSettings::Trigger::_None ? 150 : 30;
-		Settings.Time.InvalidFirst = nInvalid;
-		if ( Settings.Time.Shift < nInvalid )
-			Settings.Time.Shift = nInvalid;
-		MainWnd.m_wndZoomBar.Invalidate();
-
-		if ( pSender == &m_wndListTrigger.m_itmSync )
-		{
-#ifdef DS203
-			BIOS::ADC::Enable( true );
-			BIOS::ADC::Restart(0);
-#endif
-		}
-
-		Settings.Trig.State = (Settings.Trig.Sync == CSettings::Trigger::_Single) ? 
-			CSettings::Trigger::_Wait : CSettings::Trigger::_Run;;
-
-		CCoreOscilloscope::ConfigureTrigger();
-		Settings.Trig.nLastChange = BIOS::SYS::GetTick();
+		_ApplyTrigger();
 		// update
 		CWnd::GetTopModal().m_pPrevFocus->Invalidate();
 	}
@@ -173,6 +149,12 @@ CWndMenuInput::CWndMenuInput()
 		CWnd::GetTopModal().m_pPrevFocus->Invalidate();
 	}
 	// Selector
+	if ( code == ToWord('l', 'e') && data == (uintptr_t)&m_wndListTrigger.m_proCenter )
+	{
+		_CenterTriggerLevel();
+		m_wndListTrigger.m_itmLevel.Invalidate();
+		return;
+	}
 	if ( code == ToWord('l', 'e') )	// provider selector combo box
 	{
 		CValueProvider* pProvider = (CValueProvider*)(NATIVEPTR)data;
@@ -190,15 +172,13 @@ CWndMenuInput::CWndMenuInput()
 		//}
 		m_wndComboSelector.StartModal();
 	}
-	if ( code == ToWord('o', 'k') && pSender == &m_wndComboSelector )
+	if ( ( code == ToWord('o', 'k') || code == ToWord('e', 'x') ) && pSender == &m_wndComboSelector )
 	{
-		// done
+		// done or cancel, the selector changes the value directly, so the new
+		// (or restored) value has to be applied in both cases
 		m_wndComboSelector.StopModal();
-	}
-	if ( code == ToWord('e', 'x') && pSender == &m_wndComboSelector )
-	{
-		// cancel
-		m_wndComboSelector.StopModal();
+		CCoreOscilloscope::ConfigureAdc();
+		_ApplyTrigger();
 	}
 	if ( code == ToWord('i', 'u') )
 	{
@@ -213,3 +193,49 @@ CWndMenuInput::CWndMenuInput()
 }
 
 
+
+void CWndMenuInput::_ApplyTrigger()
+{
+	MainWnd.m_wndLReferences.Invalidate();
+	// first 150 samples in buffer are for storing pre-trigger
+	// samples. When no trigger is set, these samples are invalid.
+	int nInvalid = Settings.Trig.Sync == CSettings::Trigger::_None ? 150 : 30;
+	Settings.Time.InvalidFirst = nInvalid;
+	if ( Settings.Time.Shift < nInvalid )
+		Settings.Time.Shift = nInvalid;
+	MainWnd.m_wndZoomBar.Invalidate();
+
+#ifdef DS203
+	BIOS::ADC::Enable( true );
+#endif
+
+	Settings.Trig.State = (Settings.Trig.Sync == CSettings::Trigger::_Single) ?
+		CSettings::Trigger::_Wait : CSettings::Trigger::_Run;
+
+	CCoreOscilloscope::ConfigureTrigger();
+	Settings.Trig.nLastChange = BIOS::SYS::GetTick();
+	if ( m_itmTrig.IsVisible() )
+		m_itmTrig.Invalidate();
+}
+
+void CWndMenuInput::_CenterTriggerLevel()
+{
+	int nShift = Settings.Trig.Source == CSettings::Trigger::_CH1 ? 0 :
+		Settings.Trig.Source == CSettings::Trigger::_CH2 ? 8 : -1;
+	if ( nShift < 0 )
+		return; // digital channels have fixed threshold
+
+	int nBegin, nEnd;
+	MainWnd.m_wndGraph.GetCurrentRange( nBegin, nEnd );
+	int nMin = 255, nMax = 0;
+	for ( int i = nBegin; i < nEnd; i++ )
+	{
+		int nValue = (Sampler::GetAt(i) >> nShift) & 0xff;
+		nMin = min(nMin, nValue);
+		nMax = max(nMax, nValue);
+	}
+	if ( nMin > nMax )
+		return;
+	Settings.Trig.nLevel = (nMin + nMax) / 2;
+	_ApplyTrigger();
+}
