@@ -145,7 +145,7 @@ class AnalogChannel : public CSerialize
 	{
 	public:
 		static const char* const ppszTextWave[];
-		enum { _Dc = 0, _SinHq, _SinLq, _Tri, _Saw, _Square, _Cardiac, _Volatile, _WaveMax = _Volatile }
+		enum { _Dc = 0, _SinHq, _SinLq, _Tri, _Saw, _Square, _Cardiac, _Noise, _TriHw, _Volatile, _WaveMax = _Volatile }
 			Wave;
 		int nPsc;
 		int nArr;
@@ -155,7 +155,7 @@ class AnalogChannel : public CSerialize
 
 		int nDuty; // wanted duty cycle, real duty can be calculated from arr/ccr
 		int nSamples;
-		float nFrequency; 
+		float nFrequency; // requested output frequency, kept when switching waveforms
 		float fAmplitude; // 65536 -> full
 
 		virtual CSerialize& operator <<( CStream& stream )

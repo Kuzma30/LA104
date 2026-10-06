@@ -11,32 +11,14 @@ public:
 
 	virtual void OnKey(int nKey) override
 	{
-		// Settings.Gen.nArr : Settings.Gen.nCcr
-		int nDuty = CCoreGenerator::GetDuty();
-
+		int nDuty = Settings.Gen.nDuty;
 		if ( nKey == BIOS::KEY::Left && nDuty > 0 )
-		{
 			nDuty -= 5;
-			CUtils::Clamp<int>( nDuty, 0, 100 );
-			Settings.Gen.nDuty = nDuty;
-			CCoreGenerator::SetDuty( nDuty );
-			if ( CCoreGenerator::GetDuty() != nDuty )
-				Settings.Gen.nCcr--;
-			
-			CUtils::Clamp<int>( Settings.Gen.nCcr, 0, Settings.Gen.nArr );
-			Invalidate();
-			SendMessage(m_pParent, ToWord('i', 'u'), 0);
-		}
 		if ( nKey == BIOS::KEY::Right && nDuty < 100 )
-		{
 			nDuty += 5;
-			CUtils::Clamp<int>( nDuty, 0, 100 );
-			Settings.Gen.nDuty = nDuty;
-			CCoreGenerator::SetDuty( nDuty );
-			if ( CCoreGenerator::GetDuty() != nDuty )
-				Settings.Gen.nCcr++;
-
-			CUtils::Clamp<int>( Settings.Gen.nCcr, 0, Settings.Gen.nArr );
+		if ( nDuty != Settings.Gen.nDuty )
+		{
+			Settings.Gen.nDuty = max(0, min(nDuty, 100));
 			Invalidate();
 			SendMessage(m_pParent, ToWord('i', 'u'), 0);
 		}

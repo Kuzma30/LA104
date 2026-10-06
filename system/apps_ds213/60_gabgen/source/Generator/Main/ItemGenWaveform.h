@@ -15,69 +15,21 @@ public:
 
 	virtual void OnKey(int nKey) override
 	{
-		if ( nKey == BIOS::KEY::Left )
+		if ( nKey == BIOS::KEY::Left || nKey == BIOS::KEY::Right )
 		{
-			switch( (int)Settings.Gen.Wave ){
-				case CSettings::Generator::_Dc:
-					break;
-				case CSettings::Generator::_SinHq:
-					Settings.Gen.Wave = CSettings::Generator::_Dc;
-					break;
-				case CSettings::Generator::_SinLq:
-					Settings.Gen.Wave = CSettings::Generator::_SinHq;
-					break;
-				case CSettings::Generator::_Tri:
-					Settings.Gen.Wave = CSettings::Generator::_SinLq;
-					break;
-				case CSettings::Generator::_Saw:
-					Settings.Gen.Wave = CSettings::Generator::_Tri;
-					break;
-				case CSettings::Generator::_Square:
-					Settings.Gen.Wave = CSettings::Generator::_Saw;
-					break;
-				case CSettings::Generator::_Cardiac:
-					Settings.Gen.Wave = CSettings::Generator::_Square;
-					break;
-				case CSettings::Generator::_Volatile:
-					Settings.Gen.Wave = CSettings::Generator::_Cardiac;
-					break;
-				default:
-					break;
+			int nWave = Settings.Gen.Wave;
+			int nNew = nWave + (nKey == BIOS::KEY::Right ? 1 : -1);
+#ifndef DS203
+			// hardware triangle needs direct access to DS203 DAC
+			if ( nNew == CSettings::Generator::_TriHw )
+				nNew += nKey == BIOS::KEY::Right ? 1 : -1;
+#endif
+			if ( nNew >= 0 && nNew <= CSettings::Generator::_WaveMax )
+			{
+				*(NATIVEENUM*)&Settings.Gen.Wave = nNew;
+				Invalidate();
+				SendMessage(m_pParent, ToWord('i', 'u'), 0);
 			}
-			Invalidate();
-			SendMessage(m_pParent, ToWord('i', 'u'), 0);
-		}
-		if ( nKey == BIOS::KEY::Right )
-		{
-			switch( (int)Settings.Gen.Wave ){
-				case CSettings::Generator::_Dc:
-					Settings.Gen.Wave = CSettings::Generator::_SinHq;
-					break;
-				case CSettings::Generator::_SinHq:
-					Settings.Gen.Wave = CSettings::Generator::_SinLq;
-					break;
-				case CSettings::Generator::_SinLq:
-					Settings.Gen.Wave = CSettings::Generator::_Tri;
-					break;
-				case CSettings::Generator::_Tri:
-					Settings.Gen.Wave = CSettings::Generator::_Saw;
-					break;
-				case CSettings::Generator::_Saw:
-					Settings.Gen.Wave = CSettings::Generator::_Square;
-					break;
-				case CSettings::Generator::_Square:
-					Settings.Gen.Wave = CSettings::Generator::_Cardiac;
-					break;
-				case CSettings::Generator::_Cardiac:
-					Settings.Gen.Wave = CSettings::Generator::_Volatile;
-					break;
-				case CSettings::Generator::_Volatile:
-					break;
-				default:
-					break;
-			}
-			Invalidate();
-			SendMessage(m_pParent, ToWord('i', 'u'), 0);
 		}
 		CWndMenuItem::OnKey( nKey );
 	}

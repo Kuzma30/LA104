@@ -36,38 +36,19 @@
 	// copy from oscilloscope
 	if ( code == ToWord('m', 'o') && pSender == &m_itmCopy )
 	{
-			_ASSERT(!"Not supported!");
-/*
-		int nBegin, nEnd;
-
-		if ( Settings.MarkT1.Mode != CSettings::Marker::_On || 
-			 Settings.MarkT2.Mode != CSettings::Marker::_On ||
-			 Settings.MarkT2.nValue <= Settings.MarkT1.nValue )
+		// The scope keeps the ADC configured (timebase, range, trigger) when the
+		// generator app is started, so the last scope setup is reused here.
+		if ( CCoreGenerator::CopyFromAdc() )
 		{
-			_ASSERT(!"Not supported!");
-//			MainWnd.m_wndGraph.GetCurrentRange( nBegin, nEnd );
+			Settings.Gen.Wave = CSettings::Generator::_Volatile;
+			CCoreGenerator::Update();
+			MainWnd.m_wndSignalGraph.Setup( CCoreGenerator::GetRamDac(), CCoreGenerator::GetRamLen() );
 		} else
 		{
-			nBegin = Settings.MarkT1.nValue;
-			nEnd = Settings.MarkT2.nValue;
+			// capture buffer was reused, restore the wave
+			CCoreGenerator::Update();
 		}
-
-		int nTargetLen = nEnd - nBegin;
-		nTargetLen = min(256, nTargetLen);
-		CCoreGenerator::GetVolatileLen() = nTargetLen;
-		ui8* pVolatile = CCoreGenerator::GetVolatile();
-		for ( int i = 0; i < nTargetLen; i++ )
-		{
-			int nIndex = nBegin + i*(nEnd - nBegin)/nTargetLen;
-			BIOS::ADC::TSample Sample;
-			Sample.value = BIOS::ADC::GetAt( nIndex );
-			*pVolatile++ = Sample.CH1;
-		}
-		Settings.Gen.Wave = CSettings::Generator::_Volatile;
-		CCoreGenerator::Update();
-		MainWnd.m_wndSignalGraph.Setup( CCoreGenerator::GetRamDac(), CCoreGenerator::GetRamLen() );
 		MainWnd.m_wndSignalGraph.Invalidate();
-*/
 	}
 
 	// normalize
@@ -88,6 +69,9 @@
 				nMax = max(nMax, nValue);
 			}
 		}
+
+		if ( nMax == nMin )
+			return; // flat signal can not be stretched
 
 		pVolatile = CCoreGenerator::GetVolatile();
 		for ( int i = 0; i < nLength; i++ )

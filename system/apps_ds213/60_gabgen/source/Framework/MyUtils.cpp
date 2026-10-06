@@ -1,4 +1,5 @@
 #include "MyUtils.h"
+#include "F2D.h"
 
 namespace CUtils
 {
@@ -17,7 +18,7 @@ extern char tmp[16];
 		strUnits = (char*)" MHz";
 		fF *= 0.001f;
 	}
-	sprintf( tmp, "%f", fF );
+	sprintf( tmp, "%f", F2D(fF) );
 	int nLen = strlen(tmp);
 	int nLenUnits = strlen(strUnits);
 	while ( nLen + nLenUnits > nChars )
@@ -43,7 +44,7 @@ extern char tmp[16];
 		fT *= 1000.0f;
 	} 
 
-	sprintf( tmp, "%f", fT );
+	sprintf( tmp, "%f", F2D(fT) );
 	int nLen = strlen(tmp);
 	int nLenUnits = strlen(strUnits);
 	while ( nLen + nLenUnits > nChars )

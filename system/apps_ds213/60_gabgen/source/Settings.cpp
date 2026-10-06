@@ -51,7 +51,7 @@ CSettings* CSettings::m_pInstance = NULL;
 		1.0f};
 		
 /*static*/ const char* const CSettings::Generator::ppszTextWave[] =
-		{"DC", "Sin HQ", "Sin LQ", "Triangle", "Sawtooth", "Square", "Cardiac", "Volatile"};
+		{"DC", "Sin HQ", "Sin LQ", "Triangle", "Sawtooth", "Square", "Cardiac", "Noise", "Tri HW", "Volatile"};
 /*static*/ const char* const CSettings::Trigger::ppszTextSync[] =
 		{"Auto", "Norm", "Single", "Scan", "None"};
 /*static*/ const char* const CSettings::Trigger::ppszTextSource[] =
@@ -301,6 +301,7 @@ void CSettings::Reset()
 	Gen.nScale = 0x10000;
 	Gen.nOffset = 0x8000;
 	Gen.nDuty = 50;
+	Gen.nFrequency = 1000.0f;
 }
 
 void CSettings::ResetCalibration()
