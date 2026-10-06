@@ -44,9 +44,17 @@ SECTIONS
     *(.text*)        /* Program code */
     *(.rodata*)      /* Read only data */
 
+    /* GCC 13+ emits these even with -fno-exceptions; keeping them inside
+       .text keeps .data image right behind it */
+    *(.ARM.exidx* .gnu.linkonce.armexidx.*)
+    *(.eh_frame*)
+    /* static constructors, called from Reset_Handler */
+    . = ALIGN(4);
+    __init_array_start = .;
+    KEEP(*(.init_array*))
+    __init_array_end = .;
     . = ALIGN(4);
     _etext = .;
-    _sidata = _etext;
   } >rom
 
   .  = 0x20000000;   /* From 0x20000000 */      
@@ -58,6 +66,7 @@ SECTIONS
     *(.data)        /* Data memory */
     _edata = .;
   } >ram AT >rom
+  _sidata = LOADADDR(.data);
 
   .bss : {
     _sbss = .;

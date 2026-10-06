@@ -118,38 +118,30 @@ namespace BIOS
 	gBeginOffset = beginOffset;
     }
 
+    // Reads one sample pair from FPGA FIFO: H_L (PC5) low, read word, H_L high,
+    // read word. Previously done in inline assembly that returned with BX LR from
+    // the middle of the function and did not declare clobbered registers - with
+    // newer GCC that corrupts the loop counter or the stack.
+    __attribute__((always_inline)) inline uint32_t ReadFifo()
+    {
+      volatile uint32_t* const gpiocBrr = (volatile uint32_t*)(0x40011000 + 0x14);
+      volatile uint32_t* const gpiocBsrr = (volatile uint32_t*)(0x40011000 + 0x10);
+      volatile uint16_t* const fifo = (volatile uint16_t*)0x64000000;
+      *gpiocBrr = 0x20;
+      uint32_t high = *fifo;
+      *gpiocBsrr = 0x20;
+      uint32_t low = *fifo;
+      return (high << 16) + low;
+    }
+
     BIOS::ADC::TSample::SampleType Get() 
     {
       while (gBeginOffset > 0)
       {
         gBeginOffset--;
-        // TODO: optimize!
-        __asm (
-          "LDR     R1,  = 0x40011000\n"  //     ; GPIO  PORT_C   
-          "MOVW    R2,  #0x20\n"         // ; H_L pin: GPIO_PORT_B_Bit5 
-          "LDR     R3,  =0x64000000\n"   //  ; FIFO Port address
-          "STR     R2,  [R1, #0x14]\n"   // ; 0 -> H_L
-          "LDRH    R0,  [R3, #0]\n"      // ; FIFO Data -> R0
-          "STR     R2,  [R1, #0x10]\n"   // ; 1 -> H_L
-          "LDRH    R1,  [R3, #0]\n"      // ; FIFO Data -> R1  
-        );
+        ReadFifo();
       }
-
-      __asm (
-        "LDR     R1,  = 0x40011000\n"  //     ; GPIO  PORT_C   
-        "MOVW    R2,  #0x20\n"         // ; H_L pin: GPIO_PORT_B_Bit5 
-        "LDR     R3,  =0x64000000\n"   //  ; FIFO Port address
-        "STR     R2,  [R1, #0x14]\n"   // ; 0 -> H_L
-        "LDRH    R0,  [R3, #0]\n"      // ; FIFO Data -> R0
-        "LSL     R0,  R0,  #16\n"      //
-
-        "STR     R2,  [R1, #0x10]\n"   // ; 1 -> H_L
-        "LDRH    R1,  [R3, #0]\n"      // ; FIFO Data -> R1  
-        "ADD     R0,  R0, R1\n"
-        "BX LR\n"
-      );
-
-      return 0; 
+      return ReadFifo();
     }
 
     int GetPointer() 

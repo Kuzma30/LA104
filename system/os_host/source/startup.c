@@ -18,6 +18,9 @@ void Default_Handler(void);
 
 extern int main(void);
 extern void __libc_init_array(void);
+typedef void (*TInitFunc)(void);
+extern TInitFunc __init_array_start[];
+extern TInitFunc __init_array_end[];
 
 void WEAK NMI_Handler(void);
 void WEAK HardFault_Handler(void);
@@ -156,6 +159,9 @@ void __Init_Data(void) {
 void Reset_Handler(void) {
 	/* Initialize data and bss */
 	__Init_Data();
+	/* C++ static constructors */
+	for (TInitFunc* f = __init_array_start; f < __init_array_end; f++)
+		(*f)();
 	main();
 	while(1) {}
 }
