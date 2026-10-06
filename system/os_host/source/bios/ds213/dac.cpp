@@ -60,7 +60,9 @@ namespace BIOS
         arr = 72000000UL / (psc + 1) / freqHz - 1;
         if (arr<2)
           arr = 2;
-        ccr = arr * duty / 100;
+        if (arr>0xffff)
+          arr = 0xffff;
+        ccr = arr * (100-duty) / 100;
 
         *Hw.pFout_TIM_PSC = psc;
         *Hw.pFout_TIM_ARR = arr;
@@ -68,10 +70,13 @@ namespace BIOS
         return;
       }
 
-      psc = 20;
+      // timer divides by PSC+1, 19 gives the 72MHz/20 sample clock GetFrequency assumes
+      psc = 19;
       arr = 72000000 / 20 / freqHz - 1;
       if (arr<1)
         arr = 1;
+      if (arr>0xffff)
+        arr = 0xffff;
 
       *Hw.pFout_DMA_PSC = psc;
       *Hw.pFout_DMA_ARR = arr;
@@ -79,7 +84,8 @@ namespace BIOS
 
     void SetDuty(int dutyPercent) 
     {
-      ccr = arr * (100-dutyPercent) / 100;
+      duty = dutyPercent;
+      ccr = arr * (100-duty) / 100;
       *Hw.pFout_TIM_CCR = ccr;
     }
 
@@ -123,10 +129,14 @@ namespace BIOS
           }
         break;
         case EMode::LogicHigh:
+          wave = nullptr;
+          samples = 0;
           SetLogic();
           SetLogicHigh();
         break;
         case EMode::LogicLow:
+          wave = nullptr;
+          samples = 0;
           SetLogic();
           SetLogicLow();
         break;
