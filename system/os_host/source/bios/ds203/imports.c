@@ -15,6 +15,10 @@ extern void (* g_pfnVectors[76])(void);
 #define LCD_RS_HIGH()     GPIOD_BSRR = GPIO_Pin_12
 #define LCD_PORT *((volatile uint16_t*)0x60000000)
 
+#ifdef DS203_DIRECT_LCD
+// Writes ILI9327 commands directly to the LCD bus. Fast, but works only with
+// the LCD controller this was written for - DS203 units were shipped with
+// different LCD modules, on others the screen shows garbage.
 void LCD_WR_Ctrl(int Reg) 
 {
   LCD_RS_LOW();
@@ -25,7 +29,6 @@ void LCD_WR_Ctrl(int Reg)
 void Set_Pixel(uint_fast16_t Color)
 {
   LCD_PORT = Color;
-//  __LCD_SetPixl(Color);
 }
 
 void ReadStart(void)
@@ -62,13 +65,6 @@ void Set_Block(int x1, int y1, int x2, int y2)
     LCD_WR_Ctrl(0x2C); 
 }
 
-void xBeep(bool b)
-{
-  #define TIM8_CCR2   (*((vu32 *)(0x40013400+0x38)))
-  TIM8_CCR2 = 100 - (b ? 100 : 0)/2;
-//  __Set(BEEP_VOLUME, b ? 100 : 0);
-}
-
 void Set_Posi(uint_fast16_t x, uint_fast16_t y)
 {
     LCD_WR_Ctrl(0x2A);      // Block End X Address
@@ -82,8 +78,56 @@ void Set_Posi(uint_fast16_t x, uint_fast16_t y)
     LCD_PORT = (399 >> 8); 
     LCD_PORT = (399 & 0xFF); 
     LCD_WR_Ctrl(0x2C); 
+}
+#else
+// LCD access through the SYS (factory firmware) routines. SYS knows which LCD
+// controller is fitted in this particular unit, the same way the original
+// app and community firmwares (Wildcat, ...) draw.
+static bool gLcdWindowed = false;
 
-//  __Point_SCR(x, y);
+void Set_Pixel(uint_fast16_t Color)
+{
+  __LCD_SetPixl(Color);
+}
+
+void ReadStart(void)
+{
+}
+
+void ReadFinish(void)
+{
+}
+
+uint32_t ReadPixel()
+{
+  return __LCD_GetPixl();
+}
+
+void Set_Block(int x1, int y1, int x2, int y2)
+{
+  // callers pass exclusive end coordinates, SYS expects inclusive
+  __LCD_Set_Block(x1, x2-1, y1, y2-1);
+  gLcdWindowed = true;
+}
+
+void Set_Posi(uint_fast16_t x, uint_fast16_t y)
+{
+  // callers (Clear) may write past the end of a row, so the drawing window
+  // has to be the whole screen again after a Set_Block
+  if (gLcdWindowed)
+  {
+    __LCD_Set_Block(0, 399, 0, 239);
+    gLcdWindowed = false;
+  }
+  __Point_SCR(x, y);
+}
+#endif
+
+void xBeep(bool b)
+{
+  #define TIM8_CCR2   (*((vu32 *)(0x40013400+0x38)))
+  TIM8_CCR2 = 100 - (b ? 100 : 0)/2;
+//  __Set(BEEP_VOLUME, b ? 100 : 0);
 }
 
 void EnableUsb(bool enable)
