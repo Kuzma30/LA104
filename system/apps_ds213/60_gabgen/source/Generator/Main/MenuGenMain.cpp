@@ -57,6 +57,7 @@ KillTimer();
 		bool bShowFreq = ( Settings.Gen.Wave != CSettings::Generator::_Dc );
 		m_itmFreq.ShowWindow( bShowFreq );
 
+		m_itmOffset.SetDcMode( Settings.Gen.Wave == CSettings::Generator::_Dc );
 		bool bShowOffset = ( Settings.Gen.Wave != CSettings::Generator::_Square );
 		m_itmOffset.ShowWindow( bShowOffset );
 
@@ -92,6 +93,7 @@ KillTimer();
 			bRedraw = true;
 		}
 
+		m_itmOffset.SetDcMode( Settings.Gen.Wave == CSettings::Generator::_Dc );
 		bool bShowOffset = ( Settings.Gen.Wave != CSettings::Generator::_Square );
 		if ( _IsVisible(m_itmOffset) != bShowOffset )
 		{
