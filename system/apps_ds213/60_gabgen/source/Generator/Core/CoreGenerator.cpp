@@ -86,6 +86,38 @@ namespace HwWave
 	uint32_t nSavedCr = 0;
 	uint32_t nSavedCr2 = 0;
 
+	// Analog output configured the same way as Wildcat firmware does it:
+	// PA4 in analog mode, DAC channel 1 enabled WITHOUT the output buffer, no
+	// trigger (DMA from TIM7 update writes DHR directly), TIM7 running.
+	// With the buffer enabled (SYS default) the buffer saturates near both
+	// rails and recovers with a delay - clipped waves got a step at the end
+	// of every clipped part. The DAC is also re-enabled after logic output
+	// mode (leds.elf) switched it off.
+	void EnsureAnalog()
+	{
+		volatile uint32_t& GPIOA_CRL = *(volatile uint32_t*)0x40010800;
+		volatile uint32_t& TIM7_CR1 = *(volatile uint32_t*)0x40001400;
+		GPIOA_CRL &= ~(0xfu << 16);                 // PA4 analog
+		if ( (DAC_CR & Ch1Mask) != (EN1 | BOFF1) )
+		{
+			DAC_CR &= ~Ch1Mask;                     // reconfigure disabled channel
+			DAC_CR |= BOFF1;
+			DAC_CR |= EN1;
+		}
+		TIM7_CR1 = 0x85;                            // ARPE, URS, CEN
+	}
+
+	// Square wave comes from PB6 which is tied to the DAC output (PA4) on the
+	// board, release PA4 so the DAC does not load it (as Wildcat does)
+	void ReleaseAnalog()
+	{
+		volatile uint32_t& GPIOA_CRL = *(volatile uint32_t*)0x40010800;
+		volatile uint32_t& TIM7_CR1 = *(volatile uint32_t*)0x40001400;
+		GPIOA_CRL = (GPIOA_CRL & ~(0xfu << 16)) | (0x4u << 16); // PA4 floating input
+		TIM7_CR1 = 0x84;
+		DAC_CR &= ~Ch1Mask;
+	}
+
 	// nMode: 1 = noise, 2 = triangle
 	void Enable(int nMode, int nMamp, int nBase)
 	{
@@ -506,6 +538,9 @@ void CCoreGenerator::Update()
 
 		case CSettings::Generator::_Square:
 			BIOS::DAC::SetMode(BIOS::DAC::EMode::Square, nullptr, 0);
+#ifdef DS203
+			HwWave::ReleaseAnalog();
+#endif
 			Settings.Gen.nSamples = 1;
 			break;
 
@@ -565,4 +600,7 @@ void CCoreGenerator::_ConfigureDc( int dc )
 void CCoreGenerator::_ConfigureWave( uint16_t* p, int n)
 {
   BIOS::DAC::SetMode(BIOS::DAC::EMode::Buffer, p, n);
+#ifdef DS203
+  HwWave::EnsureAnalog();
+#endif
 }
