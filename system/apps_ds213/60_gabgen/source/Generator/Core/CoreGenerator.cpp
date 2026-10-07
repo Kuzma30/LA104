@@ -200,6 +200,13 @@ ui16* CCoreGenerator::_GetWave(ui8 nWaveIndex)
 			m_pRamWave[i] = nLfsr & 0xfff;
 		}
 	} else
+	if ( nWaveIndex == CSettings::Generator::_Saw )
+	{
+		// exact ramp with a single sample falling edge. Interpolating the table
+		// smeared the edge (0xfff -> 0x000 wrap) into a 4 level staircase
+		for (int i=0; i<nLen; i++)
+			m_pRamWave[i] = (ui16)(i * 0xfff / (nLen-1));
+	} else
 	if ( nSmooth <= 0 )
 	{
 		for (int i=0; i<nCount; i++)
@@ -207,16 +214,24 @@ ui16* CCoreGenerator::_GetWave(ui8 nWaveIndex)
 	} else
 	{
 		ui16* pSample = m_pRamWave;
-		ui8 nSmoothVals = 1<<nSmooth;
+		int nSmoothVals = 1<<nSmooth;
 		for (int i=0; i<nCount; i++)
 		{
-			ui16 nSample0 = pWave[i];
-			ui16 nSample1 = pWave[(i+1)%nCount];
+			int nSample0 = pWave[i];
+			int nSample1 = pWave[(i+1)%nCount];
 
-			for (ui8 j=0; j<nSmoothVals; j++)
+			// Jump over half of the range is an edge, not a slope - keep it sharp
+			// by continuing the previous slope instead of interpolating across it
+			if ( nSample1 - nSample0 > 0x800 || nSample0 - nSample1 > 0x800 )
+				nSample1 = nSample0 + (nSample0 - pWave[(i+nCount-1)%nCount]);
+
+			for (int j=0; j<nSmoothVals; j++)
 			{
-				ui32 nInterpolation = nSample0;
-				nInterpolation += ( ( (ui32)(nSample1-nSample0) ) * j ) >> nSmooth;
+				int nInterpolation = nSample0 + (((nSample1 - nSample0) * j) >> nSmooth);
+				if ( nInterpolation < 0 )
+					nInterpolation = 0;
+				if ( nInterpolation > 0xfff )
+					nInterpolation = 0xfff;
 				*pSample++ = (ui16)nInterpolation;
 			}
 		}
