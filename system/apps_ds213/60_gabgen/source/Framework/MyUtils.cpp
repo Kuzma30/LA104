@@ -8,16 +8,18 @@ extern char tmp[16];
 /*static*/ char* FormatFrequency( float fF, int nChars )
 {
 	char* strUnits = (char*)" Hz";
-	if (fF >= 1000)
+	if (fF >= 999.9995f)
 	{
 		strUnits = (char*)" kHz";
 		fF *= 0.001f;
 	}
-	if (fF >= 1000)
+	if (fF >= 999.9995f)
 	{
 		strUnits = (char*)" MHz";
 		fF *= 0.001f;
 	}
+	// printf truncates the 3 decimals, round instead
+	fF += 0.0005f;
 	sprintf( tmp, "%f", F2D(fF) );
 	int nLen = strlen(tmp);
 	int nLenUnits = strlen(strUnits);
