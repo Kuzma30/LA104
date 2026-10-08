@@ -302,6 +302,14 @@ void CSettings::Reset()
 	Gen.nOffset = 0x8000;
 	Gen.nDuty = 50;
 	Gen.nFrequency = 1000.0f;
+	Gen.nModMode = 0;
+	Gen.fModRate = 10.0f;
+	Gen.fModDepth = 50.0f;
+	Gen.fSweepFrom = 100.0f;
+	Gen.fSweepTo = 10000.0f;
+	Gen.fSweepTime = 5.0f;
+	Gen.nSweepLog = 1;
+	Gen.nDds = 0;
 }
 
 void CSettings::ResetCalibration()

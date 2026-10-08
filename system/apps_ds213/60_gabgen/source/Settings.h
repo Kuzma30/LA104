@@ -156,6 +156,14 @@ class AnalogChannel : public CSerialize
 		int nDuty; // wanted duty cycle, real duty can be calculated from arr/ccr
 		int nSamples;
 		float nFrequency; // requested output frequency, kept when switching waveforms
+		// modulation (CCoreGenerator::ModOff, ModAm, ModFm, ModSweep)
+		NATIVEENUM nModMode;
+		float fModRate;   // AM/FM modulation frequency, Hz
+		float fModDepth;  // AM depth / FM deviation, % of carrier
+		float fSweepFrom, fSweepTo; // Hz
+		float fSweepTime; // s
+		NATIVEENUM nSweepLog; // 0 linear, 1 logarithmic
+		NATIVEENUM nDds;      // multiple periods in buffer for exact frequency
 		float fAmplitude; // 65536 -> full
 
 		virtual CSerialize& operator <<( CStream& stream )

@@ -14,6 +14,7 @@ void CMainWnd::Create()
 
 	m_wndSignalGraph.Create( this, WsNoActivate | WsVisible);
 	m_wndMenuGenerator.Create( this, WsHidden );
+	m_wndMenuGeneratorMod.Create( this, WsHidden );
 	m_wndMenuGeneratorEdit.Create( this, WsHidden );
 
 	constexpr int nMenuItem = 1;

@@ -25,6 +25,8 @@ if (key==BIOS::KEY::F4)
             app.WindowMessage(CWnd::WmKey, key);
 		
         app.WindowMessage(CWnd::WmTick);
+        // slow modulations and sweep
+        CCoreGenerator::Tick();
     }
     
     app.Destroy();

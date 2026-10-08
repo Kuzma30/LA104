@@ -15,6 +15,11 @@ static volatile uint32_t gDummyRegs[0x400];
 /*static*/ int CCoreGenerator::m_nVolatileLen = 0;
 /*static*/ float CCoreGenerator::m_fReal = 0;
 /*static*/ int CCoreGenerator::m_nFixedSamples = 1;
+/*static*/ int CCoreGenerator::m_nSwMode = 0;
+/*static*/ int CCoreGenerator::m_nSwSamples = 1;
+/*static*/ float CCoreGenerator::m_fSwBase = 0;
+/*static*/ float CCoreGenerator::m_fSwPhase = 0;
+/*static*/ uint32_t CCoreGenerator::m_nSwLast = 0;
 
 // quarter of sine period, 64 segments, amplitude 2047
 static const ui16 pQuarterSine[65] = {
@@ -230,12 +235,37 @@ static int _QuarterSine(int w) // w: 0..0x4000
 	}
 }
 
-/*static*/ void CCoreGenerator::_Generate(int nWave, int nSamples)
+// sin(2 pi nPhase / 65536) * 2047
+/*static*/ int CCoreGenerator::_Sin(uint32_t nPhase)
+{
+	nPhase &= 0xffff;
+	int w = nPhase & 0x3fff;
+	switch ( nPhase >> 14 )
+	{
+		case 0: return _QuarterSine(w);
+		case 1: return _QuarterSine(0x4000 - w);
+		case 2: return -_QuarterSine(w);
+		default: return -_QuarterSine(0x4000 - w);
+	}
+}
+
+// Fills the DAC buffer with nSamples samples holding nCycles periods of the
+// waveform. With modulation, the buffer is exactly one modulation period:
+//   AM: envelope (1 + m sin)/(1 + m), peaks keep the set amplitude
+//   FM: phase deviation beta = (deviation / carrier) * nCycles
+// nScale < 0 uses the amplitude from settings
+/*static*/ void CCoreGenerator::_Generate(int nWave, int nSamples, int nCycles, int nMod, float fDepth, int nScale)
 {
 	_ASSERT( nSamples > 0 && nSamples <= MaxSamples );
-	int nScale = Settings.Gen.nScale;
+	if ( nScale < 0 )
+		nScale = Settings.Gen.nScale;
 	int nOffset = Settings.Gen.nOffset >> 4;
 	ui16 nLfsr = 0xACE1;
+	// FM: phase offset in 1/65536 of period per unit of _Sin()
+	float fFmGain = fDepth * nCycles * (65536.0f / (6.2831853f * 2047.0f));
+	// AM: envelope in 1/65536 per unit of _Sin()
+	int nAmGain = (int)(fDepth * 65536.0f / ((1.0f + fDepth) * 2047.0f));
+	int nAmBase = (int)(65536.0f / (1.0f + fDepth));
 
 	for (int i=0; i<nSamples; i++)
 	{
@@ -247,11 +277,20 @@ static int _QuarterSine(int w) // w: 0..0x4000
 				nLfsr = (nLfsr >> 1) ^ (-(nLfsr & 1) & 0xB400);
 			nSample = nLfsr & 0xfff;
 		} else
-			nSample = _Sample( nWave, ((ui32)i << 16) / nSamples );
+		{
+			// carrier phase, nCycles periods over the buffer (i*nCycles < 2^20)
+			uint32_t nPhase = ((uint32_t)((i * nCycles) % nSamples) << 16) / nSamples;
+			if ( nMod == ModFm )
+				nPhase += (int)(fFmGain * _Sin( ((uint32_t)i << 16) / nSamples ));
+			nSample = _Sample( nWave, nPhase );
+		}
 
 		// scaling & offset
 		nSample -= 0x800;
-		nSample = ( nSample * nScale ) >> 16;
+		int nGain = nScale;
+		if ( nMod == ModAm )
+			nGain = (int)(((int64_t)nScale * (nAmBase + nAmGain * _Sin( ((uint32_t)i << 16) / nSamples ))) >> 16);
+		nSample = ( nSample * nGain ) >> 16;
 		nSample += nOffset;
 		if ( nSample < 0 )
 			nSample = 0;
@@ -278,7 +317,7 @@ void CCoreGenerator::CopyToVolatile( int nWave )
 {
 	// RAM is scarce, the DAC buffer is reused for the capture. It is regenerated
 	// by the Update() call that follows.
-	const int nCapture = sizeof(m_pRamWave);
+	const int nCapture = min((int)sizeof(m_pRamWave), 3800);
 	const int nPretrigger = 150; // first samples are not valid without trigger
 	ui8* pBuf = (ui8*)m_pRamWave;
 
@@ -356,7 +395,7 @@ void CCoreGenerator::CopyToVolatile( int nWave )
 /*static*/ void CCoreGenerator::_SampleRange(int nWave, int& nMin, int& nMax)
 {
 	nMin = 8;
-	nMax = MaxSamples;
+	nMax = PeriodSamples;
 	switch ( nWave )
 	{
 		case CSettings::Generator::_SinLq: nMax = 32; break;
@@ -436,6 +475,57 @@ void CCoreGenerator::CopyToVolatile( int nWave )
 		nCnt = 65536;
 }
 
+// Timer for a buffer of (n * nUnit) samples repeated at fFreq, n in nMin..nMax
+/*static*/ void CCoreGenerator::_PlanCounts(float fFreq, int nMin, int nMax, int nUnit, TPlan& plan)
+{
+	plan.nCycles = 1;
+	// Most samples per period the DAC rate allows. Search downwards from it,
+	// at first keeping at least half of it (signal quality), then down to a
+	// quarter (but >= 24) if the frequency can not be matched well enough
+	int nIdeal = (int)(CPUCLOCK / MIN_TICKS / (fFreq * nUnit));
+	nIdeal = max(nMin, min(nIdeal, nMax));
+	int nLow1 = max(nMin, nIdeal / 2);
+	int nLow2 = max(nMin, min(nLow1, max(24, nIdeal / 4)));
+	float fBestErr = 1e30f;
+	for ( int nStage = 0; nStage < 2; nStage++ )
+	{
+		int nLow = nStage == 0 ? nLow1 : nLow2;
+		for ( int n = nIdeal; n >= nLow; n-- )
+		{
+			float fTicks = CPUCLOCK / (fFreq * n * nUnit);
+			if ( fTicks < MIN_TICKS && n > nMin )
+				continue;
+			int nDiv, nCnt;
+			_Timer( fTicks, 2, nDiv, nCnt );
+			float fReal = (float)CPUCLOCK / nDiv / nCnt / (n * nUnit);
+			float fErr = (fReal - fFreq) / fFreq;
+			if ( fErr < 0 )
+				fErr = -fErr;
+			if ( fErr < fBestErr * 0.9999f )
+			{
+				fBestErr = fErr;
+				plan.nSamples = n * nUnit;
+				plan.nDiv = nDiv;
+				plan.nCnt = nCnt;
+				plan.fReal = fReal;
+			}
+			if ( fErr <= 1e-4f )
+				return;   // within 100 ppm, keep the most samples
+		}
+		if ( fBestErr <= 5e-4f )
+			return;
+	}
+	if ( fBestErr < 1e30f )
+		return;
+
+	if ( fBestErr < 1e30f )
+		return;
+	// not reachable, fallback to the fastest setting
+	plan.nSamples = nMin * nUnit;
+	_Timer( MIN_TICKS, 2, plan.nDiv, plan.nCnt );
+	plan.fReal = (float)CPUCLOCK / plan.nDiv / plan.nCnt / plan.nSamples;
+}
+
 /*static*/ void CCoreGenerator::_Plan(float fFreq, TPlan& plan)
 {
 	int nWave = Settings.Gen.Wave;
@@ -445,6 +535,7 @@ void CCoreGenerator::CopyToVolatile( int nWave )
 	if ( fFreq < FREQ_MIN )
 		fFreq = FREQ_MIN;
 
+	plan.nCycles = 1;
 	if ( nWave == CSettings::Generator::_Square )
 	{
 		plan.nSamples = 1;
@@ -472,50 +563,91 @@ void CCoreGenerator::CopyToVolatile( int nWave )
 		nMin = nMax = max(1, m_nFixedSamples);
 	else
 		_SampleRange( nWave, nMin, nMax );
+	_PlanCounts( fFreq, nMin, nMax, 1, plan );
 
-	// Most samples per period the DAC rate allows. Search downwards from it,
-	// at first keeping at least half of it (signal quality), then down to a
-	// quarter (but >= 24) if the frequency can not be matched well enough
-	int nIdeal = (int)(CPUCLOCK / MIN_TICKS / fFreq);
-	nIdeal = max(nMin, min(nIdeal, nMax));
-	int nLow1 = max(nMin, nIdeal / 2);
-	int nLow2 = max(nMin, min(nLow1, max(24, nIdeal / 4)));
-	float fBestErr = 1e30f;
-	for ( int nStage = 0; nStage < 2; nStage++ )
+	if ( Settings.Gen.nDds && nMin != nMax && Settings.Gen.nModMode == ModOff )
 	{
-		int nLow = nStage == 0 ? nLow1 : nLow2;
-		for ( int n = nIdeal; n >= nLow; n-- )
-		{
-			float fTicks = CPUCLOCK / (fFreq * n);
-			if ( fTicks < MIN_TICKS && n > nMin )
-				continue;
-			int nDiv, nCnt;
-			_Timer( fTicks, 2, nDiv, nCnt );
-			float fReal = (float)CPUCLOCK / nDiv / nCnt / n;
-			float fErr = (fReal - fFreq) / fFreq;
-			if ( fErr < 0 )
-				fErr = -fErr;
-			if ( fErr < fBestErr * 0.9999f )
-			{
-				fBestErr = fErr;
-				plan.nSamples = n;
-				plan.nDiv = nDiv;
-				plan.nCnt = nCnt;
-				plan.fReal = fReal;
-			}
-			if ( fErr <= 1e-4f )
-				return;   // within 100 ppm, keep the most samples
-		}
-		if ( fBestErr <= 5e-4f )
-			return;
+		TPlan dds;
+		if ( _PlanDds( fFreq, nMin, dds ) &&
+			 _Err(dds.fReal, fFreq) < _Err(plan.fReal, fFreq) * 0.5f )
+			plan = dds;
 	}
-	if ( fBestErr < 1e30f )
-		return;
+}
 
-	// not reachable, fallback to the fastest setting
-	plan.nSamples = nMin;
-	_Timer( MIN_TICKS, 2, plan.nDiv, plan.nCnt );
-	plan.fReal = (float)CPUCLOCK / plan.nDiv / plan.nCnt / nMin;
+/*static*/ float CCoreGenerator::_Err(float fReal, float fFreq)
+{
+	float fErr = (fReal - fFreq) / fFreq;
+	return fErr < 0 ? -fErr : fErr;
+}
+
+// Best fraction p/q close to x with q <= nMaxDen (continued fractions)
+static void _BestRational(float x, int nMaxDen, int& p, int& q)
+{
+	int p0 = 0, q0 = 1, p1 = 1, q1 = 0;
+	float y = x;
+	for ( int i = 0; i < 32; i++ )
+	{
+		int a = (int)y;
+		int p2 = a * p1 + p0, q2 = a * q1 + q0;
+		if ( q2 > nMaxDen )
+		{
+			// semiconvergent may be closer than the last convergent
+			int k = (nMaxDen - q0) / q1;
+			int ps = k * p1 + p0, qs = k * q1 + q0;
+			float e1 = x - (float)p1 / q1, es = x - (float)ps / qs;
+			if ( (es < 0 ? -es : es) < (e1 < 0 ? -e1 : e1) )
+				p1 = ps, q1 = qs;
+			break;
+		}
+		p0 = p1; q0 = q1; p1 = p2; q1 = q2;
+		float fr = y - a;
+		if ( fr < 1e-7f )
+			break;
+		y = 1.0f / fr;
+	}
+	p = p1;
+	q = q1;
+}
+
+// DDS: the buffer holds K periods in L samples, f = Fs * K / L. Many more
+// frequencies are reachable than with one period per buffer. The waveform
+// is the same, consecutive periods are only sampled at different phases.
+/*static*/ bool CCoreGenerator::_PlanDds(float fFreq, int nMinPeriod, TPlan& plan)
+{
+	int nIdeal = (int)(CPUCLOCK / MIN_TICKS / fFreq);
+	if ( nIdeal > PeriodSamples )
+		nIdeal = PeriodSamples;
+	if ( nIdeal < nMinPeriod )
+		return false;
+	int nT0 = (int)(CPUCLOCK / (fFreq * nIdeal));
+	if ( nT0 < MIN_TICKS )
+		nT0 = MIN_TICKS;
+	if ( nT0 > 65536 - 64 )
+		return false;   // low frequencies are exact without DDS
+
+	float fBestErr = 1e30f;
+	for ( int t = nT0; t < nT0 + 64; t++ )
+	{
+		int nDiv, nCnt;
+		_Timer( (float)t, 2, nDiv, nCnt );
+		float fRate = (float)CPUCLOCK / nDiv / nCnt;
+		int k, l;
+		_BestRational( fFreq / fRate, MaxSamples, k, l );
+		if ( k < 1 || l < k * nMinPeriod || l > MaxSamples )
+			continue;
+		float fReal = fRate * k / l;
+		float fErr = _Err( fReal, fFreq );
+		if ( fErr < fBestErr )
+		{
+			fBestErr = fErr;
+			plan.nDiv = nDiv;
+			plan.nCnt = nCnt;
+			plan.nSamples = l;
+			plan.nCycles = k;
+			plan.fReal = fReal;
+		}
+	}
+	return fBestErr < 1e30f;
 }
 
 /*static*/ float CCoreGenerator::GetFrequency()
@@ -619,10 +751,34 @@ void CCoreGenerator::CopyToVolatile( int nWave )
 #endif
 }
 
+/*static*/ int CCoreGenerator::_ModMode()
+{
+	int nWave = Settings.Gen.Wave;
+	int nMode = Settings.Gen.nModMode;
+	if ( nWave == CSettings::Generator::_Dc )
+		return ModOff;
+	// square and hardware waves have no sample buffer to shape
+	if ( nMode == ModAm && ( nWave == CSettings::Generator::_Square ||
+		 nWave == CSettings::Generator::_Noise || nWave == CSettings::Generator::_TriHw ) )
+		return ModOff;
+	return nMode;
+}
+
 void CCoreGenerator::Update()
 {
 	int nWaveIndex = Settings.Gen.Wave;
+	int nMod = _ModMode();
+	float fCarrier = Settings.Gen.nFrequency;
 	TPlan plan;
+
+	m_nSwMode = ModOff;
+	m_fSwPhase = 0;
+	m_nSwLast = BIOS::SYS::GetTick();
+	if ( nMod == ModSweep )
+	{
+		// buffer and limits are planned for the highest frequency of the sweep
+		fCarrier = max(Settings.Gen.fSweepFrom, Settings.Gen.fSweepTo);
+	}
 
 #ifdef DS203
 	bool bHardware = nWaveIndex == CSettings::Generator::_Noise ||
@@ -640,6 +796,7 @@ void CCoreGenerator::Update()
 			_ConfigureDc( (Settings.Gen.nOffset * 0xfff + 0x8000) >> 16 );
 			// selects analog output and starts DAC timer
 			plan.nSamples = 1;
+			plan.nCycles = 1;
 			_Timer( CPUCLOCK / 1000.0f, 2, plan.nDiv, plan.nCnt );
 			plan.fReal = 0;
 			_ApplyAnalog( plan );
@@ -651,8 +808,9 @@ void CCoreGenerator::Update()
 #ifdef DS203
 			HwWave::ReleaseAnalog();
 #endif
-			_Plan( Settings.Gen.nFrequency, plan );
+			_Plan( fCarrier, plan );
 			_ApplySquare( plan );
+			_StartSoftware( nMod, plan );
 			return;
 
 		case CSettings::Generator::_Volatile:
@@ -677,20 +835,169 @@ void CCoreGenerator::Update()
 
 		_Generate( nWaveIndex, 128 );   // preview only
 		_ConfigureWave( m_pRamWave, m_nRamLen );
-		_Plan( Settings.Gen.nFrequency, plan );
+		_Plan( fCarrier, plan );
 		_ApplyAnalog( plan );
 		HwWave::Enable( nWaveIndex == CSettings::Generator::_Noise ? 1 : 2, nMamp, nBase );
+		_StartSoftware( nMod, plan );
 		return;
 	}
 #else
 	if ( nWaveIndex == CSettings::Generator::_Noise || nWaveIndex == CSettings::Generator::_TriHw )
-		m_nFixedSamples = MaxSamples;
+		m_nFixedSamples = PeriodSamples;
 #endif
 
-	_Plan( Settings.Gen.nFrequency, plan );
-	_Generate( nWaveIndex, plan.nSamples );
+	if ( nMod == ModAm || nMod == ModFm )
+	{
+		// Exact modulation: one modulation period in the buffer with an integer
+		// number of carrier periods, at least 8 samples each
+		float fRate = Settings.Gen.fModRate;
+		int nCycles = (int)(fCarrier / fRate + 0.5f);
+		if ( fRate > 0 && nCycles >= 1 && nCycles * 8 <= MaxSamples )
+		{
+			int nMin, nMax;
+			_SampleRange( nWaveIndex, nMin, nMax );
+			nMax = max(nMin, min(nMax, MaxSamples / nCycles));
+			if ( nCycles * nMin <= MaxSamples )
+			{
+				_PlanCounts( fCarrier / nCycles, nMin, nMax, nCycles, plan );
+				plan.nCycles = nCycles;
+				_Generate( nWaveIndex, plan.nSamples, nCycles, nMod, Settings.Gen.fModDepth * 0.01f );
+				_ConfigureWave( m_pRamWave, m_nRamLen );
+				_ApplyAnalog( plan );
+				m_fReal = plan.fReal * nCycles;
+				return;
+			}
+		}
+		// modulation too slow for the buffer, done by Tick()
+	}
+
+	// software FM reaches carrier * (1 + deviation), keep the DAC rate valid
+	if ( nMod == ModFm )
+		fCarrier *= 1.0f + Settings.Gen.fModDepth * 0.01f;
+	_Plan( fCarrier, plan );
+	_Generate( nWaveIndex, plan.nSamples, plan.nCycles );
 	_ConfigureWave( m_pRamWave, m_nRamLen );
 	_ApplyAnalog( plan );
+	_StartSoftware( nMod, plan );
+}
+
+// Slow modulations and sweep: Tick() changes the timer or the buffer
+/*static*/ void CCoreGenerator::_StartSoftware(int nMod, const TPlan& plan)
+{
+	if ( nMod == ModOff )
+		return;
+	m_nSwMode = nMod;
+	m_nSwSamples = plan.nSamples / max(1, plan.nCycles);
+	m_fSwBase = Settings.Gen.nFrequency;
+	if ( nMod == ModSweep )
+		m_fSwBase = Settings.Gen.fSweepFrom;
+}
+
+// 2^x for the sweep, x in -32..32
+static float _Exp2(float x)
+{
+	int n = (int)x;
+	if ( x < n )
+		n--;
+	float f = x - n;   // 0..1, polynomial fit of 2^f, error < 1e-4
+	float r = 1.0f + f * (0.6951786f + f * (0.2261677f + f * 0.0780463f));
+	while ( n > 0 ) { r *= 2.0f; n--; }
+	while ( n < 0 ) { r *= 0.5f; n++; }
+	return r;
+}
+
+static float _Log2(float x)
+{
+	int n = 0;
+	while ( x >= 2.0f ) { x *= 0.5f; n++; }
+	while ( x < 1.0f ) { x *= 2.0f; n--; }
+	// x in 1..2, log2 by series of ln((1+y)/(1-y))
+	float y = (x - 1.0f) / (x + 1.0f), y2 = y * y;
+	return n + 2.8853901f * y * (1.0f + y2 * (0.3333333f + y2 * (0.2f + y2 * 0.1428571f)));
+}
+
+// Changes the frequency without touching the buffer. Prescaler and reload
+// are preloaded by the timers, the change happens at the end of a period
+/*static*/ void CCoreGenerator::_Retime(float fFreq)
+{
+	if ( fFreq < FREQ_MIN )
+		fFreq = FREQ_MIN;
+	bool bSquare = Settings.Gen.Wave == CSettings::Generator::_Square;
+	int nDiv, nCnt;
+	if ( bSquare )
+	{
+		if ( fFreq > SQ_MAX_HZ )
+			fFreq = SQ_MAX_HZ;
+#ifdef DS203
+		_Timer( CPUCLOCK / fFreq, 3, nDiv, nCnt );
+		REG32(0x4000082C) = nCnt - 1;
+		REG32(0x40000828) = nDiv - 1;
+		REG32(0x40000834) = nCnt * (100 - Settings.Gen.nDuty) / 100;
+#else
+		BIOS::DAC::SetFrequency( (int)(fFreq + 0.5f) );
+#endif
+		return;
+	}
+	float fTicks = CPUCLOCK / (fFreq * m_nSwSamples);
+	if ( fTicks < MIN_TICKS )
+		fTicks = MIN_TICKS;
+#ifdef DS203
+	_Timer( fTicks, 2, nDiv, nCnt );
+	REG32(0x4000142C) = nCnt - 1;
+	REG32(0x40001428) = nDiv - 1;
+#else
+	BIOS::DAC::SetFrequency( (int)(CPUCLOCK / fTicks + 0.5f) );
+#endif
+}
+
+/*static*/ void CCoreGenerator::Tick()
+{
+	if ( m_nSwMode == ModOff )
+		return;
+	uint32_t nNow = BIOS::SYS::GetTick();
+	int nElapsed = nNow - m_nSwLast;
+	// AM rewrites the whole buffer, do it less often
+	if ( nElapsed < (m_nSwMode == ModAm ? 20 : 2) )
+		return;
+	m_nSwLast = nNow;
+	float fDt = nElapsed * 0.001f;
+
+	if ( m_nSwMode == ModSweep )
+	{
+		float fTime = Settings.Gen.fSweepTime;
+		if ( fTime < 0.01f )
+			fTime = 0.01f;
+		m_fSwPhase += fDt / fTime;
+		if ( m_fSwPhase >= 1.0f )
+			m_fSwPhase -= (int)m_fSwPhase;
+		float fFrom = Settings.Gen.fSweepFrom, fTo = Settings.Gen.fSweepTo;
+		float fFreq;
+		if ( Settings.Gen.nSweepLog && fFrom > 0 && fTo > 0 )
+			fFreq = fFrom * _Exp2( _Log2( fTo / fFrom ) * m_fSwPhase );
+		else
+			fFreq = fFrom + (fTo - fFrom) * m_fSwPhase;
+		_Retime( fFreq );
+		m_fReal = fFreq;
+		return;
+	}
+
+	m_fSwPhase += fDt * Settings.Gen.fModRate;
+	if ( m_fSwPhase >= 1.0f )
+		m_fSwPhase -= (int)m_fSwPhase;
+	int nSin = _Sin( (uint32_t)(m_fSwPhase * 65536.0f) );   // +-2047
+	float fDepth = Settings.Gen.fModDepth * 0.01f;
+
+	if ( m_nSwMode == ModFm )
+	{
+		_Retime( m_fSwBase * (1.0f + fDepth * nSin * (1.0f / 2047.0f)) );
+		return;
+	}
+	if ( m_nSwMode == ModAm )
+	{
+		// envelope (1 + m sin) / (1 + m)
+		float fEnv = (1.0f + fDepth * nSin * (1.0f / 2047.0f)) / (1.0f + fDepth);
+		_Generate( Settings.Gen.Wave, m_nRamLen, 1, ModOff, 0, (int)(Settings.Gen.nScale * fEnv) );
+	}
 }
 
 int CCoreGenerator::GetDuty()

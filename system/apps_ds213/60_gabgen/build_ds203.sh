@@ -13,6 +13,7 @@ arm-none-eabi-g++ -Os -Werror -fno-common -mcpu=cortex-m3 -mthumb -msoft-float -
   ../source/Generator/Core/CoreGenerator.cpp \
   ../source/Generator/Edit/MenuGenEdit.cpp \
   ../source/Generator/Main/MenuGenMain.cpp \
+  ../source/Generator/Modulation/MenuGenModulation.cpp \
   ../source/Framework/MyUtils.cpp \
   ../source/Framework/Lcd.cpp \
   ../../../os_host/source/framework/Wnd.cpp \
@@ -31,7 +32,7 @@ arm-none-eabi-gcc -fPIC -mcpu=cortex-m3 -mthumb -o output.elf -nostartfiles -T .
   ./Shapes.o \
   ./MyUtils.o ./Lcd.o \
   ./Settings.o ./Controls.o ./Serialize.o \
-  ./CoreGenerator.o ./MenuGenEdit.o ./MenuGenMain.o \
+  ./CoreGenerator.o ./MenuGenEdit.o ./MenuGenMain.o ./MenuGenModulation.o \
   -lbios_ds203 -L../../../os_library/build -lm
 
 

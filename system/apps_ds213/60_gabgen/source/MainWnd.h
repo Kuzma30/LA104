@@ -14,7 +14,7 @@ public:
 
 	CWndSigGraph		m_wndSignalGraph;
 	CWndMenuGenerator	m_wndMenuGenerator;
-//	CWndMenuGeneratorMod	m_wndMenuGeneratorMod;
+	CWndMenuGeneratorMod	m_wndMenuGeneratorMod;
 	CWndMenuGeneratorEdit	m_wndMenuGeneratorEdit;
 
 	bool				mRunning{true};

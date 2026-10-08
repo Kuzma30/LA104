@@ -68,7 +68,8 @@ public:
 		nHeight -= BlkY*2;
 		int nBaseY = m_rcClient.bottom-BlkY;
 		ui16 oy = 0;
-		int nSelected = HasFocus() ? m_nEditX*nWidth/m_nCount + nWidth/m_nCount/2 : -20;
+		int nEditCount = max(1, CCoreGenerator::GetVolatileLen());
+		int nSelected = HasFocus() ? m_nEditX*nWidth/nEditCount + nWidth/nEditCount/2 : -20;
 		int nSelectedY = 0;
 
 		if ( !m_rcRange.IsValid() )
@@ -127,8 +128,8 @@ public:
 			if ( m_nEditX < CCoreGenerator::GetVolatileLen() - 1 )
 			{
 				m_rcRange = m_rcClient;
-				m_rcRange.left += (m_nEditX)*m_rcClient.Width()/m_nCount-2;
-				m_rcRange.right = m_rcRange.left + 2*m_rcClient.Width()/m_nCount+4;
+				m_rcRange.left += (m_nEditX)*m_rcClient.Width()/max(1, CCoreGenerator::GetVolatileLen())-2;
+				m_rcRange.right = m_rcRange.left + 2*m_rcClient.Width()/max(1, CCoreGenerator::GetVolatileLen())+4;
 				m_nEditX++;
 				Invalidate();
 			}
@@ -140,8 +141,8 @@ public:
 			{
 				m_nEditX--;
 				m_rcRange = m_rcClient;
-				m_rcRange.left += (m_nEditX)*m_rcClient.Width()/m_nCount-2;
-				m_rcRange.right = m_rcRange.left + 2*m_rcClient.Width()/m_nCount+4;
+				m_rcRange.left += (m_nEditX)*m_rcClient.Width()/max(1, CCoreGenerator::GetVolatileLen())-2;
+				m_rcRange.right = m_rcRange.left + 2*m_rcClient.Width()/max(1, CCoreGenerator::GetVolatileLen())+4;
 				Invalidate();
 			}
 			return;
@@ -158,12 +159,12 @@ public:
 
 			CCoreGenerator::Update();
 			m_rcRange = m_rcClient;
-			m_rcRange.left += m_nEditX*m_rcClient.Width()/m_nCount-1;
+			m_rcRange.left += m_nEditX*m_rcClient.Width()/max(1, CCoreGenerator::GetVolatileLen())-1;
 			m_rcRange.right = m_rcRange.left + 10;
 			if ( m_nStep == 8 )
 			{
-				m_rcRange.left -= 2*m_rcClient.Width()/m_nCount-1;
-				m_rcRange.right += 2*m_rcClient.Width()/m_nCount-1;
+				m_rcRange.left -= 2*m_rcClient.Width()/max(1, CCoreGenerator::GetVolatileLen())-1;
+				m_rcRange.right += 2*m_rcClient.Width()/max(1, CCoreGenerator::GetVolatileLen())-1;
 			}
 			Invalidate();
 			return;
@@ -180,12 +181,12 @@ public:
 
 			CCoreGenerator::Update();
 			m_rcRange = m_rcClient;
-			m_rcRange.left += m_nEditX*m_rcClient.Width()/m_nCount-1;
+			m_rcRange.left += m_nEditX*m_rcClient.Width()/max(1, CCoreGenerator::GetVolatileLen())-1;
 			m_rcRange.right = m_rcRange.left + 10;
 			if ( m_nStep == 8 )
 			{
-				m_rcRange.left -= 2*m_rcClient.Width()/m_nCount-1;
-				m_rcRange.right += 2*m_rcClient.Width()/m_nCount-1;
+				m_rcRange.left -= 2*m_rcClient.Width()/max(1, CCoreGenerator::GetVolatileLen())-1;
+				m_rcRange.right += 2*m_rcClient.Width()/max(1, CCoreGenerator::GetVolatileLen())-1;
 			}
 			Invalidate();
 			return;

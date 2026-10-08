@@ -6,7 +6,9 @@
 class CCoreGenerator
 {
 public:
-	enum { MaxSamples = 512 };
+	// DAC buffer size, one period uses at most PeriodSamples
+	enum { MaxSamples = 2048, PeriodSamples = 512 };
+	enum { ModOff = 0, ModAm, ModFm, ModSweep };
 
 private:
 	static const struct TWaveData {
@@ -16,11 +18,13 @@ private:
 	  ui16 nOversampling;
 	} Waves[];
 
-	// timer setting: sample rate = 72 MHz / nDiv / nCnt, nSamples per period
+	// timer setting: sample rate = 72 MHz / nDiv / nCnt, buffer of nSamples
+	// holding nCycles periods (more than one with DDS / modulation)
 	struct TPlan {
 		int nDiv;
 		int nCnt;
 		int nSamples;
+		int nCycles;
 		float fReal;
 	};
 
@@ -35,6 +39,12 @@ private:
 	static float m_fReal;
 	// samples per period of hardware generated waves (noise, triangle)
 	static int m_nFixedSamples;
+	// modulation / sweep done in Tick()
+	static int m_nSwMode;
+	static int m_nSwSamples;
+	static float m_fSwBase;
+	static float m_fSwPhase;
+	static uint32_t m_nSwLast;
 
 public:
 	static ui16*	GetRamDac();
@@ -58,6 +68,9 @@ public:
 	// guaranteeing the generated frequency changes in that direction
 	static void StepFrequency(int nDir, float fStep = 0);
 	static float AutoStep(float fFreq);
+	static float GetMaxFrequency() { return _MaxFrequency(); }
+	// Call often from the main loop, runs slow modulations and sweep
+	static void Tick();
 
 	static const TWaveData* GetWave( int nWave );
 	static void CopyToVolatile( int nWave );
@@ -66,11 +79,18 @@ public:
 
 protected:
 	static int _Sample(int nWave, uint32_t nPhase);
-	static void _Generate(int nWave, int nSamples);
+	static int _Sin(uint32_t nPhase);
+	static void _Generate(int nWave, int nSamples, int nCycles = 1, int nMod = ModOff, float fDepth = 0, int nScale = -1);
 	static void _SampleRange(int nWave, int& nMin, int& nMax);
 	static float _MaxFrequency();
 	static void _Timer(float fTicks, int nMinCnt, int& nDiv, int& nCnt);
 	static void _Plan(float fFreq, TPlan& plan);
+	static void _PlanCounts(float fFreq, int nMin, int nMax, int nUnit, TPlan& plan);
+	static bool _PlanDds(float fFreq, int nMinPeriod, TPlan& plan);
+	static float _Err(float fReal, float fFreq);
+	static int _ModMode();
+	static void _StartSoftware(int nMod, const TPlan& plan);
+	static void _Retime(float fFreq);
 	static void _ApplyAnalog(const TPlan& plan);
 	static void _ApplySquare(const TPlan& plan);
 	static void _ConfigureDc(int nDac);

@@ -83,6 +83,7 @@ file(GLOB application_generator_src
     "source/Generator/Edit/*.cpp"
     "source/Generator/Edit/*.h"
     "source/Generator/Main/*.cpp"
+    "source/Generator/Modulation/*.cpp"
     "source/Generator/Main/*.h"
 )
 

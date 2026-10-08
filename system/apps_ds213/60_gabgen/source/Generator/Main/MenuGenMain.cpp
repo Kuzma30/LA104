@@ -24,14 +24,10 @@ bool _IsVisible(CWnd& wnd)
 
 /*virtual*/ void CWndMenuGenerator::OnTimer()
 {
-/*
-	// FM modulation
-	float t = BIOS::SYS::GetTick() / 1000.0f;
-	float f = sin(t)* 500.f + 1000.f;
-	m_itmFreq.SetFrequency(f);
-	CCoreGenerator::ConfigureWaveRate( Settings.Gen.nArr );
-	m_itmFreq.Invalidate();
-*/
+	// sweep and slow FM change the frequency continuously
+	static int nCounter = 0;
+	if ( Settings.Gen.nModMode != CCoreGenerator::ModOff && (++nCounter & 3) == 0 && _IsVisible(m_itmFreq) )
+		m_itmFreq.Invalidate();
 }
 
 /*virtual*/ void CWndMenuGenerator::OnMessage(CWnd* pSender, int code, uintptr_t data)
