@@ -1,5 +1,6 @@
 #include <library.h>
 #include "MainWnd.h"
+#include "SettingsStore.h"
 
 CMainWnd app;
 
@@ -8,6 +9,7 @@ __attribute__((__section__(".entry")))
 #endif
 int _main(void)
 {    
+    SettingsStore::Load();
     app.Create();
     app.WindowMessage( CWnd::WmPaint );
 
@@ -26,7 +28,9 @@ int _main(void)
         app.WindowMessage(CWnd::WmTick);
         // slow generator modulations and sweep
         CCoreGenerator::Tick();
+        SettingsStore::Tick();
     }
+    SettingsStore::Save();
     
     app.Destroy();
     return 0;

@@ -30,9 +30,15 @@ void CMainWnd::Create()
 	
 	m_wndZoomBar.Create(this, WsHidden, &m_wndGraph);
 
-	constexpr int nMenuItem = 1;
+	// tab opened last time (saved settings), Input otherwise
+	int nMenuItem = 1;
+	const CWndToolBar::CBarItem* pItems = CWndToolBar::GetMenuItems();
+	for ( int i = 0; pItems[i].m_eType != CWndToolBar::CBarItem::IEnd; i++ )
+		if ( i == Settings.Runtime.m_nMenuItem && pItems[i].m_eType == CWndToolBar::CBarItem::ISub )
+			nMenuItem = i;
 	SendMessage( &mWndToolBar, ToWord('g', 'i'), nMenuItem);
-	m_wndMenuInput.SetFocus();
+	if ( nMenuItem == 1 )
+		m_wndMenuInput.SetFocus();
 
 
 #if defined(DS203)

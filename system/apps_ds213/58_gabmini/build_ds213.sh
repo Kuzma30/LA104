@@ -10,6 +10,7 @@ arm-none-eabi-g++ -Os -Werror -fno-common -mcpu=cortex-m3 -mthumb -msoft-float -
   ../source/ToolBar.cpp \
   ../source/Shapes.cpp \
   ../source/Settings.cpp \
+  ../source/SettingsStore.cpp \
   ../source/Oscilloscope/Controls/GraphOsc.cpp \
   ../source/Oscilloscope/Core/CoreOscilloscope.cpp \
   ../source/Oscilloscope/Disp/MenuDisp.cpp \
@@ -43,7 +44,7 @@ arm-none-eabi-gcc -Os -fPIC -mcpu=cortex-m3 -mthumb -o output.elf -nostartfiles 
   ./MenuMarker.o \
   ./DecoderCore.o ./MenuDecode.o ./DecodeBand.o \
   ./CoreGenerator.o ./MenuGenEdit.o ./MenuGenMain.o ./MenuGenModulation.o ./MyUtils.o ./Lcd.o \
-  ./Sampler.o ./Settings.o ./Controls.o ./Serialize.o \
+  ./Sampler.o ./Settings.o ./SettingsStore.o ./Controls.o ./Serialize.o \
   -lbios_ds213 -L../../../os_library/build -lm
 
 arm-none-eabi-objdump -d -S output.elf > output.asm

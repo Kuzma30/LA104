@@ -187,7 +187,7 @@
 	SendMessage( GetParent(), ToWord('L', 'D'), (NATIVEPTR)pItems[oldFocus].m_pWndMenu );
 	SendMessage( GetParent(), ToWord('L', 'E'), (NATIVEPTR)pItems[m_nFocus].m_pWndMenu );
 	SendMessage( GetParent(), ToWord('L', 'R'), 0 );
-//TODO:GABO:	Settings.Runtime.m_nMenuItem = m_nFocus;
+	Settings.Runtime.m_nMenuItem = m_nFocus;
 Invalidate();
 }
 
@@ -233,7 +233,7 @@ Invalidate();
 		SendMessage( GetParent(), ToWord('L', 'E'), (NATIVEPTR)pItems[m_nFocus].m_pWndMenu );
 		SetFocus();
 		SendMessage( GetParent(), ToWord('L', 'R'), 0 );
-//TODO:GABO:		Settings.Runtime.m_nMenuItem = m_nFocus;
+		Settings.Runtime.m_nMenuItem = m_nFocus;
 		Invalidate();
 	}
 }
