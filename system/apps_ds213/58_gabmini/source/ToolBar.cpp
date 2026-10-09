@@ -10,6 +10,10 @@
 		{ CBarItem::ISub,	(PSTR)"Cursor", &MainWnd.m_wndMenuCursor},
 		{ CBarItem::ISub,	(PSTR)"Disp", &MainWnd.m_wndMenuDisplay},
 		{ CBarItem::ISub,	(PSTR)"Decode", &MainWnd.m_wndMenuDecode},
+		{ CBarItem::IMain,	(PSTR)"Generator", nullptr},
+		{ CBarItem::ISub,	(PSTR)"Wave", &MainWnd.m_wndMenuGenerator},
+		{ CBarItem::ISub,	(PSTR)"Mod", &MainWnd.m_wndMenuGeneratorMod},
+		{ CBarItem::ISub,	(PSTR)"Edit", &MainWnd.m_wndMenuGeneratorEdit},
 		{ CBarItem::IEnd,		NULL, NULL }
 	};
 
@@ -120,6 +124,12 @@
 			m_nFocus--;
 		}
 		else
+		if ( m_nFocus > 1 && pItems[m_nFocus-1].m_eType == CBarItem::IMain && m_nFocus-1 > 0 )
+		{
+			// first item of a group: continue with the last item of previous group
+			m_nFocus -= 2;
+		}
+		else
 		{
 			m_nFocus--;
 		}
@@ -128,6 +138,13 @@
 
 	if ( nKey == BIOS::KEY::Right)
 	{
+		if ( pItems[m_nFocus].m_eType != CBarItem::IMain &&
+			 pItems[m_nFocus+1].m_eType == CBarItem::IMain && pItems[m_nFocus+2].m_eType == CBarItem::ISub )
+		{
+			// last item of a group: continue with the next group
+			m_nFocus += 2;
+		}
+		else
 		if ((pItems[m_nFocus+1].m_eType == CBarItem::IMain)||((pItems[m_nFocus+1].m_eType == CBarItem::IEnd)))
 		{
 			/*

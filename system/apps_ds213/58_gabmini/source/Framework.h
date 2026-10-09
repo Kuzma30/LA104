@@ -10,6 +10,8 @@
 #include "Framework/Midi.h"
 #include "Framework/Sampler.h"
 #include "Framework/F2D.h"
+#include "Framework/Lcd.h"
+#include "Framework/MyUtils.h"
 #include "Windows/MessageBox.h"
 
 #define DecEnum(e) *((uint8_t*)&(e))-=1

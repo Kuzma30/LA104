@@ -52,6 +52,8 @@ CSettings* CSettings::m_pInstance = NULL;
 		
 ///*static*/ const char* const CSettings::Generator::ppszTextWave[] =
 //		{"DC", "Sin HQ", "Sin LQ", "Triangle", "Sawtooth", "Square", "Cardiac", "Volatile"};
+/*static*/ const char* const CSettings::Generator::ppszTextWave[] =
+		{"DC", "Sin HQ", "Sin LQ", "Triangle", "Sawtooth", "Square", "Cardiac", "Noise", "Tri HW", "Volatile"};
 /*static*/ const char* const CSettings::Trigger::ppszTextSync[] =
 		{"Auto", "Norm", "Single", "Scan", "None"};
 /*static*/ const char* const CSettings::Trigger::ppszTextSource[] =
@@ -162,6 +164,23 @@ void CSettings::Reset()
 	CH4.Enabled = DigitalChannel::_NO;
 	
 	Decoder::SetDefaults(Decode);
+
+	Gen.Wave = Generator::_SinHq;
+	Gen.nPsc = 180-1;
+	Gen.nArr = 24;
+	Gen.nCcr = (Gen.nArr+1)/2;
+	Gen.nScale = 0x10000;
+	Gen.nOffset = 0x8000;
+	Gen.nDuty = 50;
+	Gen.nFrequency = 1000.0f;
+	Gen.nModMode = 0;
+	Gen.fModRate = 10.0f;
+	Gen.fModDepth = 50.0f;
+	Gen.fSweepFrom = 100.0f;
+	Gen.fSweepTo = 10000.0f;
+	Gen.fSweepTime = 5.0f;
+	Gen.nSweepLog = 1;
+	Gen.nDds = 0;
 
 	Time.Resolution = TimeBase::_500us;
 	Time.Range = TimeBase::_4;

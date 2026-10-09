@@ -2,6 +2,7 @@
 
 #include "Framework.h"
 #include "Oscilloscope/Oscilloscope.h"
+#include "Generator/Generator.h"
 #include "ToolBar.h"
 
 #define MainWnd (*CMainWnd::m_pInstance)
@@ -19,6 +20,11 @@ public:
 	CWndMenuCursor		m_wndMenuCursor;
 	CWndMenuDisplay		m_wndMenuDisplay;
 	CWndMenuDecode		m_wndMenuDecode;
+
+	CWndSigGraph		m_wndSignalGraph;
+	CWndMenuGenerator	m_wndMenuGenerator;
+	CWndMenuGeneratorMod	m_wndMenuGeneratorMod;
+	CWndMenuGeneratorEdit	m_wndMenuGeneratorEdit;
 
 	CWndMessageBox		m_wndMessage;	
 	CWndZoomBar			m_wndZoomBar;

@@ -19,6 +19,12 @@ void CMainWnd::Create()
 	m_wndMenuDisplay.Create( this, WsHidden );
 	m_wndMenuDecode.Create( this, WsHidden );
 
+	// signal generator, the output keeps running in all tabs
+	m_wndSignalGraph.Create( this, WsHidden | WsNoActivate );
+	m_wndMenuGenerator.Create( this, WsHidden );
+	m_wndMenuGeneratorMod.Create( this, WsHidden );
+	m_wndMenuGeneratorEdit.Create( this, WsHidden );
+
 	m_wndLReferences.Create( this, WsHidden );
 	m_wndTReferences.Create( this, WsHidden );
 	
@@ -28,9 +34,6 @@ void CMainWnd::Create()
 	SendMessage( &mWndToolBar, ToWord('g', 'i'), nMenuItem);
 	m_wndMenuInput.SetFocus();
 
-        // just for testing
-        BIOS::DAC::SetMode(BIOS::DAC::EMode::Square, nullptr, 0);
-        BIOS::DAC::SetFrequency(1000);
 
 #if defined(DS203)
 	// Start in scan mode

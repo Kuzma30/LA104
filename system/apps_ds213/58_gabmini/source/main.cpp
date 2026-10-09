@@ -24,6 +24,8 @@ int _main(void)
             app.WindowMessage(CWnd::WmKey, key);
 		
         app.WindowMessage(CWnd::WmTick);
+        // slow generator modulations and sweep
+        CCoreGenerator::Tick();
     }
     
     app.Destroy();

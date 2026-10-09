@@ -144,6 +144,42 @@ class AnalogChannel : public CSerialize
 			return *this;
 		}
 	};
+	class Generator : public CSerialize
+	{
+	public:
+		static const char* const ppszTextWave[];
+		enum { _Dc = 0, _SinHq, _SinLq, _Tri, _Saw, _Square, _Cardiac, _Noise, _TriHw, _Volatile, _WaveMax = _Volatile }
+			Wave;
+		int nPsc;
+		int nArr;
+		int nCcr;
+		int nScale; // 65536 - full
+		int nOffset; // 0..65536
+
+		int nDuty; // wanted duty cycle, real duty can be calculated from arr/ccr
+		int nSamples;
+		float nFrequency; // requested output frequency, kept when switching waveforms
+		// modulation (CCoreGenerator::ModOff, ModAm, ModFm, ModSweep)
+		NATIVEENUM nModMode;
+		float fModRate;   // AM/FM modulation frequency, Hz
+		float fModDepth;  // AM depth / FM deviation, % of carrier
+		float fSweepFrom, fSweepTo; // Hz
+		float fSweepTime; // s
+		NATIVEENUM nSweepLog; // 0 linear, 1 logarithmic
+		NATIVEENUM nDds;      // multiple periods in buffer for exact frequency
+		float fAmplitude; // 65536 -> full
+
+		virtual CSerialize& operator <<( CStream& stream )
+		{
+			stream << _E(Wave) << nPsc << nArr << nScale;
+			return *this;
+		}
+		virtual CSerialize& operator >>( CStream& stream )
+		{
+			stream >> _E(Wave) >> nPsc >> nArr >> nScale;
+			return *this;
+		}
+	};
 	class Marker : public CSerialize
 	{
 	public:
@@ -370,6 +406,7 @@ public:
 
 	Display	Disp;
 	Decoder::TConfig Decode;
+	Generator Gen;
 
 public:
 

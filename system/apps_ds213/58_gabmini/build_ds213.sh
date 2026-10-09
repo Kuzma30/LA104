@@ -18,6 +18,12 @@ arm-none-eabi-g++ -Os -Werror -fno-common -mcpu=cortex-m3 -mthumb -msoft-float -
   ../source/Oscilloscope/Decode/DecoderCore.cpp \
   ../source/Oscilloscope/Decode/MenuDecode.cpp \
   ../source/Oscilloscope/Decode/DecodeBand.cpp \
+  ../source/Generator/Core/CoreGenerator.cpp \
+  ../source/Generator/Edit/MenuGenEdit.cpp \
+  ../source/Generator/Main/MenuGenMain.cpp \
+  ../source/Generator/Modulation/MenuGenModulation.cpp \
+  ../source/Framework/MyUtils.cpp \
+  ../source/Framework/Lcd.cpp \
   ../../../os_host/source/framework/Wnd.cpp \
   ../../../os_host/source/framework/Utils.cpp \
   ../../../os_host/source/framework/Serialize.cpp \
@@ -36,6 +42,7 @@ arm-none-eabi-gcc -Os -fPIC -mcpu=cortex-m3 -mthumb -o output.elf -nostartfiles 
   ./GraphOsc.o ./CoreOscilloscope.o ./MenuDisp.o ./MenuInput.o \
   ./MenuMarker.o \
   ./DecoderCore.o ./MenuDecode.o ./DecodeBand.o \
+  ./CoreGenerator.o ./MenuGenEdit.o ./MenuGenMain.o ./MenuGenModulation.o ./MyUtils.o ./Lcd.o \
   ./Sampler.o ./Settings.o ./Controls.o ./Serialize.o \
   -lbios_ds213 -L../../../os_library/build -lm
 

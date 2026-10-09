@@ -68,22 +68,3 @@
 		CSettings::AnalogChannel::pfValueResolution[ Settings.CH2.Resolution ] *
 		CSettings::AnalogChannel::pfValueProbe[ Settings.CH2.Probe ];
 }
-
-/*static*/ void CCoreOscilloscope::GetMaskAt(int nX, ui8** pLow, ui8** pHigh)
-{
-	// desperate situation, we are running out of RAM... we will share the ADC buffer (every fourth byte is unused)
-	BIOS::ADC::TSample& ts1 = (BIOS::ADC::TSample&)Sampler::GetAt( nX );
-	BIOS::ADC::TSample& ts2 = (BIOS::ADC::TSample&)Sampler::GetAt( nX+300 );
-
-	_ASSERT( nX >= 0 && nX < 300 );
-	*pLow = &((ui8*)&ts1)[3];
-	*pHigh = &((ui8*)&ts2)[3];
-}
-
-/*static*/ void CCoreOscilloscope::GetMaskStats(int** nPass, int** nFail)
-{
-	static int g_nPass = 0;
-	static int g_nFail = 0;
-	*nPass = &g_nPass;
-	*nFail = &g_nFail;
-}

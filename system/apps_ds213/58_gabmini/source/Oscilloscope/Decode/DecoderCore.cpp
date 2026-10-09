@@ -80,12 +80,12 @@ namespace Decoder
     // ------------------------------------------------------------------
     // sample access
 
-    static uint32_t* s_samples;
+    static uint8_t* s_samples;
     static int s_first;
     static int s_count;
     static float s_fs;
 
-    static const uint8_t g_chBit[4] = {18, 19, 16, 17};
+    static const uint8_t g_chBit[4] = {2, 3, 0, 1};  // bit in byte 2 of the sample
 
     struct TLine
     {
@@ -96,12 +96,12 @@ namespace Decoder
         void Set(int ch, bool invert)
         {
             valid = ch >= Ch1 && ch <= Ch4;
-            bit = valid ? g_chBit[ch] : 16;
+            bit = valid ? g_chBit[ch] : 0;
             inv = invert ? 1 : 0;
         }
         inline int L(int i) const
         {
-            return ((s_samples[i] >> bit) & 1) ^ inv;
+            return ((s_samples[i * BytesPerSample + 2] >> bit) & 1) ^ inv;
         }
     };
 
@@ -126,15 +126,16 @@ namespace Decoder
         return i;
     }
 
-    // Converts analog channel to logic level (bits 18/19), automatic threshold
+    // Converts analog channel to logic level (bit 2/3 of byte 2), automatic threshold
     static void PrepareAnalog(int ch)
     {
-        int shift = ch == Ch1 ? 0 : 8;
-        uint32_t bit = 1u << g_chBit[ch];
+        const uint8_t* pAnalog = s_samples + (ch == Ch1 ? 0 : 1);
+        uint8_t* pDigital = s_samples + 2;
+        uint8_t bit = (uint8_t)(1u << g_chBit[ch]);
         int nMin = 255, nMax = 0;
         for (int i = s_first; i < s_count; i++)
         {
-            int v = (s_samples[i] >> shift) & 0xff;
+            int v = pAnalog[i * BytesPerSample];
             if (v < nMin) nMin = v;
             if (v > nMax) nMax = v;
         }
@@ -144,7 +145,7 @@ namespace Decoder
         int level = 0;
         for (int i = s_first; i < s_count; i++)
         {
-            int v = (s_samples[i] >> shift) & 0xff;
+            int v = pAnalog[i * BytesPerSample];
             if (!flat)
             {
                 if (level && v < thr - hyst)
@@ -153,35 +154,38 @@ namespace Decoder
                     level = 1;
             }
             if (level)
-                s_samples[i] |= bit;
+                pDigital[i * BytesPerSample] |= bit;
             else
-                s_samples[i] &= ~bit;
+                pDigital[i * BytesPerSample] &= (uint8_t)~bit;
         }
     }
 
     // ------------------------------------------------------------------
-    // annotations, stored in the top byte of the samples
+    // annotations, stored in the free high nibble of byte 2 of the samples
 
     static_assert(sizeof(TAnnotation) == 12, "annotation size");
-    enum { AnnBytes = sizeof(TAnnotation) };
+    enum { AnnBytes = sizeof(TAnnotation), AnnSamples = AnnBytes * 2 };
     static int s_capacity;
 
     TAnnotation Get(int i)
     {
         TAnnotation a;
         uint8_t* p = (uint8_t*)&a;
-        const uint8_t* src = (const uint8_t*)s_samples + 3 + i * AnnBytes * 4;
-        for (int k = 0; k < AnnBytes; k++)
-            p[k] = src[k * 4];
+        const uint8_t* src = s_samples + 2 + i * AnnSamples * BytesPerSample;
+        for (int k = 0; k < AnnBytes; k++, src += 2 * BytesPerSample)
+            p[k] = (src[0] >> 4) | (src[BytesPerSample] & 0xf0);
         return a;
     }
 
     static void Set(int i, const TAnnotation& a)
     {
         const uint8_t* p = (const uint8_t*)&a;
-        uint8_t* dst = (uint8_t*)s_samples + 3 + i * AnnBytes * 4;
-        for (int k = 0; k < AnnBytes; k++)
-            dst[k * 4] = p[k];
+        uint8_t* dst = s_samples + 2 + i * AnnSamples * BytesPerSample;
+        for (int k = 0; k < AnnBytes; k++, dst += 2 * BytesPerSample)
+        {
+            dst[0] = (uint8_t)((dst[0] & 0x0f) | (p[k] << 4));
+            dst[BytesPerSample] = (uint8_t)((dst[BytesPerSample] & 0x0f) | (p[k] & 0xf0));
+        }
     }
 
     static bool Add(int begin, int end, int type, uint32_t value, int flags = 0, int aux = 0)
@@ -1107,7 +1111,7 @@ namespace Decoder
         }
     }
 
-    void Run(const TConfig& cfg, uint32_t* samples, int first, int count, float sampleRate)
+    void Run(const TConfig& cfg, uint8_t* samples, int nBufferSamples, int first, int count, float sampleRate)
     {
         Count = 0;
         Overflow = false;
@@ -1115,19 +1119,11 @@ namespace Decoder
         s_samples = samples;
         s_fs = sampleRate;
         s_first = first;
-        // cut off samples that were not acquired yet
-        int n = first;
-        while (n < count && samples[n] != 0xffffffff)
-            n++;
-        s_count = n;
-        s_capacity = s_count / AnnBytes;
+        s_count = count;
+        // samples after 'count' are not valid, but their storage can be used
+        s_capacity = nBufferSamples / AnnSamples;
         if (cfg.protocol == Off || cfg.protocol >= ProtocolCount || s_count - s_first < 16)
             return;
-
-        // bits 18..23 are free: 18/19 hold the logic levels of analog channels,
-        // clearing 20..23 makes sure a sample never looks like NoData
-        for (int i = 0; i < s_count; i++)
-            samples[i] &= 0xff03ffff;
 
         // analog channels -> logic levels
         bool bUsed[2] = {false, false};

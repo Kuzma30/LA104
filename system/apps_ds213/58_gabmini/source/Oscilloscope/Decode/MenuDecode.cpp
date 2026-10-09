@@ -40,8 +40,8 @@ namespace DecodeUi
 
     void Update()
     {
-        Decoder::Run( Settings.Decode, Sampler::GetBuffer(), Settings.Time.InvalidFirst,
-            BIOS::ADC::NumSamples, SampleRate() );
+        Decoder::Run( Settings.Decode, Sampler::GetBuffer(), Sampler::Samples,
+            Settings.Time.InvalidFirst, Sampler::GetValid(), SampleRate() );
         if ( s_nSelected >= Decoder::Count )
             s_nSelected = -1;
         if ( MainWnd.m_wndMenuDecode.IsVisible() )

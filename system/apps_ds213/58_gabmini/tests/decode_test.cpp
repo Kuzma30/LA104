@@ -12,8 +12,22 @@
 using namespace Decoder;
 
 static const int N = 4096;
-static uint32_t buf[N];
 static float fs;
+static uint32_t buf[N];          // signals in the BIOS::ADC::TSample layout
+static uint8_t pk[N * 3];        // packed like Sampler::memory
+static int valid = N;
+
+// packs buf like Sampler::Copy() and decodes it
+static void Decode(const TConfig& cfg)
+{
+    for (int i = 0; i < N; i++)
+    {
+        pk[i * 3] = buf[i] & 0xff;
+        pk[i * 3 + 1] = (buf[i] >> 8) & 0xff;
+        pk[i * 3 + 2] = (buf[i] >> 16) & 3;
+    }
+    Run(cfg, pk, N, 0, valid, fs);
+}
 static int failures = 0;
 
 // ---- signal builder, time in seconds ----
@@ -66,7 +80,7 @@ static std::vector<std::string> Texts(bool longForm, const TConfig& cfg)
 
 static void Expect(const char* name, const TConfig& cfg, std::vector<std::string> expect)
 {
-    Run(cfg, buf, 0, N, fs);
+    Decode(cfg);
     auto got = Texts(false, cfg);
     bool ok = got == expect;
     printf("%-14s %s  rate=%u\n", name, ok ? "OK  " : "FAIL", DetectedRate);
@@ -503,13 +517,10 @@ static void TestWarnings()
     Expect("i2c same ch", cfg, {"Select channels"});
     cfg.protocol = Uart;
     Expect("uart flat", cfg, {"No data"});
-    // no data marker in the buffer
-    for (int i = 100; i < N; i++) buf[i] = 0xffffffff;
+    // only part of the buffer was acquired
+    valid = 100;
     Expect("partial buf", cfg, {"No data"});
-    bool tailOk = true;
-    for (int i = 100; i < N; i++) tailOk &= buf[i] == 0xffffffff;
-    printf("%-14s %s\n", "nodata tail", tailOk ? "OK" : "FAIL");
-    failures += !tailOk;
+    valid = N;
 }
 
 static void TestOverflow()
@@ -520,12 +531,14 @@ static void TestOverflow()
     TConfig cfg; SetDefaults(cfg);
     cfg.protocol = Pulse;
     for (int i = 0; i < N; i++)
-        buf[i] = 0xfff0ffffu | (((i / 2) & 1) << 16);   // garbage in bits 20..31, CH1=CH2=0xff
-    Run(cfg, buf, 0, N, fs);
+        buf[i] = 0x5aa5u | (((i / 2) & 1) << 16);
+    Decode(cfg);
     TAnnotation last = Get(Count - 1);
-    bool ok = Overflow && Count == N / 12 && last.type == TWarning && last.value == WOverflow;
+    bool ok = Overflow && Count == N / 24 && last.type == TWarning && last.value == WOverflow;
+    // the waveform must survive the storage of annotations
     bool noFake = true;
-    for (int i = 0; i < N; i++) noFake &= buf[i] != 0xffffffff;
+    for (int i = 0; i < N; i++)
+        noFake &= pk[i * 3] == 0xa5 && pk[i * 3 + 1] == 0x5a && (pk[i * 3 + 2] & 1) == ((i / 2) & 1);
     // the decoded levels must survive the storage in the top byte
     bool firstOk = Get(0).type == TPulse && Get(0).value == 2 && Get(0).aux == 4;
     printf("%-14s %s  count=%d\n", "overflow", ok && noFake && firstOk ? "OK" : "FAIL", Count);

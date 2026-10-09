@@ -3,20 +3,19 @@
 
 // Protocol decoders for the oscilloscope sample buffer.
 //
-// The core does not depend on the BIOS or on the GUI, it works with the raw
-// sample buffer (BIOS::ADC::TSample layout) and a sample rate, so it can be
-// built and tested on a PC as well.
+// The core does not depend on the BIOS or on the GUI, it works with the
+// sample buffer of the oscilloscope and a sample rate, so it can be built and
+// tested on a PC as well.
 //
-// Sample layout: bits 0..7 CH1, bits 8..15 CH2, bit 16 CH3 (C), bit 17 CH4 (D).
-// Analog channels used by a decoder are converted to logic levels (automatic
-// threshold in the middle of the signal range, with hysteresis) and stored in
-// the otherwise unused bits 18 (CH1) and 19 (CH2) of the same buffer.
+// Sample layout (3 bytes per sample, see Sampler.h): byte 0 CH1, byte 1 CH2,
+// byte 2: bit 0 CH3 (C), bit 1 CH4 (D). Analog channels used by a decoder are
+// converted to logic levels (automatic threshold in the middle of the signal
+// range, with hysteresis) and stored in bit 2 (CH1) and bit 3 (CH2) of byte 2.
 //
-// RAM is very tight (the stack of the OS grows into the application RAM), so
-// the decoded items are stored in the unused top byte (bits 24..31) of the
-// samples as well: one 12 byte annotation uses the top bytes of 12 samples.
-// Bits 20..23 are cleared, so no valid sample can become 0xffffffff (NoData).
-// The annotations are valid only until the sample buffer is overwritten.
+// RAM is very tight (the application runs on the OS stack), so the decoded
+// items are stored in the free bits 4..7 of byte 2: one 12 byte annotation
+// uses 24 samples, the 4096 sample buffer holds 170 items. The annotations
+// are valid only until the sample buffer is overwritten.
 
 namespace Decoder
 {
@@ -113,7 +112,10 @@ namespace Decoder
     void SetDefaults(TConfig& cfg);
 
     // Decodes samples [first, count) of the buffer, sampleRate in Hz
-    void Run(const TConfig& cfg, uint32_t* samples, int first, int count, float sampleRate);
+    enum { BytesPerSample = 3 };
+    // Decodes samples [first, count) of the packed buffer with nBufferSamples
+    // samples, sampleRate in Hz
+    void Run(const TConfig& cfg, uint8_t* samples, int nBufferSamples, int first, int count, float sampleRate);
 
     // Text of an annotation; short form for the band above the waveform,
     // long form for the list. Returns length.
