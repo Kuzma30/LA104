@@ -79,7 +79,8 @@ namespace DecodeUi
 static void FormatFreq(float f, char* buf)
 {
     const char* unit = "Hz";
-    if ( f >= 1e6f ) { f /= 1e6f; unit = "M"; }
+    if ( f < 1.0f ) { f *= 1e3f; unit = "mHz"; }
+    else if ( f >= 1e6f ) { f /= 1e6f; unit = "M"; }
     else if ( f >= 1e3f ) { f /= 1e3f; unit = "k"; }
     Decoder::FormatTime( f, buf );      // 3 significant digits ...
     char* p = buf;
@@ -144,7 +145,7 @@ void CItemDecodeInfo::Create(CWnd* pParent)
 {
     CRect rc = pParent->GetLast()->m_rcClient;
     rc.top = rc.bottom + CWndMenuItem::Space;
-    rc.bottom = rc.top + 34;
+    rc.bottom = rc.top + 50;
     CWnd::Create( "Info", WsVisible | WsNoActivate, rc, pParent );
 }
 
@@ -165,11 +166,32 @@ void CItemDecodeInfo::Create(CWnd* pParent)
         FormatFreq( (float)DetectedRate, text );
         strcat( text, "b/s" );
     }
+    float fFreq, fDuty, fWidth;
+    if ( proto == Pulse && Decoder::PulseStats( DecodeUi::SampleRate(), fFreq, fDuty, fWidth ) )
+    {
+        // PWM: frequency and duty cycle averaged over the whole buffer
+        FormatFreq( fFreq, text );
+        if ( text[strlen(text)-1] != 'z' )
+            strcat( text, "Hz" );
+        BIOS::LCD::Print( x, y, RGB565(ffffff), RGBTRANS, text );
+        // duty cycle of the high level also when low pulses are measured
+        if ( Settings.Decode.invert[Pulse] )
+            fDuty = 100.0f - fDuty;
+        int nPermille = (int)(fDuty * 10 + 0.5f);
+        strcpy( text, "D " );
+        strcat( text, CUtils::itoa(nPermille / 10) );
+        strcat( text, "." );
+        strcat( text, CUtils::itoa(nPermille % 10) );
+        strcat( text, "%" );
+        BIOS::LCD::Print( x, y + 16, RGB565(ffffff), RGBTRANS, text );
+        text[0] = 0;
+    }
     if ( text[0] )
         BIOS::LCD::Print( x, y, RGB565(ffffff), RGBTRANS, text );
+    // sampling rate, the time resolution of the decoder is 1/fs
     strcpy( text, "fs " );
     FormatFreq( DecodeUi::SampleRate(), text + 3 );
-    BIOS::LCD::Print( x, y + 16, RGB565(b0b0b0), RGBTRANS, text );
+    BIOS::LCD::Print( x, y + 32, RGB565(b0b0b0), RGBTRANS, text );
 }
 
 // ---------------------------------------------------------------------------
@@ -367,10 +389,21 @@ void CWndMenuDecode::Refresh()
     static int nLastCount = -1;
     static uint32_t nLastRate = 0;
     static int nLastSel = -2;
+    static int nLastPulse = -1;
     if ( nLastCount != Decoder::Count || nLastSel != DecodeUi::Selected() )
         m_itmBrowse.Invalidate();
     if ( nLastRate != Decoder::DetectedRate )
         m_itmInfo.Invalidate();
+    if ( Settings.Decode.protocol == Pulse )
+    {
+        // redraw the PWM values only when they changed (in 0.1% steps)
+        float fFreq = 0, fDuty = 0, fWidth;
+        Decoder::PulseStats( DecodeUi::SampleRate(), fFreq, fDuty, fWidth );
+        int nPulse = (int)(fDuty * 10) ^ ((int)(fFreq * 10) << 10);
+        if ( nPulse != nLastPulse )
+            m_itmInfo.Invalidate();
+        nLastPulse = nPulse;
+    }
     nLastCount = Decoder::Count;
     nLastRate = Decoder::DetectedRate;
     nLastSel = DecodeUi::Selected();

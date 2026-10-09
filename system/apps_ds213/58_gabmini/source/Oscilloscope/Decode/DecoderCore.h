@@ -124,4 +124,8 @@ namespace Decoder
 
     // Formats time in seconds with 3 significant digits ("1.25ms")
     int FormatTime(float t, char* buf);
+
+    // Pulse decoder: averages over all complete periods in the buffer,
+    // returns false when there is no complete period
+    bool PulseStats(float sampleRate, float& fFrequency, float& fDuty, float& fWidth);
 }

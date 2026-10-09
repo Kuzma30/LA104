@@ -1251,6 +1251,31 @@ namespace Decoder
         return (int)(w.p - buf);
     }
 
+    bool PulseStats(float sampleRate, float& fFrequency, float& fDuty, float& fWidth)
+    {
+        uint32_t nPeriods = 0, nPeriodSum = 0, nWidthSum = 0, nWidths = 0, nWidthAll = 0;
+        for (int i = 0; i < Count; i++)
+        {
+            TAnnotation a = Get(i);
+            if (a.type != TPulse)
+                continue;
+            nWidthAll += a.value;
+            nWidths++;
+            if (a.aux)
+            {
+                nPeriods++;
+                nPeriodSum += a.aux;
+                nWidthSum += a.value;
+            }
+        }
+        if (!nPeriods)
+            return false;
+        fFrequency = sampleRate * nPeriods / nPeriodSum;
+        fDuty = 100.0f * nWidthSum / nPeriodSum;
+        fWidth = (float)nWidthAll / nWidths / sampleRate;
+        return true;
+    }
+
     static const char* RomCommand(uint32_t v)
     {
         switch (v)
@@ -1482,9 +1507,19 @@ namespace Decoder
         {
             char tmp[16];
             if (longForm)
-                w.S("High ");
+                w.S(cfg.invert[Pulse] ? "Low " : "High ");
             FormatTime(a.value / sampleRate, tmp);
             w.S(tmp);
+            if (!longForm && a.aux)
+            {
+                // duty cycle after the width, cut off by the band when too narrow
+                uint32_t permille = (a.value * 1000 + a.aux / 2) / a.aux;
+                w.C(' ');
+                w.Dec(permille / 10);
+                w.C('.');
+                w.Dec(permille % 10);
+                w.C('%');
+            }
             if (longForm && a.aux)
             {
                 float fPeriod = a.aux / sampleRate;

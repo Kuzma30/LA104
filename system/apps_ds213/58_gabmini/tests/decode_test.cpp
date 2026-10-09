@@ -500,7 +500,24 @@ static void TestPulse()
     s.Hold(1e-3, 0);
     for (int i = 0; i < 3; i++) { s.Hold(1.5e-3, 1); s.Hold(18.5e-3, 0); }
     s.Rest();
-    Expect("pulse", cfg, {"1.50ms", "1.50ms", "1.50ms"});
+    Expect("pulse", cfg, {"1.50ms 7.5%", "1.50ms 7.5%", "1.50ms"});
+    float fFreq, fDuty, fWidth;
+    bool ok = PulseStats(fs, fFreq, fDuty, fWidth) && fFreq > 49.9f && fFreq < 50.1f &&
+        fDuty > 7.45f && fDuty < 7.55f && fWidth > 1.49e-3f && fWidth < 1.51e-3f;
+    printf("%-14s %s  %.3f Hz %.2f %% %.4f ms\n", "pulse stats", ok ? "OK  " : "FAIL", fFreq, fDuty, fWidth * 1e3f);
+    failures += !ok;
+    // PWM 1 kHz 25 %, measured as low pulses
+    Clear();
+    fs = 72e6f / 240; // 300 kHz
+    cfg.invert[Pulse] = 1;
+    Sig p(2, 0);
+    p.Hold(0.1e-3, 0);
+    for (int i = 0; i < 12; i++) { p.Hold(0.25e-3, 1); p.Hold(0.75e-3, 0); }
+    p.Rest();
+    Decode(cfg);
+    ok = PulseStats(fs, fFreq, fDuty, fWidth) && fFreq > 999 && fFreq < 1001 && fDuty > 74.9f && fDuty < 75.1f;
+    printf("%-14s %s  %.3f Hz %.2f %%\n", "pwm low", ok ? "OK  " : "FAIL", fFreq, fDuty);
+    failures += !ok;
     Shot("pulse", cfg, 0);
 }
 
