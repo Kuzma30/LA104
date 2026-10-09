@@ -41,6 +41,18 @@ namespace BIOS {
     bool LinearProgram( ui32 nAddress, unsigned char* pData, int nLength )
     {
         _ASSERT(gSharedBuffer);
+#if defined(DS203) || defined(DS203HD)
+        // DS203 keeps data of the factory system in the internal flash:
+        // DFU + SYS below 0x0800C000 and the FPGA bitstream, calibration
+        // parameters and device info at 0x0802C000..0x0803FFFF. Erasing these
+        // breaks the oscilloscope (FPGA configuration error after power cycle).
+        if ( nAddress < 0x0800C000 ||
+             (nAddress + nLength > 0x0802C000 && nAddress < 0x08040000) )
+        {
+            BIOS::DBG::Print("Refused to write %08x: reserved flash (FPGA / SYS)\n", nAddress);
+            return false;
+        }
+#endif
         int result = linearFlashProgram((LinearFlashing*)gSharedBuffer, nAddress, (flashdata_t*)pData, nLength);
     	return result == 0;
     }
