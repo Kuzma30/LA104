@@ -160,9 +160,23 @@ uint32_t GetKeys()
   return out;
 }
 
+// __ProgDiskPage of SYS 1.5x programs one page of the SPI flash: 256 bytes
+// on the 2 MB disk (HW 2.6x) and 4096 bytes on the 8 MB disk (DS203HD).
+// The FAT sector of the 2 MB disk is 512 bytes, writing it with a single
+// call stored only its first half - files written by applications lost
+// directory entries and FAT links (Wildcat Files.c also writes 2x 256 B).
+#if defined(DS203HD)
+#define DISK_PAGE_SIZE 4096
+#define DISK_SECTOR_SIZE 4096
+#else
+#define DISK_PAGE_SIZE 256
+#define DISK_SECTOR_SIZE 512
+#endif
+
 bool ExtFlashSecWr(uint8_t* pBuffer, uint32_t WriteAddr)
 {
-  __ProgDiskPage(pBuffer, WriteAddr);
+  for (int i = 0; i < DISK_SECTOR_SIZE; i += DISK_PAGE_SIZE)
+    __ProgDiskPage(pBuffer + i, WriteAddr + i);
   return 1;
 }
 
