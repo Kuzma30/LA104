@@ -161,6 +161,8 @@ void CSettings::Reset()
 	CH4.Polarity = DigitalChannel::_NEG;
 	CH4.Enabled = DigitalChannel::_NO;
 	
+	Decoder::SetDefaults(Decode);
+
 	Time.Resolution = TimeBase::_500us;
 	Time.Range = TimeBase::_4;
 	Time.InvalidFirst = 30;

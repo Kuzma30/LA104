@@ -73,6 +73,8 @@ file(GLOB application_oscilloscope_src
     "source/Oscilloscope/Controls/*.h"
     "source/Oscilloscope/Core/*.cpp"
     "source/Oscilloscope/Core/*.h"
+    "source/Oscilloscope/Decode/*.cpp"
+    "source/Oscilloscope/Decode/*.h"
     "source/Oscilloscope/Disp/*.cpp"
     "source/Oscilloscope/Disp/*.h"
     "source/Oscilloscope/Input/*.cpp"

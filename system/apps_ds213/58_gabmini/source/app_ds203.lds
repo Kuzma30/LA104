@@ -1,7 +1,8 @@
 MEMORY
 {
   null (rwx): ORIGIN = 0x00001000, LENGTH = 4K
-  rom (rx) : ORIGIN = 0x08012c00, LENGTH = 40K
+  /* up to 0x0802BC00, the DS203 FPGA bitstream starts at 0x0802C000 */
+  rom (rx) : ORIGIN = 0x08012c00, LENGTH = 100K
   ram (rwx) : ORIGIN = 0x20005000, LENGTH = 28K
 }
 

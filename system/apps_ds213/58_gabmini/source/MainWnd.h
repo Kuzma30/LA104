@@ -18,6 +18,7 @@ public:
 	CWndMenuInput		m_wndMenuInput;
 	CWndMenuCursor		m_wndMenuCursor;
 	CWndMenuDisplay		m_wndMenuDisplay;
+	CWndMenuDecode		m_wndMenuDecode;
 
 	CWndMessageBox		m_wndMessage;	
 	CWndZoomBar			m_wndZoomBar;

@@ -14,6 +14,11 @@ namespace Sampler
 		}
 	}
 	
+  BIOS::ADC::TSample::SampleType* GetBuffer()
+  {
+    return memory;
+  }
+
   BIOS::ADC::TSample::SampleType& GetAt(int i)
   {
     return memory[i % Samples];

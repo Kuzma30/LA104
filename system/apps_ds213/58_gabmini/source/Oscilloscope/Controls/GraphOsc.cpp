@@ -100,7 +100,7 @@ ui16 CWndOscGraph::_Interpolate( ui16 clrA, ui16 clrB )
 	return RGB565RGB(ar, ag, ab);
 }
 
-/*virtual*/ void CWndOscGraph::Create(CWnd *pParent, int dwFlags) 
+/*virtual*/ void CWndOscGraph::Create(CWnd *pParent, int dwFlags)
 {
 	CWndGraph::Create( pParent, dwFlags | CWnd::WsListener );
 }
@@ -109,6 +109,7 @@ ui16 CWndOscGraph::_Interpolate( ui16 clrA, ui16 clrB )
 {
 	if ( pSender == NULL && code == WmBroadcast && data == ToWord('d', 'g') )
 	{
+		DecodeUi::Update();
 		Invalidate();
 		CCoreOscilloscope::UpdateConstants();
 		return;
@@ -147,7 +148,7 @@ void CWndOscGraph::OnPaintXY()
 	// range
 	int nMaxIndex = BIOS::ADC::NumSamples;
 	int nIndex = Settings.Time.Shift;
-	int nColMax = m_rcClient.Width(); 
+	int nColMax = m_rcClient.Width();
 
 	//if ( m_bNeedRedraw ) // does not work reliably
 	{
@@ -162,13 +163,13 @@ void CWndOscGraph::OnPaintXY()
 	m_bPersistReset = false;
 	m_bNeedRedraw = false;
 
-	if ( !bEnabled1 || !bEnabled2 ) 
+	if ( !bEnabled1 || !bEnabled2 )
 	{
 		BIOS::LCD::Print( m_rcClient.left, m_rcClient.top, RGB565(ffffff), RGBTRANS, (char*)"Enable both channels" );
 		return;
 	}
 
-	
+
 	for (ui16 x=0; x<nColMax; x++, nIndex++)
 	{
 		ui32 ui32Sample = nIndex < nMaxIndex ?  Sampler::GetAt(nIndex) : 0;
@@ -182,9 +183,9 @@ void CWndOscGraph::OnPaintXY()
 		{
 			si16 ch1 = (ui8)((ui32Sample) & 0xff);
 			ch1 = Settings.CH1Calib.Correct( calCh1, ch1 );
-			if ( ch1 < 0 ) 
+			if ( ch1 < 0 )
 				ch1 = 0;
-			if ( ch1 > 255 ) 
+			if ( ch1 > 255 )
 				ch1 = 255;
 			nSampleY1 = (ch1*(DivsY*BlkY))>>8;
 		}
@@ -192,9 +193,9 @@ void CWndOscGraph::OnPaintXY()
 		{
 			si16 ch2 = (ui8)((ui32Sample>>8) & 0xff);
 			ch2 = Settings.CH2Calib.Correct( calCh2, ch2 );
-			if ( ch2 < 0 ) 
+			if ( ch2 < 0 )
 				ch2 = 0;
-			if ( ch2 > 255 ) 
+			if ( ch2 > 255 )
 				ch2 = 255;
 			nSampleY2 = (ch2*(DivsY*BlkY))>>8;
 		}
@@ -237,7 +238,7 @@ void CWndOscGraph::OnPaintTY()
 		nCut = m_rcClient.Width();
 	int nFirstTop = CWnd::GetOverlay().IsValid() ? CWnd::GetOverlay().top - m_rcClient.top : 0;
 
-	int nMax = m_rcClient.Width(); 
+	int nMax = m_rcClient.Width();
 	if ( CWnd::GetOverlay().IsValid() && CWnd::GetOverlay().left - m_rcClient.left <= 0 )
 		return;
 
@@ -269,7 +270,7 @@ void CWndOscGraph::OnPaintTY()
 	if ( en3 )
 	{
 		nY3Low = Settings.CH3.u16Position;
-		nY3High = Settings.CH3.Polarity == CSettings::DigitalChannel::_POS ? 
+		nY3High = Settings.CH3.Polarity == CSettings::DigitalChannel::_POS ?
 			nY3Low + 32 : nY3Low - 32;
 		CUtils::Clamp<int>( nY3Low, 0, 255 );
 		CUtils::Clamp<int>( nY3High, 0, 255 );
@@ -279,7 +280,7 @@ void CWndOscGraph::OnPaintTY()
 	if ( en4 )
 	{
 		nY4Low = Settings.CH4.u16Position;
-		nY4High = Settings.CH4.Polarity == CSettings::DigitalChannel::_POS ? 
+		nY4High = Settings.CH4.Polarity == CSettings::DigitalChannel::_POS ?
 			nY4Low + 32 : nY4Low - 32;
 		CUtils::Clamp<int>( nY4Low, 0, 255 );
 		CUtils::Clamp<int>( nY4High, 0, 255 );
@@ -296,6 +297,7 @@ void CWndOscGraph::OnPaintTY()
 
 	ui16 clrm = Settings.Math.uiColor;
 	int nIndex = Settings.Time.Shift;
+	bool bDecode = DecodeUi::BeginFrame( nIndex, nMax );
 
 	for (ui16 x=0; x<nMax; x++, nIndex++)
 	{
@@ -307,9 +309,9 @@ void CWndOscGraph::OnPaintTY()
 			clrCol = Settings.MarkT1.u16Color;
 		if ( nMarkerT2 == nIndex )
 			clrCol = Settings.MarkT2.u16Color;
-			
+
 		_PrepareColumn( column, x, clrCol );
-		
+
 
 		BIOS::ADC::TSample Sample;
 		Sample.value = nIndex < nMaxIndex ? Sampler::GetAt(nIndex) : 0;
@@ -353,7 +355,7 @@ void CWndOscGraph::OnPaintTY()
 		}
 		if ( en3 )
 		{
-			nSampleY3 = Sample.CH3 ? nY3High : nY3Low;		
+			nSampleY3 = Sample.CH3 ? nY3High : nY3Low;
 		}
 		if ( en4 )
 		{
@@ -379,7 +381,7 @@ void CWndOscGraph::OnPaintTY()
 					for (; _y < nSampleY2; _y++ )
 						column[_y] = clrShade2;
 				}
-			} else 
+			} else
 			if ( en1 )
 			{
 				for ( int _y = 0; _y < nSampleY1; _y++ )
@@ -389,7 +391,7 @@ void CWndOscGraph::OnPaintTY()
 			{
 				for ( int _y = 0; _y < nSampleY2; _y++ )
 					column[_y] = clrShade2;
-			} 
+			}
 		}
 
 		if ( en3 )
@@ -454,6 +456,10 @@ void CWndOscGraph::OnPaintTY()
 			}
 		}
 
+		// decoded protocol data
+		if ( bDecode )
+			DecodeUi::RenderColumn( column, DivsY*BlkY, nIndex );
+
 		// trigger cursor drawn over the traces in white, so it stays visible
 		// while the level (Y) or position (X) is being changed
 		if ( bTrigger && (x & 1) == 1 )
@@ -470,9 +476,9 @@ void CWndOscGraph::OnPaintTY()
 			column[nMarkerY1] = Settings.MarkY1.u16Color;
 		if ( nMarkerY2 > 0 )
 			column[nMarkerY2] = Settings.MarkY2.u16Color;
- 
+
 		if ( x <= nCut )
-		{	
+		{
 			BIOS::LCD::BufferBegin(CRect(m_rcClient.left + x, m_rcClient.top, m_rcClient.left + x + 1, m_rcClient.top + DivsY*BlkY));
 			BIOS::LCD::BufferWrite( column, DivsY*BlkY );
 			BIOS::LCD::BufferEnd();
@@ -497,9 +503,9 @@ void CWndOscGraph::OnPaintTY()
 
 void CWndOscGraph::SetupSelection( bool& bSelection, int& nMarkerT1, int& nMarkerT2 )
 {
-	bSelection = ( Settings.MarkT1.Mode == CSettings::Marker::_On && 
+	bSelection = ( Settings.MarkT1.Mode == CSettings::Marker::_On &&
 		Settings.MarkT2.Mode == CSettings::Marker::_On );
-	
+
 	if ( !bSelection )
 		return;
 	if ( Settings.MarkT1.nValue >= Settings.MarkT2.nValue )
@@ -599,4 +605,3 @@ void CWndOscGraph::ClearPersist()
 {
 	m_bPersistReset = true;
 }
-

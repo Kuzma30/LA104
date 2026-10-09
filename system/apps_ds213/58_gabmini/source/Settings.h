@@ -1,5 +1,6 @@
 #pragma once
 #include <Framework.h>
+#include "Oscilloscope/Decode/DecoderCore.h"
 
 #define Settings (*CSettings::m_pInstance)
 
@@ -368,6 +369,7 @@ public:
 	MathOperator Math;
 
 	Display	Disp;
+	Decoder::TConfig Decode;
 
 public:
 

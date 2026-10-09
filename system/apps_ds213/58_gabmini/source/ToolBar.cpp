@@ -9,6 +9,7 @@
 		{ CBarItem::ISub,	(PSTR)"Input", &MainWnd.m_wndMenuInput},
 		{ CBarItem::ISub,	(PSTR)"Cursor", &MainWnd.m_wndMenuCursor},
 		{ CBarItem::ISub,	(PSTR)"Disp", &MainWnd.m_wndMenuDisplay},
+		{ CBarItem::ISub,	(PSTR)"Decode", &MainWnd.m_wndMenuDecode},
 		{ CBarItem::IEnd,		NULL, NULL }
 	};
 
@@ -29,11 +30,11 @@
 
 	int x = m_rcClient.left;
 	int nExtentx = (strlen(pItems[nMenu].m_pName) << 3);
-	
+
 	if ( nFocus == nMenu && HasFocus() )
 	{
 		x += BIOS::LCD::Draw(x, 0, RGB565(ffffff), RGB565(000000), CShapes::corner_left);
-		BIOS::LCD::Bar( x, m_rcClient.top, x + nExtentx, m_rcClient.bottom, RGB565(FFFFFF));	
+		BIOS::LCD::Bar( x, m_rcClient.top, x + nExtentx, m_rcClient.bottom, RGB565(FFFFFF));
 		x += BIOS::LCD::Print(x, 0, RGB565(000000), RGBTRANS, pItems[nMenu].m_pName);
 	} else {
 		x += BIOS::LCD::Draw(x, 0, RGB565(0020ff), RGB565(000000), CShapes::corner_left);
@@ -54,7 +55,7 @@
 	x += 10;
 
 	int nIgnoreFirst = 1; // 1 -> first sub menu
-	
+
 	// calculate how many items we need to hide from left to reach the selected one
 	int nRequired = 0;
 	int nAvailable = BIOS::LCD::Width - 16 - x; // 16px reserved for arrows
@@ -85,13 +86,13 @@
 			x += BIOS::LCD::Print( x, m_rcClient.top, RGB565(b0b0b0), RGBTRANS, "\x10");
 			break;
 		}
-		
+
 		if ( bSelected )
 			x += BIOS::LCD::Draw( x, m_rcClient.top, bgr, RGBTRANS, CShapes::corner_left);
 		else
 			x += 8;
-		
-		if ( bSelected )	                                           
+
+		if ( bSelected )
 			BIOS::LCD::Bar( x, m_rcClient.top, x + (strlen(pItems[i].m_pName)<<3), m_rcClient.bottom, bgr);
 
 		x += BIOS::LCD::Print( x, m_rcClient.top, clr, bgr, pItems[i].m_pName);
@@ -109,7 +110,7 @@
 	ui8 oldFocus = m_nFocus;
 	if ( nKey == BIOS::KEY::Left)
 	{
-		if ( pItems[m_nFocus].m_eType == CBarItem::IMain ) 
+		if ( pItems[m_nFocus].m_eType == CBarItem::IMain )
 		{
 			m_nFocus++;
 			while((pItems[m_nFocus].m_eType != CBarItem::IMain)&&(pItems[m_nFocus].m_eType != CBarItem::IEnd))
@@ -118,7 +119,7 @@
 			}
 			m_nFocus--;
 		}
-		else 
+		else
 		{
 			m_nFocus--;
 		}
@@ -192,7 +193,7 @@ Invalidate();
 	{
 		const char* strId = (const char*)data;
 		int nItem = Find( strId );
-		
+
 		code = ToWord('g', '2');
 		data = nItem;
 	}
@@ -207,7 +208,7 @@ Invalidate();
 
 		SendMessage( GetParent(), ToWord('L', 'D'), (NATIVEPTR)pItems[m_nFocus].m_pWndMenu );
 
-		if ( pItems[nItem].m_eType == CBarItem::IMain ) 
+		if ( pItems[nItem].m_eType == CBarItem::IMain )
 			m_nFocus = nItem+1;
 		else
 			m_nFocus = nItem;
@@ -227,12 +228,12 @@ CWnd* CWndToolBar::GetCurrentLayout()
 }
 
 int CWndToolBar::Find(const char* strId)
-{	
+{
 	const CBarItem *pItems = GetMenuItems();
 
 	for (int i=0; pItems[i].m_eType != CBarItem::IEnd; i++ )
 	{
-		if ( /*pItems[i].m_eType == CBarItem::IMain &&*/ 
+		if ( /*pItems[i].m_eType == CBarItem::IMain &&*/
 				strcmp(pItems[i].m_pName, strId) == 0 )
 		{
 			return i;

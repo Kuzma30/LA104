@@ -5,6 +5,7 @@
 #include "Input/MenuInput.h"
 #include "Marker/MenuMarker.h"
 #include "Disp/MenuDisp.h"
+#include "Decode/MenuDecode.h"
 
 #include "Controls/LevelRef.h"
 #include "Controls/TimeRef.h"

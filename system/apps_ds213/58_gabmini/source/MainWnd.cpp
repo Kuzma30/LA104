@@ -17,6 +17,7 @@ void CMainWnd::Create()
 	m_wndMenuInput.Create( this, WsVisible );
 	m_wndMenuCursor.Create( this, WsHidden );
 	m_wndMenuDisplay.Create( this, WsHidden );
+	m_wndMenuDecode.Create( this, WsHidden );
 
 	m_wndLReferences.Create( this, WsHidden );
 	m_wndTReferences.Create( this, WsHidden );
@@ -87,7 +88,9 @@ bool CMainWnd::IsRunning()
 
 /*virtual*/ void CMainWnd::WindowMessage(int nMsg, int nParam)
 {
-	if ( nMsg == WmTick )
+	// acquisition is paused while the list of decoded data is shown, so the
+	// list stays consistent with the sample buffer
+	if ( nMsg == WmTick && !DecodeUi::Hold() )
 	{
 		BIOS::ADC::EState state = BIOS::ADC::GetState();
 
