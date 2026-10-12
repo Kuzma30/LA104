@@ -3,7 +3,8 @@
 
 // Digit by digit editing of a number:
 //   Left / Right  - select digit
-//   Up / Down     - change selected digit (with carry)
+//   Up / Down     - change selected digit (with carry), on DS203 the '>'
+//                   side of the rocker increases it
 //   F4 (Enter) / F2 - finish
 class CDigitEdit
 {
@@ -68,7 +69,14 @@ public:
 			case BIOS::KEY::Down:
 			{
 				float fStep = _Pow10( m_nPos );
-				float fNew = fValue + (nKey == BIOS::KEY::Up ? fStep : -fStep);
+#ifdef DS203
+				// the '>' side of the DS203 rocker is reported as Down (moves the
+				// menu focus down the list), here it has to increase the digit
+				bool bIncrease = nKey == BIOS::KEY::Down;
+#else
+				bool bIncrease = nKey == BIOS::KEY::Up;
+#endif
+				float fNew = fValue + (bIncrease ? fStep : -fStep);
 				// round to the displayed resolution, float steps accumulate errors
 				float fRes = _Pow10( -m_nDec );
 				fNew = (int)(fNew / fRes + (fNew >= 0 ? 0.5f : -0.5f)) * fRes;
