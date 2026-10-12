@@ -7,7 +7,7 @@
 #include <Framework.h>
 
 // Number bound to a float setting. Left / Right: step (three significant
-// digits, or 1 for values without decimals), F1: digit by digit editing
+// digits, or 1 for values without decimals), F4 (Enter): digit by digit editing
 class CItemNumber : public CWndMenuItem
 {
 	CDigitEdit m_edit;

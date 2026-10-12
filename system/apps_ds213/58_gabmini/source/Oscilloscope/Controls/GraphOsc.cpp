@@ -126,6 +126,14 @@ ui16 CWndOscGraph::_Interpolate( ui16 clrA, ui16 clrB )
 		OnPaintTY();
 	else
 		OnPaintXY();
+
+	// acquisition stopped (F1 or Single), the waveform is frozen
+	if ( Settings.Trig.State == CSettings::Trigger::_Stop && !CWnd::GetOverlay().IsValid() )
+	{
+		int x = m_rcClient.right - 4*8 - 4, y = m_rcClient.top + 2;
+		BIOS::LCD::Bar( x - 2, y, x + 4*8 + 2, y + 14, RGB565(c00000) );
+		BIOS::LCD::Print( x, y, RGB565(ffffff), RGBTRANS, "STOP" );
+	}
 }
 
 void CWndOscGraph::OnPaintXY()

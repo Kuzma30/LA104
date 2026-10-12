@@ -41,4 +41,5 @@ public:
 	virtual void WindowMessage(int nMsg, int nParam = 0) override;
 	virtual void OnPaint() override;
 	bool IsRunning();
+	void ToggleRunStop();
 };

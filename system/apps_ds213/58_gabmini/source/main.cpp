@@ -17,11 +17,15 @@ int _main(void)
     while (app.IsRunning())
     {
 	    key = BIOS::KEY::GetKey();
-        if (key==BIOS::KEY::F4)
+        // F1 (first button) runs / stops the acquisition, its former role
+        // (Enter, BIOS::KEY::Enter is F1) moved to F4
+        if (key == BIOS::KEY::F1)
         {
-            CWnd::m_pTop->Invalidate();
-
+            app.ToggleRunStop();
+            key = BIOS::KEY::None;
         }
+        else if (key == BIOS::KEY::F4)
+            key = BIOS::KEY::Enter;
         if (key != BIOS::KEY::None)
             app.WindowMessage(CWnd::WmKey, key);
 		

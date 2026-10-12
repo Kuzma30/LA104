@@ -4,7 +4,7 @@
 // Digit by digit editing of a number:
 //   Left / Right  - select digit
 //   Up / Down     - change selected digit (with carry)
-//   F1 / F2       - finish
+//   F4 (Enter) / F2 - finish
 class CDigitEdit
 {
 	bool m_bActive{false};

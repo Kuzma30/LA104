@@ -4,8 +4,8 @@
 #include "DigitEdit.h"
 
 // Left / Right: step by three significant digits
-// F1: digit by digit editing (Left / Right select digit, Up / Down change it,
-//     F1 / F2 finish), the label shows the really generated frequency
+// F4 (Enter): digit by digit editing (Left / Right select digit, Up / Down change it,
+//     F4 / F2 finish), the label shows the really generated frequency
 class CItemFrequency : public CWndMenuItem
 {
 	CDigitEdit m_edit;

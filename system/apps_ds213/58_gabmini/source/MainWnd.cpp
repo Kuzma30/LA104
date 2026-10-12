@@ -97,6 +97,25 @@ bool CMainWnd::IsRunning()
 	return mRunning;
 }
 
+void CMainWnd::ToggleRunStop()
+{
+	if ( Settings.Trig.State == CSettings::Trigger::_Stop )
+	{
+		// continue, Single waits for the next trigger
+		Settings.Trig.State = Settings.Trig.Sync == CSettings::Trigger::_Single ?
+			CSettings::Trigger::_Wait : CSettings::Trigger::_Run;
+		m_lHoldUntil = 0;
+		BIOS::ADC::Restart(0);
+		m_lLastRequested = m_lLastAcquired = BIOS::SYS::GetTick();
+	} else
+		Settings.Trig.State = CSettings::Trigger::_Stop;
+
+	if ( m_wndMenuInput.m_itmTrig.IsVisible() )
+		m_wndMenuInput.m_itmTrig.Invalidate();
+	if ( m_wndGraph.IsVisible() )
+		m_wndGraph.Invalidate();
+}
+
 /*virtual*/ void CMainWnd::WindowMessage(int nMsg, int nParam)
 {
 	// acquisition is paused while the list of decoded data is shown, so the
@@ -147,7 +166,7 @@ bool CMainWnd::IsRunning()
 			CWnd::WindowMessage( CWnd::WmBroadcast, ToWord('d', 'g') );
 		}
 
-	if ( ready && Settings.Trig.Sync == CSettings::Trigger::_Auto && !m_lHoldUntil )
+	if ( ready && Settings.Trig.Sync == CSettings::Trigger::_Auto && !m_lHoldUntil && !bStopped )
 	{
                 // we dont need to wait for the screen to be fully reloaded - on slow sampling modes
 		int screenDuration = Settings.Runtime.m_nScreenDuration*3/2+20;
