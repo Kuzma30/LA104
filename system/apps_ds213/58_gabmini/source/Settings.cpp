@@ -54,6 +54,8 @@ CSettings* CSettings::m_pInstance = NULL;
 //		{"DC", "Sin HQ", "Sin LQ", "Triangle", "Sawtooth", "Square", "Cardiac", "Volatile"};
 /*static*/ const char* const CSettings::Generator::ppszTextWave[] =
 		{"DC", "Sin HQ", "Sin LQ", "Triangle", "Sawtooth", "Square", "Cardiac", "Noise", "Tri HW", "Volatile"};
+/*static*/ const char* const CSettings::PidRegulator::ppszTextMode[] =
+		{"Off", "Simulate", "Run"};
 /*static*/ const char* const CSettings::Trigger::ppszTextSync[] =
 		{"Auto", "Norm", "Single", "Scan", "None"};
 /*static*/ const char* const CSettings::Trigger::ppszTextSource[] =
@@ -181,6 +183,13 @@ void CSettings::Reset()
 	Gen.fSweepTime = 5.0f;
 	Gen.nSweepLog = 1;
 	Gen.nDds = 0;
+
+	Pid.Mode = 0;
+	Pid.fTarget = 1.0f;
+	Pid.fKp = 0.8f;
+	Pid.fKi = 2.0f;
+	Pid.fKd = 0.0f;
+	Pid.fPeriod = 20.0f;
 
 	Time.Resolution = TimeBase::_500us;
 	Time.Range = TimeBase::_4;

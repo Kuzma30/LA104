@@ -180,6 +180,17 @@ class AnalogChannel : public CSerialize
 			return *this;
 		}
 	};
+	class PidRegulator
+	{
+	public:
+		static const char* const ppszTextMode[];
+		NATIVEENUM Mode;    // CorePid::EMode, not stored: always starts Off
+		float fTarget;      // set point, V
+		float fKp;
+		float fKi;          // 1/s
+		float fKd;          // s
+		float fPeriod;      // ms
+	};
 	class Marker : public CSerialize
 	{
 	public:
@@ -407,6 +418,7 @@ public:
 	Display	Disp;
 	Decoder::TConfig Decode;
 	Generator Gen;
+	PidRegulator Pid;
 
 public:
 

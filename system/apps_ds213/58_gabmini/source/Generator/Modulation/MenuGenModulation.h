@@ -45,6 +45,12 @@ public:
 		{
 			float fValue = *m_pValue;
 			float fStep = m_nDec == 0 ? 1.0f : CCoreGenerator::AutoStep( fValue );
+			// three significant digits also below 100, down to the last decimal
+			float fMinStep = 1.0f;
+			for ( int i = 0; i < m_nDec; i++ )
+				fMinStep *= 0.1f;
+			while ( m_nDec > 1 && fStep * 100.0f > fValue && fStep > fMinStep * 1.5f )
+				fStep *= 0.1f;
 			int nDir = nKey == BIOS::KEY::Right ? 1 : -1;
 			fValue = ((int)(fValue / fStep + 0.5f) + nDir) * fStep;
 			if ( fValue > m_fMax )
@@ -92,8 +98,20 @@ public:
 			BIOS::LCD::Printf( x, y, RGB565(000000), RGBTRANS, "%d %s", (int)(*m_pValue + 0.5f), m_pszUnit );
 		else
 		{
-			int nTenths = (int)(*m_pValue * 10.0f + 0.5f);
-			BIOS::LCD::Printf( x, y, RGB565(000000), RGBTRANS, "%d.%d %s", nTenths / 10, nTenths % 10, m_pszUnit );
+			// fixed number of decimals
+			int nScale = 1;
+			for ( int i = 0; i < m_nDec; i++ )
+				nScale *= 10;
+			int nFixed = (int)(*m_pValue * nScale + 0.5f);
+			char strFrac[8];
+			int nFrac = nFixed % nScale;
+			for ( int i = m_nDec - 1; i >= 0; i-- )
+			{
+				strFrac[i] = '0' + nFrac % 10;
+				nFrac /= 10;
+			}
+			strFrac[m_nDec] = 0;
+			BIOS::LCD::Printf( x, y, RGB565(000000), RGBTRANS, "%d.%s %s", nFixed / nScale, strFrac, m_pszUnit );
 		}
 	}
 };

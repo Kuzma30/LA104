@@ -23,6 +23,8 @@ arm-none-eabi-g++ -Os -Werror -fno-common -mcpu=cortex-m3 -mthumb -msoft-float -
   ../source/Generator/Edit/MenuGenEdit.cpp \
   ../source/Generator/Main/MenuGenMain.cpp \
   ../source/Generator/Modulation/MenuGenModulation.cpp \
+  ../source/Generator/Pid/CorePid.cpp \
+  ../source/Generator/Pid/MenuPid.cpp \
   ../source/Framework/MyUtils.cpp \
   ../source/Framework/Lcd.cpp \
   ../../../os_host/source/framework/Wnd.cpp \
@@ -43,7 +45,7 @@ arm-none-eabi-gcc -Os -fPIC -mcpu=cortex-m3 -mthumb -o output.elf -nostartfiles 
   ./GraphOsc.o ./CoreOscilloscope.o ./MenuDisp.o ./MenuInput.o \
   ./MenuMarker.o \
   ./DecoderCore.o ./MenuDecode.o ./DecodeBand.o \
-  ./CoreGenerator.o ./MenuGenEdit.o ./MenuGenMain.o ./MenuGenModulation.o ./MyUtils.o ./Lcd.o \
+  ./CoreGenerator.o ./MenuGenEdit.o ./MenuGenMain.o ./MenuGenModulation.o ./CorePid.o ./MenuPid.o ./MyUtils.o ./Lcd.o \
   ./Sampler.o ./Settings.o ./SettingsStore.o ./Controls.o ./Serialize.o \
   -lbios_ds213 -L../../../os_library/build -lm
 

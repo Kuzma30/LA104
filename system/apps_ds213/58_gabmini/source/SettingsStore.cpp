@@ -5,7 +5,7 @@
 namespace SettingsStore
 {
     static const char* const FileName = "MINIOSC.CFG";
-    enum { Magic = 0x46434d47, Version = 1 };   // "GMCF"
+    enum { Magic = 0x46434d47, Version = 2 };   // "GMCF"
     enum { SectorSize = BIOS::FAT::SectorSize };
     typedef TSettingsIo<SectorSize> TIo;
 
@@ -131,6 +131,13 @@ namespace SettingsStore
 
         Decode(io, Settings.Decode);
         Generator(io, Settings.Gen);
+
+        // PID regulator (the mode is not stored, it always starts off)
+        io.Float(Settings.Pid.fTarget, 0, 30.0f);
+        io.Float(Settings.Pid.fKp, 0, 100.0f);
+        io.Float(Settings.Pid.fKi, 0, 1000.0f);
+        io.Float(Settings.Pid.fKd, 0, 10.0f);
+        io.Float(Settings.Pid.fPeriod, 10.0f, 5000.0f);
 
         // last opened tab
         io.Int(Settings.Runtime.m_nMenuItem, -1, 63);

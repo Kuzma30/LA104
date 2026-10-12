@@ -28,6 +28,8 @@ int _main(void)
         app.WindowMessage(CWnd::WmTick);
         // slow generator modulations and sweep
         CCoreGenerator::Tick();
+        // PID regulator keeps running in all tabs
+        CorePid::Tick();
         SettingsStore::Tick();
     }
     SettingsStore::Save();

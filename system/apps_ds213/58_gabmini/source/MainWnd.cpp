@@ -24,6 +24,8 @@ void CMainWnd::Create()
 	m_wndMenuGenerator.Create( this, WsHidden );
 	m_wndMenuGeneratorMod.Create( this, WsHidden );
 	m_wndMenuGeneratorEdit.Create( this, WsHidden );
+	m_wndPidGraph.Create( this, WsHidden | WsNoActivate );
+	m_wndMenuPid.Create( this, WsHidden );
 
 	m_wndLReferences.Create( this, WsHidden );
 	m_wndTReferences.Create( this, WsHidden );

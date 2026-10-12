@@ -25,6 +25,8 @@ public:
 	CWndMenuGenerator	m_wndMenuGenerator;
 	CWndMenuGeneratorMod	m_wndMenuGeneratorMod;
 	CWndMenuGeneratorEdit	m_wndMenuGeneratorEdit;
+	CWndPidGraph		m_wndPidGraph;
+	CWndMenuPid			m_wndMenuPid;
 
 	CWndMessageBox		m_wndMessage;	
 	CWndZoomBar			m_wndZoomBar;

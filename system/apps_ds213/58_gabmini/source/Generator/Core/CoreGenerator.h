@@ -47,6 +47,9 @@ private:
 	static float m_fSwBase;
 	static float m_fSwPhase;
 	static uint32_t m_nSwLast;
+	// Wave Out driven by the PID regulator
+	static bool m_bPid;
+	static ui16 m_nPidDac;
 
 public:
 	static ui16*	GetRamDac();
@@ -73,6 +76,12 @@ public:
 	static float GetMaxFrequency() { return _MaxFrequency(); }
 	// Call often from the main loop, runs slow modulations and sweep
 	static void Tick();
+
+	// The PID regulator owns Wave Out while it runs: DC level 0..0xfff.
+	// Generator settings are applied again by PidRelease()
+	static void PidOutput(int nDac);
+	static void PidRelease();
+	static bool PidActive() { return m_bPid; }
 
 	static const TWaveData* GetWave( int nWave );
 	static void CopyToVolatile( int nWave );

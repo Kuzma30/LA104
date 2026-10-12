@@ -10,6 +10,8 @@ static volatile uint32_t gDummyRegs[0x400];
 #endif
 
 /*static*/ ui16 CCoreGenerator::m_pRamWave[CCoreGenerator::MaxSamples];
+/*static*/ bool CCoreGenerator::m_bPid = false;
+/*static*/ ui16 CCoreGenerator::m_nPidDac = 0;
 /*static*/ int CCoreGenerator::m_nRamLen = 0;
 /*static*/ ui8 CCoreGenerator::m_pVolatile[256];
 /*static*/ int CCoreGenerator::m_nVolatileLen = 0;
@@ -746,6 +748,8 @@ static void _BestRational(float x, int nMaxDen, int& p, int& q)
 
 void CCoreGenerator::Update()
 {
+	if ( m_bPid )
+		return; // Wave Out is driven by the PID regulator
 	int nWaveIndex = Settings.Gen.Wave;
 	int nMod = _ModMode();
 	float fCarrier = Settings.Gen.nFrequency;
@@ -930,9 +934,43 @@ static float _Log2(float x)
 #endif
 }
 
+/*static*/ void CCoreGenerator::PidOutput(int nDac)
+{
+	if ( nDac < 0 )
+		nDac = 0;
+	if ( nDac > BIOS::DAC::SampleMaxValue )
+		nDac = BIOS::DAC::SampleMaxValue;
+	m_nPidDac = (ui16)nDac;
+	if ( !m_bPid )
+	{
+		// DC output like the DC wave: one sample buffer repeated by DMA,
+		// later only the value changes
+		m_bPid = true;
+		m_nSwMode = ModOff;
+#ifdef DS203
+		HwWave::Disable();
+#endif
+		_ConfigureWave( &m_nPidDac, 1 );
+		TPlan plan;
+		plan.nSamples = 1;
+		plan.nCycles = 1;
+		_Timer( CPUCLOCK / 1000.0f, 2, plan.nDiv, plan.nCnt );
+		plan.fReal = 0;
+		_ApplyAnalog( plan );
+	}
+}
+
+/*static*/ void CCoreGenerator::PidRelease()
+{
+	if ( !m_bPid )
+		return;
+	m_bPid = false;
+	Update();
+}
+
 /*static*/ void CCoreGenerator::Tick()
 {
-	if ( m_nSwMode == ModOff )
+	if ( m_nSwMode == ModOff || m_bPid )
 		return;
 	uint32_t nNow = BIOS::SYS::GetTick();
 	int nElapsed = nNow - m_nSwLast;

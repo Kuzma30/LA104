@@ -14,6 +14,7 @@
 		{ CBarItem::ISub,	(PSTR)"Wave", &MainWnd.m_wndMenuGenerator},
 		{ CBarItem::ISub,	(PSTR)"Mod", &MainWnd.m_wndMenuGeneratorMod},
 		{ CBarItem::ISub,	(PSTR)"Edit", &MainWnd.m_wndMenuGeneratorEdit},
+		{ CBarItem::ISub,	(PSTR)"PID", &MainWnd.m_wndMenuPid},
 		{ CBarItem::IEnd,		NULL, NULL }
 	};
 

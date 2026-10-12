@@ -11,5 +11,6 @@
 #include "Main/MenuGenMain.h"
 #include "Modulation/MenuGenModulation.h"
 #include "Edit/MenuGenEdit.h"
+#include "Pid/MenuPid.h"
 
 #endif
