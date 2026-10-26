@@ -34,8 +34,11 @@ int _main(void)
         CCoreGenerator::Tick();
         // PID regulator keeps running in all tabs
         CorePid::Tick();
+        // pulse counter (hardware counter on Wave Out)
+        DecodeUi::Tick();
         SettingsStore::Tick();
     }
+    DecodeUi::Shutdown();
     SettingsStore::Save();
     
     app.Destroy();

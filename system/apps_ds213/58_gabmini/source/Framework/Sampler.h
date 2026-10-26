@@ -7,9 +7,12 @@ namespace Sampler
 {
 	enum { Samples = BIOS::ADC::NumSamples, BytesPerSample = 3 };
 
-	void Copy();
+	// bNew: a new acquisition, false when the same (unfinished) acquisition
+	// is read again
+	void Copy(bool bNew = true);
 	// sample in the BIOS::ADC::TSample layout, NoData after the valid part
 	BIOS::ADC::TSample::SampleType GetAt(int);
 	uint8_t* GetBuffer();
 	int GetValid();     // samples received by the last Copy()
+	uint32_t GetSequence(); // incremented by every new acquisition
 }

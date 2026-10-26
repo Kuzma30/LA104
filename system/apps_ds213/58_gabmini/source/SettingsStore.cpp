@@ -5,7 +5,7 @@
 namespace SettingsStore
 {
     static const char* const FileName = "MINIOSC.CFG";
-    enum { Magic = 0x46434d47, Version = 2 };   // "GMCF"
+    enum { Magic = 0x46434d47, Version = 3 };   // "GMCF"
     enum { SectorSize = BIOS::FAT::SectorSize };
     typedef TSettingsIo<SectorSize> TIo;
 
@@ -73,6 +73,8 @@ namespace SettingsStore
         io.Enum(c.wsOrder, 1);
         io.Enum(c.format, FormatMax);
         io.Enum(c.band, BandMax);
+        io.Enum(c.cntEdge, EdgeMax);
+        io.Enum(c.cntSource, SourceMax);
     }
 
     static void Generator(TIo& io, CSettings::Generator& g)

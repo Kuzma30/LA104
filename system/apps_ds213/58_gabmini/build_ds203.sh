@@ -19,6 +19,7 @@ arm-none-eabi-g++ -Os -Werror -fno-common -mcpu=cortex-m3 -mthumb -msoft-float -
   ../source/Oscilloscope/Decode/DecoderCore.cpp \
   ../source/Oscilloscope/Decode/MenuDecode.cpp \
   ../source/Oscilloscope/Decode/DecodeBand.cpp \
+  ../source/Oscilloscope/Decode/HwCounter.cpp \
   ../source/Generator/Core/CoreGenerator.cpp \
   ../source/Generator/Edit/MenuGenEdit.cpp \
   ../source/Generator/Main/MenuGenMain.cpp \
@@ -44,7 +45,7 @@ arm-none-eabi-gcc -Os -fPIC -mcpu=cortex-m3 -mthumb -o output.elf -nostartfiles 
   ./Shapes.o \
   ./GraphOsc.o ./CoreOscilloscope.o ./MenuDisp.o ./MenuInput.o \
   ./MenuMarker.o \
-  ./DecoderCore.o ./MenuDecode.o ./DecodeBand.o \
+  ./DecoderCore.o ./MenuDecode.o ./DecodeBand.o ./HwCounter.o \
   ./CoreGenerator.o ./MenuGenEdit.o ./MenuGenMain.o ./MenuGenModulation.o ./CorePid.o ./MenuPid.o ./MyUtils.o ./Lcd.o \
   ./Sampler.o ./Settings.o ./SettingsStore.o ./Controls.o ./Serialize.o \
   -lbios_ds203 -L../../../os_library/build -lm || exit 1

@@ -196,7 +196,9 @@ void CMainWnd::ToggleRunStop()
 #endif
 //			if (bScreenReady)
 			{
-         			Sampler::Copy();
+         			// the acquisition continues when it is not restarted below,
+         			// the next copy reads the same samples again
+         			Sampler::Copy( bScreenReady );
 
          			// redraw the screen even when the sampler is not full
          			WindowMessage( CWnd::WmBroadcast, ToWord('d', 'g') );

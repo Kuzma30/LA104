@@ -20,12 +20,16 @@
 namespace Decoder
 {
     enum EProtocol {
-        Off, Uart, Lin, I2c, Spi, OneWire, Can, Ws2812, Nec, Ps2, Pulse,
+        Off, Uart, Lin, I2c, Spi, OneWire, Can, Ws2812, Nec, Ps2, Pulse, Counter,
         ProtocolCount, ProtocolMax = ProtocolCount - 1
     };
     enum EChannel { Ch1, Ch2, Ch3, Ch4, ChOff, ChMax = ChOff, ChMaxRequired = Ch4 };
     enum EFormat { Hex, Dec, Ascii, FormatMax = Ascii };
     enum EBand { Top, Bottom, BandMax = Bottom };
+    enum ECountEdge { EdgeRise, EdgeFall, EdgeBoth, EdgeMax = EdgeBoth };
+    // samples of the input channel, or the hardware timer counter on the
+    // Wave Out connector (DS203 only)
+    enum ECountSource { SourceSamples, SourceWaveOut, SourceMax = SourceWaveOut };
 
     enum { MaxRoles = 4 };
 
@@ -46,6 +50,8 @@ namespace Decoder
         uint8_t wsOrder;                     // GRB, RGB
         uint8_t format;                      // EFormat
         uint8_t band;                        // EBand
+        uint8_t cntEdge;                     // ECountEdge
+        uint8_t cntSource;                   // ECountSource
     };
 
     enum EType {
@@ -65,6 +71,7 @@ namespace Decoder
         TColor,         // WS2812, value = 0xRRGGBB, aux = led index
         TLeader, TRepeat, TNecAddr, TNecCmd, // NEC IR, aux = number of bits
         TPulse,         // value = width in samples, aux = period in samples (0 = unknown)
+        TCount,         // counted edge / pulse, value = number in the buffer (from 1)
         TWarning        // value = EWarning
     };
 
@@ -86,6 +93,7 @@ namespace Decoder
     TAnnotation Get(int i);
     extern bool Overflow;
     extern uint32_t DetectedRate;   // baud / bit rate used by the last decode (0 = n/a)
+    extern uint32_t CountedEdges;   // Counter: edges in the decoded part of the buffer
 
     // option tables (also used by the menu)
     extern const uint32_t RateUart[];

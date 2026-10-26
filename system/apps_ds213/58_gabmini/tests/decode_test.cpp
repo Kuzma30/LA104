@@ -521,6 +521,56 @@ static void TestPulse()
     Shot("pulse", cfg, 0);
 }
 
+static void TestCounter()
+{
+    Clear();
+    fs = 72e6f / 240; // 300 kHz
+    TConfig cfg; SetDefaults(cfg);
+    cfg.protocol = Counter;
+    Sig s(2, 0);
+    s.Hold(0.1e-3, 0);
+    for (int i = 0; i < 7; i++) { s.Hold(0.2e-3, 1); s.Hold(0.3e-3, 0); }
+    s.Hold(0.2e-3, 1);   // last pulse does not end in the buffer
+    s.Rest();
+    Expect("count rise", cfg, {"1", "2", "3", "4", "5", "6", "7", "8"});
+    bool ok = CountedEdges == 8 && !(Get(0).flags & FPoint) && (Get(7).flags & FPoint);
+    std::vector<std::string> l = Texts(true, cfg);
+    ok &= l.size() == 8 && l[0] == "High pulse #1 200us";
+    printf("%-14s %s  %s\n", "count text", ok ? "OK  " : "FAIL", l.empty() ? "" : l[0].c_str());
+    failures += !ok;
+    cfg.cntEdge = EdgeFall;
+    Decode(cfg);
+    ok = CountedEdges == 7 && Count == 7;
+    l = Texts(true, cfg);
+    ok &= l[0] == "Low pulse #1 300us";
+    cfg.cntEdge = EdgeBoth;
+    Decode(cfg);
+    ok &= CountedEdges == 15 && Count == 15 && (Get(0).flags & FPoint);
+    // analog channel
+    Clear();
+    Sig a(0, 0);
+    a.Hold(0.1e-3, 0);
+    for (int i = 0; i < 5; i++) { a.Hold(0.2e-3, 1); a.Hold(0.3e-3, 0); }
+    a.Rest();
+    cfg.cntEdge = EdgeRise;
+    cfg.ch[Counter][0] = Ch1;
+    Decode(cfg);
+    ok &= CountedEdges == 5;
+    // more edges than annotations: all counted, no overflow message
+    Clear();
+    cfg.ch[Counter][0] = Ch3;
+    for (int i = 0; i < N; i++)
+        buf[i] = ((i / 2) & 1) << 16;
+    Decode(cfg);
+    ok &= CountedEdges == N / 4 && !Overflow && Count == N / 24 - 1 && Get(Count - 1).type == TCount;
+    // hardware source: nothing is decoded from the buffer
+    cfg.cntSource = SourceWaveOut;
+    Decode(cfg);
+    ok &= Count == 0 && CountedEdges == 0;
+    printf("%-14s %s  edges=%u items=%d\n", "counter", ok ? "OK  " : "FAIL", CountedEdges, Count);
+    failures += !ok;
+}
+
 static void TestWarnings()
 {
     Clear();
@@ -576,6 +626,7 @@ int main(int argc, char** argv)
     TestNec();
     TestPs2();
     TestPulse();
+    TestCounter();
     TestWarnings();
     TestOverflow();
     char tmp[32];

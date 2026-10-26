@@ -17,6 +17,13 @@ namespace DecodeUi
 
     int Selected();
     void Select(int n);
+
+    // Counter: hardware counter on/off by the settings, frequency gate,
+    // refresh of the values; from the main loop
+    void Tick();
+    void Shutdown();                 // at exit, gives Wave Out back to the generator
+    void CounterReset();
+    uint64_t CounterTotal();
 }
 
 class CItemDecodeButton : public CWndMenuItem

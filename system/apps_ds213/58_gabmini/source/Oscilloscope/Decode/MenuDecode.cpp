@@ -1,5 +1,6 @@
 #include "MenuDecode.h"
 #include "DecodeBand.h"
+#include "HwCounter.h"
 #include <MainWnd.h>
 
 using namespace Decoder;
@@ -13,6 +14,8 @@ static const char* const g_textMode[] = {"0", "1", "2", "3"};
 static const char* const g_textOrder[] = {"MSB first", "LSB first"};
 static const char* const g_textRgb[] = {"GRB", "RGB"};
 static const char* const g_textBand[] = {"Top", "Bottom"};
+static const char* const g_textEdge[] = {"Rising", "Falling", "Both"};
+static const char* const g_textSource[] = {"Input", "Wave Out"};
 
 // ---------------------------------------------------------------------------
 
@@ -20,6 +23,16 @@ namespace DecodeUi
 {
     static bool s_bHold = false;
     static int s_nSelected = -1;
+
+    // software counter: edges of all acquisitions since reset
+    static uint64_t s_nSwTotal = 0;
+    static uint32_t s_nSwSequence = 0;
+
+    static bool _HwWanted()
+    {
+        return Settings.Decode.protocol == Counter &&
+            Settings.Decode.cntSource == SourceWaveOut && HwCounter::Available();
+    }
 
     float SampleRate()
     {
@@ -42,6 +55,14 @@ namespace DecodeUi
     {
         Decoder::Run( Settings.Decode, Sampler::GetBuffer(), Sampler::Samples,
             Settings.Time.InvalidFirst, Sampler::GetValid(), SampleRate() );
+        if ( Settings.Decode.protocol == Counter && Settings.Decode.cntSource == SourceSamples &&
+             Sampler::GetSequence() != s_nSwSequence )
+        {
+            // every acquisition is added once, decoding it again with other
+            // settings does not count it again
+            s_nSwSequence = Sampler::GetSequence();
+            s_nSwTotal += Decoder::CountedEdges;
+        }
         if ( s_nSelected >= Decoder::Count )
             s_nSelected = -1;
         if ( MainWnd.m_wndMenuDecode.IsVisible() )
@@ -71,6 +92,136 @@ namespace DecodeUi
     void RenderColumn(ui16* column, int nHeight, int nIndex)
     {
         DecodeBand::Column( column, nHeight, nIndex );
+    }
+
+    void CounterReset()
+    {
+        s_nSwTotal = 0;
+        s_nSwSequence = Sampler::GetSequence();   // the shown buffer is not counted
+        HwCounter::Reset();
+    }
+
+    uint64_t CounterTotal()
+    {
+        if ( HwCounter::Active() )
+            return HwCounter::Value();
+        return s_nSwTotal;
+    }
+
+    void Tick()
+    {
+        bool bWanted = _HwWanted();
+        if ( bWanted && (!HwCounter::Active() || HwCounter::Edge() != Settings.Decode.cntEdge) )
+            HwCounter::Start( Settings.Decode.cntEdge );
+        else if ( !bWanted && HwCounter::Active() )
+            HwCounter::Stop();
+        HwCounter::Tick();
+
+        if ( Settings.Decode.protocol != Counter || !MainWnd.m_wndMenuDecode.IsVisible() )
+            return;
+        static uint32_t nLast = 0;
+        uint32_t nNow = BIOS::SYS::GetTick();
+        if ( nNow - nLast < 200 )
+            return;
+        nLast = nNow;
+        MainWnd.m_wndMenuDecode.Refresh();
+    }
+
+    void Shutdown()
+    {
+        HwCounter::Stop();
+    }
+}
+
+static void FormatFreq(float f, char* buf);
+
+// count with 8 characters at most: digits, then millions / billions
+static void FormatCount(uint64_t n, char* buf)
+{
+    if ( n < 100000000ull )
+    {
+        strcpy( buf, CUtils::itoa( (int)n ) );
+        return;
+    }
+    char unit = 'M';
+    uint64_t nDiv = 1000000ull;
+    if ( n >= 100000000000ull )
+    {
+        unit = 'G';
+        nDiv = 1000000000ull;
+    }
+    uint32_t nWhole = (uint32_t)(n / nDiv);
+    uint32_t nFrac = (uint32_t)((n % nDiv) / (nDiv / 1000));   // 3 decimals
+    strcpy( buf, CUtils::itoa( (int)nWhole ) );
+    int nDec = 6 - (int)strlen(buf);                            // fits 8 characters
+    if ( nDec > 3 ) nDec = 3;
+    if ( nDec > 0 )
+    {
+        char frac[4] = {(char)('0' + nFrac / 100), (char)('0' + nFrac / 10 % 10), (char)('0' + nFrac % 10), 0};
+        frac[nDec] = 0;
+        strcat( buf, "." );
+        strcat( buf, frac );
+    }
+    int nLen = strlen(buf);
+    buf[nLen] = unit;
+    buf[nLen+1] = 0;
+}
+
+// frequency of the hardware counter, 1 Hz resolution, 8 characters
+static void FormatRate(float f, char* buf)
+{
+    uint32_t n = (uint32_t)(f + 0.5f);
+    if ( n < 1000000 )
+    {
+        strcpy( buf, CUtils::itoa( (int)n ) );
+        strcat( buf, "Hz" );
+        return;
+    }
+    // MHz with as many decimals as fit
+    strcpy( buf, CUtils::itoa( (int)(n / 1000000) ) );
+    int nDec = 6 - (int)strlen(buf);
+    uint32_t nFrac = n % 1000000;
+    strcat( buf, "." );
+    char frac[7];
+    for ( int i = 5; i >= 0; i-- )
+    {
+        frac[i] = (char)('0' + nFrac % 10);
+        nFrac /= 10;
+    }
+    frac[nDec] = 0;
+    strcat( buf, frac );
+    strcat( buf, "M" );
+}
+
+// the three lines of the info panel in counter mode
+static void CounterText(int nLine, char* text)
+{
+    text[0] = 0;
+    bool bHw = HwCounter::Active();
+    if ( nLine == 0 )
+        FormatCount( DecodeUi::CounterTotal(), text );
+    else if ( nLine == 1 )
+    {
+        if ( bHw )
+        {
+            float fRate;
+            if ( HwCounter::Rate( fRate ) )
+                FormatRate( fRate, text );
+            else
+                strcpy( text, "..." );
+        } else
+        {
+            // edges in the shown buffer
+            strcpy( text, "+" );
+            strcat( text, CUtils::itoa( (int)Decoder::CountedEdges ) );
+        }
+    }
+    else if ( bHw )
+        strcpy( text, "Wave Out" );
+    else
+    {
+        strcpy( text, "fs " );
+        FormatFreq( DecodeUi::SampleRate(), text + 3 );
     }
 }
 
@@ -157,6 +308,16 @@ void CItemDecodeInfo::Create(CWnd* pParent)
     char text[16];
     int proto = Settings.Decode.protocol;
     text[0] = 0;
+    if ( proto == Counter )
+    {
+        static const ui16 arrClr[3] = {RGB565(ffffff), RGB565(ffff00), RGB565(b0b0b0)};
+        for ( int i = 0; i < 3; i++ )
+        {
+            CounterText( i, text );
+            BIOS::LCD::Print( x, y + 16*i, arrClr[i], RGBTRANS, text );
+        }
+        return;
+    }
     if ( (proto == Uart || proto == Lin) && DetectedRate )
     {
         strcpy( text, CUtils::itoa(DetectedRate) );
@@ -213,7 +374,7 @@ void CWndListDecode::Create(CWnd* pParent)
     for ( int r = 0; r < MaxRoles; r++ )
         if ( RoleName(p, r) )
             nItems++;
-    static const uint8_t arrParams[ProtocolCount] = {0, 5, 2, 0, 3, 0, 2, 1, 1, 0, 1};
+    static const uint8_t arrParams[ProtocolCount] = {0, 5, 2, 0, 3, 0, 2, 1, 1, 0, 1, 2};
     nItems += arrParams[p];
 
     CListBox::Create( ProtocolText[p], WsVisible | WsModal,
@@ -254,6 +415,13 @@ void CWndListDecode::Create(CWnd* pParent)
         break;
     case Pulse:
         _Add( "Measure", g_textPulse, &c.invert[p], 1 );
+        break;
+    case Counter:
+        _Add( "Edges", g_textEdge, &c.cntEdge, EdgeMax );
+        if ( HwCounter::Available() )
+            _Add( "Source", g_textSource, &c.cntSource, SourceMax );
+        else
+            c.cntSource = SourceSamples;
         break;
     }
     _Add( "Band", g_textBand, &c.band, BandMax );
@@ -404,6 +572,30 @@ void CWndMenuDecode::Refresh()
             m_itmInfo.Invalidate();
         nLastPulse = nPulse;
     }
+    if ( Settings.Decode.protocol == Counter )
+    {
+        // redraw only the changed values
+        static uint32_t nLastHash = 0;
+        uint32_t nHash = 5381;
+        char text[16];
+        for ( int i = 0; i < 3; i++ )
+        {
+            CounterText( i, text );
+            for ( char* p = text; *p; p++ )
+                nHash = nHash * 33 + *p;
+            nHash = nHash * 33 + '|';
+        }
+        if ( nHash != nLastHash )
+            m_itmInfo.Invalidate();
+        nLastHash = nHash;
+    }
+    // the List button resets the counter
+    const char* pszList = Settings.Decode.protocol == Counter ? "Reset" : "List";
+    if ( m_itmList.m_pszId != pszList )
+    {
+        m_itmList.m_pszId = pszList;
+        m_itmList.Invalidate();
+    }
     nLastCount = Decoder::Count;
     nLastRate = Decoder::DetectedRate;
     nLastSel = DecodeUi::Selected();
@@ -466,6 +658,13 @@ void CWndMenuDecode::Refresh()
     {
         m_wndSetup.StopModal();
         DecodeUi::Update();
+        return;
+    }
+
+    if ( code == ToWord('d', 'l') && Settings.Decode.protocol == Counter )
+    {
+        DecodeUi::CounterReset();
+        m_itmInfo.Invalidate();
         return;
     }
 

@@ -5,11 +5,14 @@ namespace Sampler
 {
 	static uint8_t memory[Samples * BytesPerSample];
 	static int nValid = 0;
+	static uint32_t nSequence = 0;
 
-	void Copy()
+	void Copy(bool bNew)
 	{
 		uint8_t* p = memory;
 		nValid = Samples;
+		if ( bNew )
+			nSequence++;
 		for (int i=0; i<Samples; i++, p += BytesPerSample)
 		{
 			uint32_t value = BIOS::ADC::Get();
@@ -29,6 +32,11 @@ namespace Sampler
 	int GetValid()
 	{
 		return nValid;
+	}
+
+	uint32_t GetSequence()
+	{
+		return nSequence;
 	}
 
 	BIOS::ADC::TSample::SampleType GetAt(int i)

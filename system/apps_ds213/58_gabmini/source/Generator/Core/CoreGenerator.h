@@ -49,6 +49,7 @@ private:
 	static uint32_t m_nSwLast;
 	// Wave Out driven by the PID regulator
 	static bool m_bPid;
+	static bool m_bSuspended;
 	static ui16 m_nPidDac;
 
 public:
@@ -82,6 +83,11 @@ public:
 	static void PidOutput(int nDac);
 	static void PidRelease();
 	static bool PidActive() { return m_bPid; }
+
+	// Wave Out connector used as the input of the hardware counter: the
+	// generator does not touch the output until resumed (Update reapplies it)
+	static void Suspend(bool bSuspend);
+	static bool Suspended() { return m_bSuspended; }
 
 	static const TWaveData* GetWave( int nWave );
 	static void CopyToVolatile( int nWave );

@@ -5,6 +5,7 @@ namespace Decoder
     int Count = 0;
     bool Overflow = false;
     uint32_t DetectedRate = 0;
+    uint32_t CountedEdges = 0;
 
     const uint32_t RateUart[] = {0, 300, 1200, 2400, 4800, 9600, 14400, 19200, 38400, 57600,
         76800, 115200, 230400, 250000, 460800, 500000, 921600, 1000000, 2000000};
@@ -21,7 +22,7 @@ namespace Decoder
     const char* const BitsSpiText[] = {"4", "8", "9", "10", "12", "16", "24", "32"};
 
     const char* const ProtocolText[] = {"Off", "UART", "LIN", "I2C", "SPI", "1-Wire", "CAN",
-        "WS2812", "NEC IR", "PS/2", "Pulse"};
+        "WS2812", "NEC IR", "PS/2", "Pulse", "Counter"};
     const char* const ChannelText[] = {"CH1", "CH2", "CH3", "CH4", "Off"};
 
     static const char* const g_roles[ProtocolCount][MaxRoles] = {
@@ -35,6 +36,7 @@ namespace Decoder
         {"DIN", nullptr, nullptr, nullptr},
         {"IR", nullptr, nullptr, nullptr},
         {"CLK", "DATA", nullptr, nullptr},
+        {"Input", nullptr, nullptr, nullptr},
         {"Input", nullptr, nullptr, nullptr},
     };
 
@@ -75,6 +77,8 @@ namespace Decoder
         cfg.wsOrder = 0;
         cfg.format = Hex;
         cfg.band = Top;
+        cfg.cntEdge = EdgeRise;
+        cfg.cntSource = SourceSamples;
     }
 
     // ------------------------------------------------------------------
@@ -1092,6 +1096,45 @@ namespace Decoder
     }
 
     // ------------------------------------------------------------------
+    // Edge / pulse counter: every edge of the buffer is counted, the first
+    // ones (as many as fit) are also marked with their number. With rising
+    // (falling) edges the mark covers the high (low) pulse that follows.
+
+    static void DecodeCounter(const TConfig& cfg)
+    {
+        TLine ln;
+        ln.Set(cfg.ch[Counter][0], cfg.cntEdge == EdgeFall);
+        if (!ln.valid)
+        {
+            Warn(WNoChannel);
+            return;
+        }
+        bool bBoth = cfg.cntEdge == EdgeBoth;
+        uint32_t n = 0;
+        int i = NextChange(ln, s_first);
+        while (i < s_count)
+        {
+            // after inverting the falling edges are rising edges
+            int next = NextChange(ln, i);
+            if (bBoth || ln.L(i))
+            {
+                n++;
+                if (!Overflow)
+                {
+                    if (bBoth || next >= s_count)
+                        Add(i, i, TCount, n, FPoint);
+                    else
+                        Add(i, next - 1, TCount, n);
+                }
+            }
+            i = next;
+        }
+        CountedEdges = n;
+        // the overflow message would only say that not all edges are marked
+        Overflow = false;
+    }
+
+    // ------------------------------------------------------------------
 
     static void Sort()
     {
@@ -1116,6 +1159,7 @@ namespace Decoder
         Count = 0;
         Overflow = false;
         DetectedRate = 0;
+        CountedEdges = 0;
         s_samples = samples;
         s_fs = sampleRate;
         s_first = first;
@@ -1124,6 +1168,8 @@ namespace Decoder
         s_capacity = nBufferSamples / AnnSamples;
         if (cfg.protocol == Off || cfg.protocol >= ProtocolCount || s_count - s_first < 16)
             return;
+        if (cfg.protocol == Counter && cfg.cntSource != SourceSamples)
+            return;     // counted by the timer, nothing to show in the buffer
 
         // analog channels -> logic levels
         bool bUsed[2] = {false, false};
@@ -1152,6 +1198,7 @@ namespace Decoder
         case Nec: DecodeNec(cfg); break;
         case Ps2: DecodePs2(cfg); break;
         case Pulse: DecodePulse(cfg); break;
+        case Counter: DecodeCounter(cfg); break;
         }
         Sort();
         if (Overflow)
@@ -1549,6 +1596,22 @@ namespace Decoder
             }
             break;
         }
+        case TCount:
+            if (longForm)
+            {
+                char tmp[16];
+                w.S(cfg.cntEdge == EdgeBoth ? "Edge " : cfg.cntEdge == EdgeFall ? "Low pulse " : "High pulse ");
+                w.C('#');
+                w.Dec(a.value);
+                if (!(a.flags & FPoint))
+                {
+                    w.C(' ');
+                    FormatTime((a.end - a.begin + 1) / sampleRate, tmp);
+                    w.S(tmp);
+                }
+            } else
+                w.Dec(a.value);
+            break;
         case TWarning:
             if (a.value < sizeof(g_warnings) / sizeof(g_warnings[0]))
                 w.S(g_warnings[a.value]);

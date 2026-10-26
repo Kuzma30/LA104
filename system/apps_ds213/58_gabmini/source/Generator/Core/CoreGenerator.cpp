@@ -11,6 +11,7 @@ static volatile uint32_t gDummyRegs[0x400];
 
 /*static*/ ui16 CCoreGenerator::m_pRamWave[CCoreGenerator::MaxSamples];
 /*static*/ bool CCoreGenerator::m_bPid = false;
+/*static*/ bool CCoreGenerator::m_bSuspended = false;
 /*static*/ ui16 CCoreGenerator::m_nPidDac = 0;
 /*static*/ int CCoreGenerator::m_nRamLen = 0;
 /*static*/ ui8 CCoreGenerator::m_pVolatile[256];
@@ -746,8 +747,19 @@ static void _BestRational(float x, int nMaxDen, int& p, int& q)
 	return nMode;
 }
 
+/*static*/ void CCoreGenerator::Suspend(bool bSuspend)
+{
+	if ( m_bSuspended == bSuspend )
+		return;
+	m_bSuspended = bSuspend;
+	if ( !bSuspend && !m_bPid )
+		Update();
+}
+
 void CCoreGenerator::Update()
 {
+	if ( m_bSuspended )
+		return; // Wave Out is the input of the hardware counter
 	if ( m_bPid )
 		return; // Wave Out is driven by the PID regulator
 	int nWaveIndex = Settings.Gen.Wave;
@@ -941,6 +953,8 @@ static float _Log2(float x)
 	if ( nDac > BIOS::DAC::SampleMaxValue )
 		nDac = BIOS::DAC::SampleMaxValue;
 	m_nPidDac = (ui16)nDac;
+	if ( m_bSuspended )
+		return;
 	if ( !m_bPid )
 	{
 		// DC output like the DC wave: one sample buffer repeated by DMA,
@@ -970,7 +984,7 @@ static float _Log2(float x)
 
 /*static*/ void CCoreGenerator::Tick()
 {
-	if ( m_nSwMode == ModOff || m_bPid )
+	if ( m_nSwMode == ModOff || m_bPid || m_bSuspended )
 		return;
 	uint32_t nNow = BIOS::SYS::GetTick();
 	int nElapsed = nNow - m_nSwLast;
