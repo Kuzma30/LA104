@@ -24,6 +24,7 @@ namespace DecodeUi
     void Shutdown();                 // at exit, gives Wave Out back to the generator
     void CounterReset();
     uint64_t CounterTotal();
+    int CounterChannel();            // FPGA counter: FpgaCounter::C or D
 }
 
 class CItemDecodeButton : public CWndMenuItem

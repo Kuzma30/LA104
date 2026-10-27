@@ -27,9 +27,9 @@ namespace Decoder
     enum EFormat { Hex, Dec, Ascii, FormatMax = Ascii };
     enum EBand { Top, Bottom, BandMax = Bottom };
     enum ECountEdge { EdgeRise, EdgeFall, EdgeBoth, EdgeMax = EdgeBoth };
-    // samples of the input channel, or the hardware timer counter on the
-    // Wave Out connector (DS203 only)
-    enum ECountSource { SourceSamples, SourceWaveOut, SourceMax = SourceWaveOut };
+    // samples of the input channel, the hardware timer counter on the Wave
+    // Out connector or the counters of C and D in the FPGA (DS203 only)
+    enum ECountSource { SourceSamples, SourceWaveOut, SourceFpga, SourceMax = SourceFpga };
 
     enum { MaxRoles = 4 };
 

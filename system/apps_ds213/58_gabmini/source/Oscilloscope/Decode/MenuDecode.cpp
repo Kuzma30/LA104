@@ -1,6 +1,7 @@
 #include "MenuDecode.h"
 #include "DecodeBand.h"
 #include "HwCounter.h"
+#include "FpgaCounter.h"
 #include <MainWnd.h>
 
 using namespace Decoder;
@@ -15,7 +16,7 @@ static const char* const g_textOrder[] = {"MSB first", "LSB first"};
 static const char* const g_textRgb[] = {"GRB", "RGB"};
 static const char* const g_textBand[] = {"Top", "Bottom"};
 static const char* const g_textEdge[] = {"Rising", "Falling", "Both"};
-static const char* const g_textSource[] = {"Input", "Wave Out"};
+static const char* const g_textSource[] = {"Input", "Wave Out", "FPGA C/D"};
 
 // ---------------------------------------------------------------------------
 
@@ -32,6 +33,19 @@ namespace DecodeUi
     {
         return Settings.Decode.protocol == Counter &&
             Settings.Decode.cntSource == SourceWaveOut && HwCounter::Available();
+    }
+
+    static bool _FpgaWanted()
+    {
+        return Settings.Decode.protocol == Counter &&
+            Settings.Decode.cntSource == SourceFpga && FpgaCounter::Available();
+    }
+    static bool s_bFpgaTried = false;   // do not reload a failed image every tick
+
+    // channel shown first by the FPGA counter: D when Input is CH4
+    static int _FpgaChannel()
+    {
+        return Settings.Decode.ch[Counter][0] == Ch4 ? FpgaCounter::D : FpgaCounter::C;
     }
 
     float SampleRate()
@@ -71,7 +85,8 @@ namespace DecodeUi
 
     bool Hold()
     {
-        return s_bHold;
+        // the FPGA does not sample while the counter image is loaded
+        return s_bHold || FpgaCounter::Active();
     }
 
     int Selected()
@@ -99,12 +114,20 @@ namespace DecodeUi
         s_nSwTotal = 0;
         s_nSwSequence = Sampler::GetSequence();   // the shown buffer is not counted
         HwCounter::Reset();
+        FpgaCounter::Reset();
+    }
+
+    int CounterChannel()
+    {
+        return _FpgaChannel();
     }
 
     uint64_t CounterTotal()
     {
         if ( HwCounter::Active() )
             return HwCounter::Value();
+        if ( FpgaCounter::Active() )
+            return FpgaCounter::Value( _FpgaChannel() );
         return s_nSwTotal;
     }
 
@@ -116,6 +139,28 @@ namespace DecodeUi
         else if ( !bWanted && HwCounter::Active() )
             HwCounter::Stop();
         HwCounter::Tick();
+
+        bool bFpga = _FpgaWanted();
+        if ( !bFpga )
+            s_bFpgaTried = false;
+        if ( bFpga && !FpgaCounter::Active() && !s_bFpgaTried )
+        {
+            s_bFpgaTried = true;
+            FpgaCounter::Start( Settings.Decode.cntEdge );
+            if ( MainWnd.m_wndMenuDecode.IsVisible() )
+                MainWnd.m_wndMenuDecode.m_itmInfo.Invalidate();
+        }
+        else if ( !bFpga && FpgaCounter::Active() )
+        {
+            FpgaCounter::Stop();
+            // acquisition continues with a new buffer
+            MainWnd.m_wndGraph.Invalidate();
+        }
+        static int nLastEdge = -1;
+        if ( FpgaCounter::Active() && nLastEdge != Settings.Decode.cntEdge )
+            FpgaCounter::SetEdge( Settings.Decode.cntEdge );
+        nLastEdge = Settings.Decode.cntEdge;
+        FpgaCounter::Tick();
 
         if ( Settings.Decode.protocol != Counter || !MainWnd.m_wndMenuDecode.IsVisible() )
             return;
@@ -130,6 +175,7 @@ namespace DecodeUi
     void Shutdown()
     {
         HwCounter::Stop();
+        FpgaCounter::Stop();
     }
 }
 
@@ -194,8 +240,49 @@ static void FormatRate(float f, char* buf)
 }
 
 // the three lines of the info panel in counter mode
+static void FpgaText(int nLine, char* text)
+{
+    using namespace FpgaCounter;
+    text[0] = 0;
+    if ( !Active() )
+    {
+        static const char* const arrError[] = {"loading", "", "no file", "cfg err", "no id", ""};
+        if ( nLine == 0 )
+            strcpy( text, "FPGA" );
+        else if ( nLine == 1 )
+            strcpy( text, arrError[Status()] );
+        else
+            strcpy( text, Status() == NoFile ? "CNT_FPGA" : "" );
+        return;
+    }
+    if ( nLine < 2 )
+    {
+        // C and D with the channel letter
+        text[0] = nLine == 0 ? 'C' : 'D';
+        FormatCount( Value( nLine == 0 ? C : D ), text + 1 );
+        if ( strlen(text) > 8 )
+            FormatCount( Value( nLine == 0 ? C : D ), text );
+        return;
+    }
+    if ( Status() == NoClock )
+    {
+        strcpy( text, "no clock" );
+        return;
+    }
+    float fRate;
+    if ( Rate( DecodeUi::CounterChannel(), fRate ) )
+        FormatRate( fRate, text );
+    else
+        strcpy( text, "..." );
+}
+
 static void CounterText(int nLine, char* text)
 {
+    if ( Settings.Decode.cntSource == SourceFpga && FpgaCounter::Available() )
+    {
+        FpgaText( nLine, text );
+        return;
+    }
     text[0] = 0;
     bool bHw = HwCounter::Active();
     if ( nLine == 0 )
