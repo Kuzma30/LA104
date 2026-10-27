@@ -85,8 +85,7 @@ namespace DecodeUi
 
     bool Hold()
     {
-        // the FPGA does not sample while the counter image is loaded
-        return s_bHold || FpgaCounter::Active();
+        return s_bHold;
     }
 
     int Selected()
@@ -151,11 +150,7 @@ namespace DecodeUi
                 MainWnd.m_wndMenuDecode.m_itmInfo.Invalidate();
         }
         else if ( !bFpga && FpgaCounter::Active() )
-        {
             FpgaCounter::Stop();
-            // acquisition continues with a new buffer
-            MainWnd.m_wndGraph.Invalidate();
-        }
         static int nLastEdge = -1;
         if ( FpgaCounter::Active() && nLastEdge != Settings.Decode.cntEdge )
             FpgaCounter::SetEdge( Settings.Decode.cntEdge );
@@ -246,13 +241,20 @@ static void FpgaText(int nLine, char* text)
     text[0] = 0;
     if ( !Active() )
     {
-        static const char* const arrError[] = {"loading", "", "no file", "cfg err", "no id", ""};
+        // the original FPGA image has no counters, version 2.62 is needed
         if ( nLine == 0 )
             strcpy( text, "FPGA" );
         else if ( nLine == 1 )
-            strcpy( text, arrError[Status()] );
-        else
-            strcpy( text, Status() == NoFile ? "CNT_FPGA" : "" );
+        {
+            int nVer = FpgaVersion();
+            strcpy( text, CUtils::itoa( nVer / 100 ) );
+            strcat( text, "." );
+            if ( nVer % 100 < 10 )
+                strcat( text, "0" );
+            strcat( text, CUtils::itoa( nVer % 100 ) );
+        }
+        else if ( Status() == NoCounters )
+            strcpy( text, "no cnt" );
         return;
     }
     if ( nLine < 2 )
@@ -262,11 +264,6 @@ static void FpgaText(int nLine, char* text)
         FormatCount( Value( nLine == 0 ? C : D ), text + 1 );
         if ( strlen(text) > 8 )
             FormatCount( Value( nLine == 0 ? C : D ), text );
-        return;
-    }
-    if ( Status() == NoClock )
-    {
-        strcpy( text, "no clock" );
         return;
     }
     float fRate;

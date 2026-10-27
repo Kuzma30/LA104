@@ -1,6 +1,5 @@
 #include <library.h>
 #include "FpgaCounter.h"
-#include <Oscilloscope/Core/CoreOscilloscope.h>
 
 namespace FpgaCounter
 {
@@ -8,154 +7,138 @@ namespace FpgaCounter
     static inline volatile uint32_t& Reg(uint32_t a) { return *(volatile uint32_t*)a; }
     static volatile uint16_t& Bus() { return *(volatile uint16_t*)0x64000000; }
 
-    static const char* const FileName = "CNT_FPGA.BIN";
     enum : uint32_t {
-        RomImage = 0x0802C000, RomImageSize = 68088,    // original image (iCE65L04)
-        GPIOB_CRH = 0x40010C04, GPIOB_IDR = 0x40010C08, GPIOB_BSRR = 0x40010C10, GPIOB_BRR = 0x40010C14,
-        SS = 1 << 10, SCK = 1 << 11, SI = 1 << 12, CRESET = 1 << 14, CDONE = 1 << 15,
-        RCC_CFGR = 0x40021004, MCO_MASK = 7u << 24, MCO_SYSCLK = 4u << 24,
-        TIM1_CCER = 0x40012C20,
-        FSMC_BCR2 = 0xA0000008, FSMC_BTR2 = 0xA000000C, FSMC_BWTR2 = 0xA000010C,
-        Id = 0xC0D1,
-        // command word (counter_top.v)
-        CmdSnapshot = 1 << 3, CmdClearC = 1 << 4, CmdClearD = 1 << 5, CmdClearT = 1 << 6
+        GPIOA_BSRR = 0x40010810, GPIOA_BRR = 0x40010814,
+        GPIOC_BSRR = 0x40011010, GPIOC_BRR = 0x40011014,
+        SCK = 1 << 6, SDA = 1 << 7,             // GPIOA
+        C_D = 1 << 4, H_L = 1 << 5,             // GPIOC
+        SYST_LOAD = 0xE000E014, SYST_VAL = 0xE000E018, SCB_ICSR = 0xE000ED04,
+        PENDSTSET = 1 << 26,
+
+        RegSelect = 0x05, RegCounter = 0x0E,
+        SelBase = 0x10,         // + 2*(channel*2 + falling), low word; +1 high word
+        SelId = 0x18, Id = 0xC0D2
     };
 
     static bool s_bActive = false;
     static EStatus s_eStatus = Off;
-    static uint16_t s_nModes = 0;       // edge bits of the command word
-    static uint32_t s_nSavedMco, s_nSavedCcer, s_nSavedBtr, s_nSavedBwtr;
+    static int s_nEdge = 0;
 
-    // 64 bit values extended from the 32 bit snapshots
-    static uint32_t s_nLast[3];
-    static uint64_t s_nValue[3];
-    static uint64_t s_nBase[3];
+    // raw counters: C rising, C falling, D rising, D falling
+    static uint32_t s_nLast[4];
+    static uint64_t s_nValue[4];
+    static uint64_t s_nBase[2];
     static uint32_t s_nLastTick = 0;
 
-    static uint64_t s_nGate[3];
+    static uint64_t s_nGate[2];
+    static uint64_t s_nGateClocks = 0;
     static uint32_t s_nGateTick = 0;
     static float s_fRate[2];
     static bool s_bRate = false;
 
     // ------------------------------------------------------------------
-    // configuration over bitbanged SPI (as QuadPawn fpga.c does)
+    // the same sequence as SendByte / Set_Param of SYS
 
-    static inline void _Delay()
+    static void _SendByte(uint8_t nData)
     {
-        __asm volatile ("nop\n nop\n nop\n nop");
-    }
-
-    static void _Send(uint8_t b)
-    {
-        for ( int i = 0; i < 8; i++, b <<= 1 )
+        Reg(GPIOA_BSRR) = SCK;
+        for ( int i = 0; i < 8; i++ )
         {
-            uint32_t si = (b & 0x80) ? SI : (SI << 16);
-            Reg(GPIOB_BSRR) = (SCK << 16) | si;
-            _Delay();
-            Reg(GPIOB_BSRR) = SCK | si;
-            _Delay();
+            Reg((nData << i) & 0x80 ? GPIOA_BSRR : GPIOA_BRR) = SDA;
+            Reg(GPIOA_BRR) = SCK;
+            Reg(GPIOA_BSRR) = SCK;
         }
+        Reg(GPIOA_BRR) = SDA;
+        Reg(GPIOA_BRR) = SCK;
+        Reg(GPIOA_BSRR) = SDA;      // latches the byte
     }
 
-    // bFromFile: CNT_FPGA.BIN, otherwise the original image from the flash
-    static bool _Configure(bool bFromFile)
+    static void _SetParam(uint8_t nAddr, uint8_t nValue)
     {
-        uint32_t nSize = 0;
-        if ( bFromFile )
+        Reg(GPIOC_BSRR) = H_L;
+        _SendByte( nAddr );
+        Reg(GPIOC_BRR) = H_L;
+        _SendByte( nValue );
+    }
+
+    // H_L stays low (as after Set_Param), C_D high only for the read
+    static uint16_t _ReadSelected(uint8_t nSelect)
+    {
+        _SetParam( RegSelect, nSelect );
+        Reg(GPIOC_BSRR) = C_D;
+        __asm volatile ("dsb" ::: "memory");    // pin set before the bus read
+        uint16_t n = Bus();
+        Reg(GPIOC_BRR) = C_D;
+        return n;
+    }
+
+    static uint32_t _Gray2Bin(uint32_t g)
+    {
+        g ^= g >> 16;
+        g ^= g >> 8;
+        g ^= g >> 4;
+        g ^= g >> 2;
+        g ^= g >> 1;
+        return g;
+    }
+
+    // reading the low word latches the whole value in the FPGA
+    static uint32_t _Read32(int nRaw)
+    {
+        uint8_t nSel = (uint8_t)(SelBase + 2 * nRaw);
+        uint32_t nLo = _ReadSelected( nSel );
+        uint32_t nHi = _ReadSelected( nSel + 1 );
+        return _Gray2Bin( nLo | (nHi << 16) );
+    }
+
+    static void _Update(int nRaw)
+    {
+        uint32_t n = _Read32( nRaw );
+        s_nValue[nRaw] += (uint32_t)(n - s_nLast[nRaw]);
+        s_nLast[nRaw] = n;
+    }
+
+    static void _UpdateAll()
+    {
+        for ( int i = 0; i < 4; i++ )
+            _Update( i );
+    }
+
+    // edges of a channel in the selected mode
+    static uint64_t _Edges(int nChannel)
+    {
+        uint64_t nRise = s_nValue[nChannel * 2], nFall = s_nValue[nChannel * 2 + 1];
+        if ( s_nEdge == 0 )
+            return nRise;
+        if ( s_nEdge == 1 )
+            return nFall;
+        return nRise + nFall;
+    }
+
+    static uint64_t _Clocks()
+    {
+        uint32_t nPrimask;
+        __asm volatile ("mrs %0, primask\n cpsid i" : "=r"(nPrimask) :: "memory");
+        uint32_t nTick = BIOS::SYS::GetTick();
+        uint32_t nVal = Reg(SYST_VAL);
+        if ( Reg(SCB_ICSR) & PENDSTSET )
         {
-            if ( BIOS::FAT::Open( FileName, BIOS::FAT::IoRead ) != BIOS::FAT::EOk )
-                return false;
-            nSize = BIOS::FAT::GetFileSize();
-            if ( nSize < 1024 || nSize > 140000 )
-            {
-                BIOS::FAT::Close();
-                return false;
-            }
+            nVal = Reg(SYST_VAL);
+            nTick++;
         }
-
-        uint32_t nCrh = Reg(GPIOB_CRH);
-        Reg(GPIOB_CRH) = (nCrh & 0x000000ff) | 0x83833300;
-
-        Reg(GPIOB_BRR) = CRESET | SS;
-        Reg(GPIOB_BSRR) = SCK;
-        BIOS::SYS::DelayMs(2);
-        Reg(GPIOB_BSRR) = CRESET;
-        BIOS::SYS::DelayMs(2);
-
-        if ( bFromFile )
-        {
-            uint8_t arrSector[BIOS::FAT::SectorSize];
-            for ( uint32_t nPos = 0; nPos < nSize; nPos += BIOS::FAT::SectorSize )
-            {
-                if ( BIOS::FAT::Read( arrSector ) != BIOS::FAT::EOk )
-                    break;
-                uint32_t n = nSize - nPos;
-                if ( n > BIOS::FAT::SectorSize )
-                    n = BIOS::FAT::SectorSize;
-                for ( uint32_t i = 0; i < n; i++ )
-                    _Send( arrSector[i] );
-            }
-            BIOS::FAT::Close();
-        } else
-        {
-            const uint8_t* p = (const uint8_t*)RomImage;
-            for ( uint32_t i = 0; i < RomImageSize; i++ )
-                _Send( p[i] );
-        }
-        for ( int i = 0; i < 500; i++ )
-            _Send( 0 );
-
-        bool bDone = (Reg(GPIOB_IDR) & CDONE) != 0;
-        Reg(GPIOB_BSRR) = SS;
-        Reg(GPIOB_CRH) = nCrh;
-        return bDone;
+        __asm volatile ("msr primask, %0" :: "r"(nPrimask) : "memory");
+        uint32_t nLoad = Reg(SYST_LOAD) & 0xffffff;
+        return (uint64_t)nTick * (nLoad + 1) + (nLoad - (nVal & 0xffffff));
     }
 
-    // ------------------------------------------------------------------
-    // bus access
-
-    static void _Wait()
+    static void _StartGate()
     {
-        // the command is taken a few FPGA clocks after the write
-        for ( volatile int i = 0; i < 20; i++ )
-            ;
-    }
-
-    static void _Command(uint16_t nCmd)
-    {
-        Bus() = s_nModes | nCmd;
-        _Wait();
-    }
-
-    static uint16_t _Read(int nSelect)
-    {
-        _Command( (uint16_t)nSelect );
-        return Bus();
-    }
-
-    static uint32_t _Read32(int nSelect)
-    {
-        uint32_t nLo = _Read( nSelect );
-        return nLo | ((uint32_t)_Read( nSelect + 1 ) << 16);
-    }
-
-    static void _Clock()
-    {
-        // FPGA clock on PA8: MCO = SYSCLK (72 MHz), TIM1 output off
-        Reg(TIM1_CCER) &= ~1u;
-        Reg(RCC_CFGR) = (Reg(RCC_CFGR) & ~MCO_MASK) | MCO_SYSCLK;
-    }
-
-    // snapshot of all counters, extends them to 64 bits
-    static void _Update()
-    {
-        _Command( CmdSnapshot );
-        for ( int i = 0; i < 3; i++ )
-        {
-            uint32_t n = _Read32( 1 + 2*i );
-            s_nValue[i] += (uint32_t)(n - s_nLast[i]);
-            s_nLast[i] = n;
-        }
+        _UpdateAll();
+        s_nGateClocks = _Clocks();
+        s_nGate[C] = _Edges(C);
+        s_nGate[D] = _Edges(D);
+        s_nGateTick = BIOS::SYS::GetTick();
+        s_bRate = false;
     }
 
     // ------------------------------------------------------------------
@@ -165,52 +148,34 @@ namespace FpgaCounter
         return true;
     }
 
+    int FpgaVersion()
+    {
+        // status word: H_L low, C_D low, bits 15..6
+        Reg(GPIOC_BRR) = H_L | C_D;
+        __asm volatile ("dsb" ::: "memory");
+        return Bus() >> 6;
+    }
+
     bool Start(int nEdge)
     {
         if ( s_bActive )
             return true;
-
-        s_nSavedMco = Reg(RCC_CFGR) & MCO_MASK;
-        s_nSavedCcer = Reg(TIM1_CCER);
-        s_nSavedBtr = Reg(FSMC_BTR2);
-        s_nSavedBwtr = Reg(FSMC_BWTR2);
-
-        _Clock();
-        if ( !_Configure( true ) )
+        if ( _ReadSelected( SelId ) != Id )
         {
-            // missing file or bad image: original image back
-            bool bFile = BIOS::FAT::Open( FileName, BIOS::FAT::IoRead ) == BIOS::FAT::EOk;
-            if ( bFile )
-                BIOS::FAT::Close();
-            s_eStatus = bFile ? ConfigError : NoFile;
-            s_bActive = true;
-            Stop();
+            s_eStatus = NoCounters;
             return false;
         }
-
-        // slow bus timing for the FPGA bank: strobes of 10 HCLK
-        Reg(FSMC_BTR2) = (s_nSavedBtr & ~0xffffu) | 0x0a02;
-        if ( Reg(FSMC_BCR2) & (1 << 14) )
-            Reg(FSMC_BWTR2) = (s_nSavedBwtr & ~0xffffu) | 0x0a02;
-
+        s_nEdge = nEdge;
+        for ( int i = 0; i < 4; i++ )
+        {
+            s_nLast[i] = _Read32( i );
+            s_nValue[i] = 0;
+        }
+        s_nBase[C] = s_nBase[D] = 0;
         s_bActive = true;
-        SetEdge( nEdge );
-        if ( _Read( 0 ) != Id )
-        {
-            s_eStatus = NoId;
-            Stop();
-            return false;
-        }
-        _Command( CmdSnapshot | CmdClearC | CmdClearD | CmdClearT );
-        for ( int i = 0; i < 3; i++ )
-        {
-            s_nLast[i] = _Read32( 1 + 2*i );
-            s_nValue[i] = s_nBase[i] = 0;
-            s_nGate[i] = 0;
-        }
-        s_nLastTick = s_nGateTick = BIOS::SYS::GetTick();
-        s_bRate = false;
         s_eStatus = Running;
+        s_nLastTick = BIOS::SYS::GetTick();
+        _StartGate();
         return true;
     }
 
@@ -218,36 +183,23 @@ namespace FpgaCounter
     {
         if ( nEdge < 0 || nEdge > 2 )
             nEdge = 0;
-        s_nModes = (uint16_t)((nEdge << 7) | (nEdge << 9));
+        if ( nEdge == s_nEdge )
+            return;
+        // the shown values continue from where they were
+        uint64_t nOld[2] = {Value(C), Value(D)};
+        s_nEdge = nEdge;
         if ( s_bActive )
         {
-            // new gate with the new edges
-            _Command( 0 );
-            _Update();
-            for ( int i = 0; i < 3; i++ )
-                s_nGate[i] = s_nValue[i];
-            s_nGateTick = BIOS::SYS::GetTick();
-            s_bRate = false;
+            s_nBase[C] = _Edges(C) - nOld[C];
+            s_nBase[D] = _Edges(D) - nOld[D];
+            _StartGate();
         }
     }
 
     void Stop()
     {
-        if ( !s_bActive )
-            return;
         s_bActive = false;
         s_bRate = false;
-
-        Reg(FSMC_BTR2) = s_nSavedBtr;
-        Reg(FSMC_BWTR2) = s_nSavedBwtr;
-        _Clock();
-        _Configure( false );
-        Reg(RCC_CFGR) = (Reg(RCC_CFGR) & ~MCO_MASK) | s_nSavedMco;
-        Reg(TIM1_CCER) = s_nSavedCcer;
-
-        // the new oscilloscope image starts with defaults, set everything
-        CCoreOscilloscope::ConfigureAdc();
-        CCoreOscilloscope::ConfigureTrigger();
         if ( s_eStatus == Running )
             s_eStatus = Off;
     }
@@ -266,23 +218,31 @@ namespace FpgaCounter
     {
         if ( !s_bActive )
             return;
-        _Update();
-        s_nBase[C] = s_nValue[C];
-        s_nBase[D] = s_nValue[D];
+        _SetParam( RegCounter, 1 );
+        _SetParam( RegCounter, 0 );
+        for ( int i = 0; i < 4; i++ )
+        {
+            s_nLast[i] = _Read32( i );
+            s_nValue[i] = 0;
+        }
+        s_nBase[C] = s_nBase[D] = 0;
+        _StartGate();
     }
 
     uint64_t Value(int nChannel)
     {
-        if ( !s_bActive || nChannel < 0 || nChannel > 2 )
+        if ( !s_bActive || (nChannel != C && nChannel != D) )
             return 0;
-        _Update();
-        return s_nValue[nChannel] - s_nBase[nChannel];
+        _Update( nChannel * 2 );
+        _Update( nChannel * 2 + 1 );
+        return _Edges(nChannel) - s_nBase[nChannel];
     }
 
     bool Rate(int nChannel, float& fRate)
     {
-        fRate = (nChannel == C || nChannel == D) ? s_fRate[nChannel] : 0;
-        return s_bActive && s_bRate && (nChannel == C || nChannel == D);
+        bool bOk = nChannel == C || nChannel == D;
+        fRate = bOk ? s_fRate[nChannel] : 0;
+        return s_bActive && s_bRate && bOk;
     }
 
     void Tick()
@@ -290,34 +250,31 @@ namespace FpgaCounter
         if ( !s_bActive )
             return;
         uint32_t nNow = BIOS::SYS::GetTick();
-        if ( nNow - s_nLastTick < 50 )
+        if ( nNow - s_nLastTick < 100 )
             return;
         s_nLastTick = nNow;
-
-        // the timebase setting of the oscilloscope changes the clock
-        if ( (Reg(RCC_CFGR) & MCO_MASK) != MCO_SYSCLK || (Reg(TIM1_CCER) & 1) )
-            _Clock();
-        _Update();
-
         if ( nNow - s_nGateTick < 1000 )
+        {
+            _UpdateAll();   // 32 bit wrap is detected in time
             return;
-        s_nGateTick = nNow;
-        uint64_t dT = s_nValue[T] - s_nGate[T];
-        if ( dT == 0 )
-        {
-            s_eStatus = NoClock;
-            s_bRate = false;
-        } else
-        {
-            // FPGA clock is SYSCLK, 72 MHz
-            for ( int i = 0; i < 2; i++ )
-                s_fRate[i] = (float)(s_nValue[i] - s_nGate[i]) * 72e6f / (float)dT;
-            s_bRate = true;
-            if ( s_eStatus == NoClock )
-                s_eStatus = Running;
         }
-        for ( int i = 0; i < 3; i++ )
-            s_nGate[i] = s_nValue[i];
+        _UpdateAll();
+        uint64_t nClocks = _Clocks();
+        uint64_t dClocks = nClocks - s_nGateClocks;
+        uint32_t nLoad = Reg(SYST_LOAD) & 0xffffff;
+        if ( dClocks > 0 )
+        {
+            float fSeconds = (float)dClocks / ((float)(nLoad + 1) * 1000.0f);
+            for ( int i = 0; i < 2; i++ )
+            {
+                uint64_t n = _Edges(i);
+                s_fRate[i] = (float)(n - s_nGate[i]) / fSeconds;
+                s_nGate[i] = n;
+            }
+            s_bRate = true;
+        }
+        s_nGateClocks = nClocks;
+        s_nGateTick = nNow;
     }
 #else
     bool Available() { return false; }
@@ -326,6 +283,7 @@ namespace FpgaCounter
     void Stop() {}
     bool Active() { return false; }
     EStatus Status() { return Off; }
+    int FpgaVersion() { return 0; }
     void Reset() {}
     uint64_t Value(int) { return 0; }
     bool Rate(int, float& fRate) { fRate = 0; return false; }
