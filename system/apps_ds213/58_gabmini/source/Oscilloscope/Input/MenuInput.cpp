@@ -17,6 +17,7 @@ CWndMenuInput::CWndMenuInput()
 	m_itmCH4.Create(&Settings.CH4, this);
 	m_itmTime.Create(&Settings.Time, this);
 	m_itmWindow.Create(this);
+	m_itmBuffer.Create(this);
 	m_itmTrig.Create(this);
 }
 
@@ -183,6 +184,16 @@ CWndMenuInput::CWndMenuInput()
 	if ( code == ToWord('i', 'u') )
 	{
 		CCoreOscilloscope::ConfigureAdc();
+		// roll mode starts / ends with the timebase
+		m_itmBuffer.Invalidate();
+		MainWnd.m_wndZoomBar.Invalidate();
+	}
+	if ( code == ToWord('b', 'u') )
+	{
+		CCoreOscilloscope::ConfigureTrigger();
+		MainWnd.m_wndGraph.ClearPersist();
+		MainWnd.m_wndZoomBar.Invalidate();
+		MainWnd.m_wndTReferences.Invalidate();
 	}
 	if ( code == ToWord('r', 'u') )
 	{

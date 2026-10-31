@@ -32,6 +32,9 @@ CSettings* CSettings::m_pInstance = NULL;
 		"10ms", "20ms", "50ms", "100ms", "200ms", "500ms", 
 		"1s" };
 		
+/*static*/ const char* const CSettings::TimeBase::ppszTextBuffer[] =
+		{"Full", "Scr"};
+
 /*static*/ const int CSettings::TimeBase::pfValueResolutionCorrection[] = // florian
 		{/*246,*/ 492, 614,
 		819, 983, 1024,
@@ -99,7 +102,7 @@ CSettings* CSettings::m_pInstance = NULL;
 /*static*/ const char* const CSettings::Display::ppszTextAverage[]
 		 = {"Off", "CH1", "CH2"};
 /*static*/ const char* const CSettings::Display::ppszTextPersist[]
-		 = {"No", "Yes"};
+		 = {"No", "Yes", "Phosph"};
 /*static*/ const char* const CSettings::Display::ppszTextGrid[]
 		 = {"None", "Dots", "Lines"};
 /*static*/ const char* const CSettings::Display::ppszTextAxis[]
@@ -193,6 +196,7 @@ void CSettings::Reset()
 
 	Time.Resolution = TimeBase::_500us;
 	Time.Range = TimeBase::_4;
+	Time.Buffer = TimeBase::_BufFull;
 	Time.InvalidFirst = 30;
 	// first samples are some noise, cut them out, length matching one div
 	Time.Shift = Time.InvalidFirst;

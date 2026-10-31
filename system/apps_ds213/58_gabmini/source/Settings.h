@@ -87,8 +87,13 @@ class AnalogChannel : public CSerialize
 			_10us, _20us, _50us, _100us, _200us, _500us,
 			_1ms, _2ms, _5ms,
 			_10ms, _20ms, _50ms, _100ms, _200ms, _500ms, 
-			_1s, _ResolutionMax = _500ms }
+			_1s, _ResolutionMax = _1s }
 			Resolution;
+		// Full: whole 4096 sample buffer (several screens, Window moves in it)
+		// Screen: acquisition stops after one screen, much faster refresh
+		static const char* const ppszTextBuffer[];
+		enum EBuffer { _BufFull, _BufScreen, _BufferMax = _BufScreen }
+			Buffer;
 		enum {
 			_1, _2, _4, _FULL}
 			Range;
@@ -326,7 +331,10 @@ class AnalogChannel : public CSerialize
 			Draw;
 		enum { _AvgNo, _AvgCh1, _AvgCh2, _AverageMax = _AvgCh2 }
 			Average;
-		enum { _PerNo, _PerYes, _PersistMax = _PerYes }
+		// Yes: envelope of the last frames (X-Y: accumulates on the screen)
+		// Phosphor: intensity graded by how often and how recently the
+		// trace passed through a point
+		enum { _PerNo, _PerYes, _PerPhosphor, _PersistMax = _PerPhosphor }
 			Persist;
 		enum { _GridNone, _GridDots, _GridLines, _GridMax = _GridLines }
 			Grid;

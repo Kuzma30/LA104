@@ -54,7 +54,7 @@ namespace DecodeUi
         // FPGA sampling clock 72 MHz divided by (PSC+1)*(ARR+1), the same
         // tables as BIOS::ADC::ConfigureTimebase (200ns .. 1s per division)
         static const uint32_t arrDiv[] = {1, 2, 3, 5, 12, 24, 48, 120, 240, 480, 1200, 2400, 4800,
-            12000, 24000, 48000, 120000, 240000, 480000, 1200000, 1000000};
+            12000, 24000, 48000, 120000, 240000, 480000, 1200000, 2400000};
         int n = (int)Settings.Time.Resolution;
         if ( n < 0 ) n = 0;
         if ( n >= (int)COUNT(arrDiv) ) n = COUNT(arrDiv)-1;
@@ -67,7 +67,9 @@ namespace DecodeUi
 
     void Update()
     {
-        Decoder::Run( Settings.Decode, Sampler::GetBuffer(), Sampler::Samples,
+        // annotations only in the samples of this acquisition, the memory
+        // after them may hold the persistence history
+        Decoder::Run( Settings.Decode, Sampler::GetBuffer(), Sampler::Length(),
             Settings.Time.InvalidFirst, Sampler::GetValid(), SampleRate() );
         if ( Settings.Decode.protocol == Counter && Settings.Decode.cntSource == SourceSamples &&
              Sampler::GetSequence() != s_nSwSequence )
@@ -622,7 +624,7 @@ void CWndMenuDecode::ShowItem(int n)
     DecodeUi::Select( n );
     TAnnotation a = Decoder::Get(n);
     int nShift = (a.begin + a.end)/2 - CWndGraph::MaxX/2;
-    int nMax = BIOS::ADC::NumSamples - CWndGraph::MaxX;
+    int nMax = Sampler::Length() - CWndGraph::MaxX;
     if ( nShift > nMax )
         nShift = nMax;
     if ( nShift < Settings.Time.InvalidFirst )

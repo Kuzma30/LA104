@@ -6,6 +6,14 @@
 namespace Sampler
 {
 	enum { Samples = BIOS::ADC::NumSamples, BytesPerSample = 3 };
+	// one screen with the pre-trigger part and room to move the window
+	enum { ScreenSamples = 480 };
+
+	// samples taken by one acquisition (Samples or ScreenSamples); the
+	// memory after them is free for the persistence history
+	void SetLength(int nLength);
+	int Length();
+	uint8_t* HistoryArea(int& nBytes);
 
 	// bNew: a new acquisition, false when the same (unfinished) acquisition
 	// is read again
@@ -15,4 +23,9 @@ namespace Sampler
 	uint8_t* GetBuffer();
 	int GetValid();     // samples received by the last Copy()
 	uint32_t GetSequence(); // incremented by every new acquisition
+
+	// roll mode: samples are appended to the window [nFirst, nFirst+nWidth),
+	// when it is full the older samples move to the left
+	void RollStart(int nFirst);
+	void RollAppend(const uint32_t* pSamples, int nCount, int nFirst, int nWidth);
 }

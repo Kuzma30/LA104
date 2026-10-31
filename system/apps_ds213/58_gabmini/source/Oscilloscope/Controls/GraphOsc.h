@@ -8,7 +8,14 @@ class CWndOscGraph : public CWndGraph
 	ui16			m_arrAverageBuf[DivsX*BlkX];
 	bool			m_bPersistReset;
 	bool			m_bNeedRedraw;
+	uint32_t		m_nPhosphorSeq;
+	uint32_t		m_nXyKey;
 
+	uint32_t		_PersistKey();
+	void			_PhosphorColumn( ui16* column, int x, bool bLines, bool bGraded,
+						bool en1, bool en2, ui16 clr1, ui16 clr2 );
+	void			_XyGrid( const CRect& rc );
+	void			_XyLine( const CRect& rc, int x1, int y1, int x2, int y2, ui16 clr );
 	void			_PrepareColumn( ui16 *column, ui16 n, ui16 clr );
 	ui16			_Interpolate( ui16 clrA, ui16 clrB );
 

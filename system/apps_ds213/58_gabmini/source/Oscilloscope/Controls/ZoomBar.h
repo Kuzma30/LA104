@@ -27,8 +27,10 @@ public:
 		ui16 nBegin = Settings.Time.Shift;
 		ui16 nView = CWndGraph::DivsX*CWndGraph::BlkX;
 
-		ui32 nXBegin = (nBegin*m_rcClient.Width()) >> 12;
-		ui32 nXEnd = ((nBegin+nView)*m_rcClient.Width()) >> 12;
+		// the bar shows the samples of one acquisition (whole buffer or one screen)
+		ui32 nLength = Sampler::Length();
+		ui32 nXBegin = (nBegin*m_rcClient.Width()) / nLength;
+		ui32 nXEnd = ((nBegin+nView)*m_rcClient.Width()) / nLength;
 
 		rc.top++;
 		rc.bottom--;
@@ -49,8 +51,8 @@ public:
 		ui16 clrWave = Settings.CH1.u16Color;
 		for ( int x = 0; x < nWidth; x++ )
 		{
-			int nFirst = x * BIOS::ADC::NumSamples / nWidth;
-			int nLast = (x+1) * BIOS::ADC::NumSamples / nWidth;
+			int nFirst = x * (int)nLength / nWidth;
+			int nLast = (x+1) * (int)nLength / nWidth;
 			int nMin = 255, nMax = 0;
 			for ( int i = nFirst; i < nLast; i++ )
 			{

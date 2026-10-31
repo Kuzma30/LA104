@@ -1,11 +1,69 @@
 #include "GraphOsc.h"
 #include <MainWnd.h>
+#include "Phosphor.h"
+#include <Oscilloscope/Core/CoreOscilloscope.h>
 
 CWndOscGraph::CWndOscGraph()
 {
 	ClearAverage();
 	m_bPersistReset = false;
 	m_bNeedRedraw = true;
+	m_nPhosphorSeq = 0;
+	m_nXyKey = 0;
+}
+
+// settings that change the meaning of the stored history
+uint32_t CWndOscGraph::_PersistKey()
+{
+	const int arr[] = { Settings.Time.Resolution, Settings.Time.Shift, Settings.Disp.Axes,
+		Settings.Disp.Persist, Settings.Disp.Average,
+		Settings.CH1.Enabled, Settings.CH1.Resolution, Settings.CH1.u16Position, Settings.CH1.Coupling,
+		Settings.CH2.Enabled, Settings.CH2.Resolution, Settings.CH2.u16Position, Settings.CH2.Coupling };
+	uint32_t nKey = 5381;
+	for ( int i = 0; i < (int)COUNT(arr); i++ )
+		nKey = nKey * 33 + (uint32_t)arr[i];
+	return nKey;
+}
+
+// analog channels of one column from the history: phosphor (graded) or the
+// envelope of the last frames
+void CWndOscGraph::_PhosphorColumn( ui16* column, int x, bool bLines, bool bGraded,
+	bool en1, bool en2, ui16 clr1, ui16 clr2 )
+{
+	static ui16 arrLut1[Phosphor::LutSize], arrLut2[Phosphor::LutSize];
+	static ui16 clrLut1 = 0, clrLut2 = 0;
+	if ( bGraded && (clrLut1 != clr1 || arrLut1[Phosphor::LutSize-1] == 0) )
+	{
+		clrLut1 = clr1;
+		Phosphor::MakeLut( clr1, arrLut1 );
+	}
+	if ( bGraded && (clrLut2 != clr2 || arrLut2[Phosphor::LutSize-1] == 0) )
+	{
+		clrLut2 = clr2;
+		Phosphor::MakeLut( clr2, arrLut2 );
+	}
+
+	uint8_t* arrSum1 = Phosphor::Scratch();
+	uint8_t* arrSum2 = arrSum1 + Phosphor::Height;
+	if ( en1 )
+		Phosphor::SumColumn( x, 0, bLines, bGraded, arrSum1 );
+	else
+		memset( arrSum1, 0, Phosphor::Height );
+	if ( en2 )
+		Phosphor::SumColumn( x, 1, bLines, bGraded, arrSum2 );
+	else
+		memset( arrSum2, 0, Phosphor::Height );
+
+	for ( int y = 0; y < Phosphor::Height; y++ )
+	{
+		int v1 = arrSum1[y], v2 = arrSum2[y];
+		if ( v1 == 0 && v2 == 0 )
+			continue;
+		if ( bGraded )
+			column[y] = v1 >= v2 ? arrLut1[Phosphor::LutIndex(v1)] : arrLut2[Phosphor::LutIndex(v2)];
+		else
+			column[y] = v1 ? clr1 : clr2;   // CH1 on top
+	}
 }
 
 void CWndOscGraph::_PrepareColumn( ui16 *column, ui16 n, ui16 clr )
@@ -136,81 +194,175 @@ ui16 CWndOscGraph::_Interpolate( ui16 clrA, ui16 clrB )
 	}
 }
 
+// X-Y (Lissajous figures): CH1 horizontal and CH2 vertical (Y-X swapped) in
+// a square of 8 x 8 divisions in the middle of the graph, all samples of the
+// acquisition, dots or lines between the samples.
+// Persist No: every acquisition alone; Yes: accumulates on the screen until
+// a setting changes; Phosphor: the last frames fade out
+void CWndOscGraph::_XyGrid( const CRect& rc )
+{
+	ui16 clrGrid = RGB565(404040), clrAxis = RGB565(707070);
+	if ( Settings.Disp.Grid != CSettings::Display::_GridNone )
+	{
+		int nStep = Settings.Disp.Grid == CSettings::Display::_GridLines ? 1 : 5;
+		for ( int i = 1; i < DivsY; i++ )
+		{
+			int nPos = i * BlkY;
+			ui16 clr = i == DivsY/2 ? clrAxis : clrGrid;
+			for ( int j = 0; j < rc.Height(); j += nStep )
+			{
+				BIOS::LCD::PutPixel( rc.left + nPos, rc.top + j, clr );
+				BIOS::LCD::PutPixel( rc.left + j, rc.top + nPos, clr );
+			}
+		}
+	}
+	BIOS::LCD::Rectangle( rc, RGB565(505050) );
+}
+
+void CWndOscGraph::_XyLine( const CRect& rc, int x1, int y1, int x2, int y2, ui16 clr )
+{
+	// coordinates 0..199, y up
+	int dx = x2 > x1 ? x2 - x1 : x1 - x2, sx = x1 < x2 ? 1 : -1;
+	int dy = y2 > y1 ? y1 - y2 : y2 - y1, sy = y1 < y2 ? 1 : -1;
+	int err = dx + dy;
+	while ( true )
+	{
+		BIOS::LCD::PutPixel( rc.left + x1, rc.bottom - 1 - y1, clr );
+		if ( x1 == x2 && y1 == y2 )
+			break;
+		int e2 = 2 * err;
+		if ( e2 >= dy ) { err += dy; x1 += sx; }
+		if ( e2 <= dx ) { err += dx; y1 += sy; }
+	}
+}
+
 void CWndOscGraph::OnPaintXY()
 {
 	if ( CWnd::GetOverlay().IsValid() )
-	{
 		return;
-	}
 
-	// input channels
 	ui8 bEnabled1 = Settings.CH1.Enabled == CSettings::AnalogChannel::_YES;
 	ui8 bEnabled2 = Settings.CH2.Enabled == CSettings::AnalogChannel::_YES;
 	ui16 clrPoint = _Interpolate( Settings.CH1.u16Color, Settings.CH2.u16Color );
+	bool bLines = Settings.Disp.Draw != CSettings::Display::_Points;
+	bool bSwap = Settings.Disp.Axes == CSettings::Display::_YX;
 
-	// calibration
 	CSettings::Calibrator::FastCalc calCh1, calCh2;
 	Settings.CH1Calib.Prepare( &Settings.CH1, calCh1 );
 	Settings.CH2Calib.Prepare( &Settings.CH2, calCh2 );
 
-	// range
-	int nMaxIndex = BIOS::ADC::NumSamples;
-	int nIndex = Settings.Time.Shift;
-	int nColMax = m_rcClient.Width();
-
-	//if ( m_bNeedRedraw ) // does not work reliably
 	{
 		CRect rc = m_rcClient;
 		rc.Inflate( 1, 1, 1, 1 );
 		BIOS::LCD::Rectangle( rc, RGB565(b0b0b0) );
 	}
+	const int nSize = DivsY * BlkY;
+	CRect rcXy( m_rcClient.left + (m_rcClient.Width() - nSize) / 2, m_rcClient.top,
+		m_rcClient.left + (m_rcClient.Width() - nSize) / 2 + nSize, m_rcClient.top + nSize );
 
-	if ( Settings.Disp.Persist == CSettings::Display::_PerNo || m_bPersistReset || m_bNeedRedraw )
-		BIOS::LCD::Bar( m_rcClient, 0x0101 );
-
+	int nPersist = Settings.Disp.Persist;
+	uint32_t nKey = _PersistKey();
+	bool bClear = nPersist != CSettings::Display::_PerYes || m_bPersistReset || m_bNeedRedraw || nKey != m_nXyKey;
+	m_nXyKey = nKey;
 	m_bPersistReset = false;
 	m_bNeedRedraw = false;
+	if ( bClear )
+	{
+		BIOS::LCD::Bar( m_rcClient, 0x0101 );
+		_XyGrid( rcXy );
+	}
 
 	if ( !bEnabled1 || !bEnabled2 )
 	{
-		BIOS::LCD::Print( m_rcClient.left, m_rcClient.top, RGB565(ffffff), RGBTRANS, (char*)"Enable both channels" );
+		BIOS::LCD::Print( m_rcClient.left + 4, m_rcClient.top + 4, RGB565(ffffff), RGBTRANS, "Enable CH1 and CH2" );
 		return;
 	}
 
-
-	for (ui16 x=0; x<nColMax; x++, nIndex++)
+	// coordinates of a sample, 0..nSize-1
+	auto Point = [&](int nIndex, int& x, int& y) -> bool
 	{
-		ui32 ui32Sample = nIndex < nMaxIndex ?  Sampler::GetAt(nIndex) : 0;
+		ui32 nSample = Sampler::GetAt( nIndex );
+		if ( nSample == BIOS::ADC::NoData )
+			return false;
+		int ch1 = Settings.CH1Calib.Correct( calCh1, (ui8)(nSample & 0xff) );
+		int ch2 = Settings.CH2Calib.Correct( calCh2, (ui8)((nSample >> 8) & 0xff) );
+		ch1 = max(0, min(ch1, 255));
+		ch2 = max(0, min(ch2, 255));
+		x = (ch1 * nSize) >> 8;
+		y = (ch2 * nSize) >> 8;
+		if ( bSwap )
+		{
+			int t = x; x = y; y = t;
+		}
+		return true;
+	};
 
-		if (ui32Sample == BIOS::ADC::NoData)
+	int nFirst = Settings.Time.InvalidFirst;
+	int nLast = Sampler::GetValid();
+
+	if ( nPersist == CSettings::Display::_PerPhosphor )
+	{
+		// store this acquisition decimated to 256 points, draw the frames
+		// from the oldest (dim) to the newest (full color)
+		uint32_t nSeq = Sampler::GetSequence();
+		bool bNew = nSeq != m_nPhosphorSeq;
+		m_nPhosphorSeq = nSeq;
+		int nBytes;
+		uint8_t* pArea = Sampler::HistoryArea( nBytes );
+		if ( Phosphor::BeginXY( pArea, nBytes, nKey, bNew ) )
+		{
+			if ( bNew )
+			{
+				uint8_t* arrX = Phosphor::Scratch();
+				uint8_t* arrY = arrX + Phosphor::MaxPoints;
+				int nCount = nLast - nFirst;
+				int nStep = (nCount + Phosphor::MaxPoints - 1) / Phosphor::MaxPoints;
+				if ( nStep < 1 ) nStep = 1;
+				int nPoints = 0;
+				for ( int i = nFirst; i < nLast && nPoints < Phosphor::MaxPoints; i += nStep )
+				{
+					int x, y;
+					if ( !Point( i, x, y ) )
+						break;
+					arrX[nPoints] = (uint8_t)x;
+					arrY[nPoints] = (uint8_t)y;
+					nPoints++;
+				}
+				Phosphor::StoreXY( nPoints, arrX, arrY );
+			}
+			ui16 arrLut[Phosphor::LutSize];
+			Phosphor::MakeLut( clrPoint, arrLut );
+			int nFrames = Phosphor::Frames();
+			for ( int nAge = nFrames - 1; nAge >= 0; nAge-- )
+			{
+				int nPoints;
+				const uint8_t* p = Phosphor::FrameXY( nAge, nPoints );
+				ui16 clr = arrLut[Phosphor::AgeIndex( nAge )];
+				for ( int i = 0; i < nPoints; i++ )
+				{
+					if ( bLines && i > 0 )
+						_XyLine( rcXy, p[2*i-2], p[2*i-1], p[2*i], p[2*i+1], clr );
+					else
+						BIOS::LCD::PutPixel( rcXy.left + p[2*i], rcXy.bottom - 1 - p[2*i+1], clr );
+				}
+			}
+			return;
+		}
+		// no room for the history: as without persistence
+	}
+
+	int xPrev = -1, yPrev = -1;
+	for ( int i = nFirst; i < nLast; i++ )
+	{
+		int x, y;
+		if ( !Point( i, x, y ) )
 			break;
-
-		int nSampleY2 = 0, nSampleY1 = 0;
-
-		if ( bEnabled1 )
-		{
-			si16 ch1 = (ui8)((ui32Sample) & 0xff);
-			ch1 = Settings.CH1Calib.Correct( calCh1, ch1 );
-			if ( ch1 < 0 )
-				ch1 = 0;
-			if ( ch1 > 255 )
-				ch1 = 255;
-			nSampleY1 = (ch1*(DivsY*BlkY))>>8;
-		}
-		if ( bEnabled2 )
-		{
-			si16 ch2 = (ui8)((ui32Sample>>8) & 0xff);
-			ch2 = Settings.CH2Calib.Correct( calCh2, ch2 );
-			if ( ch2 < 0 )
-				ch2 = 0;
-			if ( ch2 > 255 )
-				ch2 = 255;
-			nSampleY2 = (ch2*(DivsY*BlkY))>>8;
-		}
-		if ( Settings.Disp.Axes == CSettings::Display::_XY )
-			BIOS::LCD::PutPixel( m_rcClient.left + nSampleY1 + BlkX, m_rcClient.bottom - nSampleY2, clrPoint );
+		if ( bLines && xPrev >= 0 )
+			_XyLine( rcXy, xPrev, yPrev, x, y, clrPoint );
 		else
-			BIOS::LCD::PutPixel( m_rcClient.left + nSampleY2 + BlkX, m_rcClient.bottom - nSampleY1, clrPoint );
+			BIOS::LCD::PutPixel( rcXy.left + x, rcXy.bottom - 1 - y, clrPoint );
+		xPrev = x;
+		yPrev = y;
 	}
 }
 
@@ -307,6 +459,22 @@ void CWndOscGraph::OnPaintTY()
 	int nIndex = Settings.Time.Shift;
 	bool bDecode = DecodeUi::BeginFrame( nIndex, nMax );
 
+	// persistence / phosphor: the analog traces come from the history of the
+	// last acquisitions, a new acquisition is stored first
+	bool bHist = Settings.Disp.Persist != CSettings::Display::_PerNo && !CCoreOscilloscope::Rolling();
+	bool bGraded = Settings.Disp.Persist == CSettings::Display::_PerPhosphor;
+	bool bStore = false;
+	if ( bHist )
+	{
+		uint32_t nSeq = Sampler::GetSequence();
+		bStore = nSeq != m_nPhosphorSeq;
+		m_nPhosphorSeq = nSeq;
+		int nBytes;
+		uint8_t* pArea = Sampler::HistoryArea( nBytes );
+		bHist = Phosphor::BeginTY( pArea, nBytes, _PersistKey(), bStore );
+	}
+	bool bHistEn1 = en1, bHistEn2 = en2;
+
 	for (ui16 x=0; x<nMax; x++, nIndex++)
 	{
 		int clrCol = 0x0101;
@@ -370,7 +538,13 @@ void CWndOscGraph::OnPaintTY()
 			nSampleY4 = Sample.CH4 ? nY4High : nY4Low;
 		}
 
-		if ( bFill )
+		if ( bHist && bStore )
+		{
+			Phosphor::StoreTY( x, 0, en1 ? nSampleY1 : Phosphor::None );
+			Phosphor::StoreTY( x, 1, en2 ? nSampleY2 : Phosphor::None );
+		}
+
+		if ( bFill && !bHist )
 		{
 			if ( en1 && en2 )
 			{
@@ -432,6 +606,11 @@ void CWndOscGraph::OnPaintTY()
 				nPrev4 = nSampleY4;
 			}
 		}
+		if ( bHist )
+		{
+			_PhosphorColumn( column, x, bLines, bGraded, bHistEn1, bHistEn2, clr1, clr2 );
+		} else
+		{
 		if ( en2 )
 		{
 			if ( !bLines )
@@ -462,6 +641,7 @@ void CWndOscGraph::OnPaintTY()
 					column[_y] = clr1;
 				nPrev1 = nSampleY1;
 			}
+		}
 		}
 
 		// decoded protocol data
@@ -612,4 +792,5 @@ void CWndOscGraph::ClearAverage()
 void CWndOscGraph::ClearPersist()
 {
 	m_bPersistReset = true;
+	Phosphor::Clear();
 }

@@ -216,7 +216,7 @@ namespace BIOS
 
 	const static ui16 arrArr[] = 
 		{ 1-1, 1-1, 2-1, 3-1, 5-1, 12-1, 24-1, 48-1, 120-1, 240-1, 480-1, 120-1, 240-1, 480-1,
-		120-1, 240-1, 480-1, 120-1, 240-1, 480-1, 1200-1, 1000-1};
+		120-1, 240-1, 480-1, 120-1, 240-1, 480-1, 1200-1, 2400-1}; // 1 s: 30 Hz as SYS X_ATTR
 
 	// TODO: rewrite T intervals into frequency, get rid of float operations
 

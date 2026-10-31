@@ -10,6 +10,7 @@
 #include "ItemTime.h"
 #include "ItemTrigger.h"
 #include "ItemWindow.h"
+#include "ItemBuffer.h"
 
 class CWndMenuInput : public CWnd
 {
@@ -21,6 +22,7 @@ public:
 	CItemDigital	m_itmCH4;
 	CItemTime		m_itmTime;
 	CItemWindow		m_itmWindow;
+	CItemBuffer		m_itmBuffer;
 	CItemTrigger	m_itmTrig;
 
 	// Lists

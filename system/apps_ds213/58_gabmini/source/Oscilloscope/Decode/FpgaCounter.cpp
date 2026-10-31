@@ -1,17 +1,13 @@
 #include <library.h>
 #include "FpgaCounter.h"
+#include <Oscilloscope/Core/FpgaBus.h>
 
 namespace FpgaCounter
 {
 #if defined(DS203)
     static inline volatile uint32_t& Reg(uint32_t a) { return *(volatile uint32_t*)a; }
-    static volatile uint16_t& Bus() { return *(volatile uint16_t*)0x64000000; }
 
     enum : uint32_t {
-        GPIOA_BSRR = 0x40010810, GPIOA_BRR = 0x40010814,
-        GPIOC_BSRR = 0x40011010, GPIOC_BRR = 0x40011014,
-        SCK = 1 << 6, SDA = 1 << 7,             // GPIOA
-        C_D = 1 << 4, H_L = 1 << 5,             // GPIOC
         SYST_LOAD = 0xE000E014, SYST_VAL = 0xE000E018, SCB_ICSR = 0xE000ED04,
         PENDSTSET = 1 << 26,
 
@@ -36,41 +32,8 @@ namespace FpgaCounter
     static float s_fRate[2];
     static bool s_bRate = false;
 
-    // ------------------------------------------------------------------
-    // the same sequence as SendByte / Set_Param of SYS
-
-    static void _SendByte(uint8_t nData)
-    {
-        Reg(GPIOA_BSRR) = SCK;
-        for ( int i = 0; i < 8; i++ )
-        {
-            Reg((nData << i) & 0x80 ? GPIOA_BSRR : GPIOA_BRR) = SDA;
-            Reg(GPIOA_BRR) = SCK;
-            Reg(GPIOA_BSRR) = SCK;
-        }
-        Reg(GPIOA_BRR) = SDA;
-        Reg(GPIOA_BRR) = SCK;
-        Reg(GPIOA_BSRR) = SDA;      // latches the byte
-    }
-
-    static void _SetParam(uint8_t nAddr, uint8_t nValue)
-    {
-        Reg(GPIOC_BSRR) = H_L;
-        _SendByte( nAddr );
-        Reg(GPIOC_BRR) = H_L;
-        _SendByte( nValue );
-    }
-
-    // H_L stays low (as after Set_Param), C_D high only for the read
-    static uint16_t _ReadSelected(uint8_t nSelect)
-    {
-        _SetParam( RegSelect, nSelect );
-        Reg(GPIOC_BSRR) = C_D;
-        __asm volatile ("dsb" ::: "memory");    // pin set before the bus read
-        uint16_t n = Bus();
-        Reg(GPIOC_BRR) = C_D;
-        return n;
-    }
+    static void _SetParam(uint8_t nAddr, uint8_t nValue) { FpgaBus::SetParam( nAddr, nValue ); }
+    static uint16_t _ReadSelected(uint8_t nSelect) { return FpgaBus::ReadSelected( nSelect ); }
 
     static uint32_t _Gray2Bin(uint32_t g)
     {
@@ -150,10 +113,7 @@ namespace FpgaCounter
 
     int FpgaVersion()
     {
-        // status word: H_L low, C_D low, bits 15..6
-        Reg(GPIOC_BRR) = H_L | C_D;
-        __asm volatile ("dsb" ::: "memory");
-        return Bus() >> 6;
+        return FpgaBus::Status() >> 6;
     }
 
     bool Start(int nEdge)

@@ -13,6 +13,9 @@ arm-none-eabi-g++ -Os -Werror -fno-common -mcpu=cortex-m3 -mthumb -msoft-float -
   ../source/SettingsStore.cpp \
   ../source/Oscilloscope/Controls/GraphOsc.cpp \
   ../source/Oscilloscope/Core/CoreOscilloscope.cpp \
+  ../source/Oscilloscope/Core/FpgaBus.cpp \
+  ../source/Oscilloscope/Core/Roll.cpp \
+  ../source/Oscilloscope/Controls/Phosphor.cpp \
   ../source/Oscilloscope/Disp/MenuDisp.cpp \
   ../source/Oscilloscope/Input/MenuInput.cpp \
   ../source/Oscilloscope/Marker/MenuMarker.cpp \
@@ -44,7 +47,7 @@ arm-none-eabi-gcc -Os -fPIC -mcpu=cortex-m3 -mthumb -o output.elf -nostartfiles 
   ./Wnd.o \
   ./Utils.o \
   ./Shapes.o \
-  ./GraphOsc.o ./CoreOscilloscope.o ./MenuDisp.o ./MenuInput.o \
+  ./GraphOsc.o ./CoreOscilloscope.o ./FpgaBus.o ./Roll.o ./Phosphor.o ./MenuDisp.o ./MenuInput.o \
   ./MenuMarker.o \
   ./DecoderCore.o ./MenuDecode.o ./DecodeBand.o ./HwCounter.o ./FpgaCounter.o \
   ./CoreGenerator.o ./MenuGenEdit.o ./MenuGenMain.o ./MenuGenModulation.o ./CorePid.o ./MenuPid.o ./MyUtils.o ./Lcd.o \

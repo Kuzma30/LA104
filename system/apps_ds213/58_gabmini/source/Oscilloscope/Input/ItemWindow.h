@@ -16,6 +16,8 @@ public:
 	{
 		int nMin = Settings.Time.InvalidFirst;
 		m_proTime.SetMin(nMin);
+		// the window moves only in the samples of one acquisition
+		m_proTime.SetMax( Sampler::Length() - CWndGraph::BlkX * CWndGraph::DivsX );
 
 		if ( nKey == BIOS::KEY::Left && m_proTime-1 == CValueProvider::Yes )
 		{

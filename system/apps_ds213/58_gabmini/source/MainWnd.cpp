@@ -1,4 +1,5 @@
 #include "MainWnd.h"
+#include <Oscilloscope/Core/Roll.h>
 
 CMainWnd* CMainWnd::m_pInstance = nullptr;
 CSettings m_Settings; // TODO:!
@@ -120,6 +121,35 @@ void CMainWnd::ToggleRunStop()
 {
 	// acquisition is paused while the list of decoded data is shown, so the
 	// list stays consistent with the sample buffer
+	// persistence keeps its history after one screen of samples: changing
+	// Persist or the display mode (Disp menu) may change the length of the
+	// acquisition, the FPGA depth is set again
+	if ( nMsg == WmTick && CCoreOscilloscope::BufferLength() != Sampler::Length() )
+	{
+		CCoreOscilloscope::ConfigureTrigger();
+		m_wndZoomBar.Invalidate();
+		m_wndTReferences.Invalidate();
+		if ( m_wndMenuInput.m_itmBuffer.IsVisible() )
+			m_wndMenuInput.m_itmBuffer.Invalidate();
+	}
+
+	if ( nMsg == WmTick && !DecodeUi::Hold() && CCoreOscilloscope::Rolling() )
+	{
+		// roll: samples are shown as they come, the screen is redrawn at
+		// most 10 times per second
+		static bool bDirty = false;
+		static long lLastDraw = 0;
+		long lNow = BIOS::SYS::GetTick();
+		if ( Settings.Trig.State != CSettings::Trigger::_Stop && Roll::Tick() )
+			bDirty = true;
+		if ( bDirty && lNow - lLastDraw >= 100 )
+		{
+			bDirty = false;
+			lLastDraw = lNow;
+			m_lLastAcquired = lNow;
+			CWnd::WindowMessage( CWnd::WmBroadcast, ToWord('d', 'g') );
+		}
+	} else
 	if ( nMsg == WmTick && !DecodeUi::Hold() )
 	{
 		BIOS::ADC::EState state = BIOS::ADC::GetState();
@@ -176,7 +206,7 @@ void CMainWnd::ToggleRunStop()
 		// than ~1 ms/div restarted the acquisition before it could ever trigger and
 		// Auto behaved exactly like Scan. Very slow timebases still fall back after
 		// 3 s so that the screen keeps updating (roll-like behaviour).
-		int nAutoTimeout = Settings.Runtime.m_nScreenDuration * (BIOS::ADC::NumSamples / 300) + 100;
+		int nAutoTimeout = Settings.Runtime.m_nScreenDuration * (Sampler::Length() / 300) + 100;
 		nAutoTimeout = max(500, min(nAutoTimeout, 3000));
 		if ( lNow - m_lLastAcquired > nAutoTimeout && lNow - m_lLastRequested > screenDuration)
 		{
