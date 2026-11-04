@@ -15,98 +15,156 @@ extern void (* g_pfnVectors[76])(void);
 #define LCD_RS_HIGH()     GPIOD_BSRR = GPIO_Pin_12
 #define LCD_PORT *((volatile uint16_t*)0x60000000)
 
-#ifdef DS203_DIRECT_LCD
-// Writes ILI9327 commands directly to the LCD bus. Fast, but works only with
-// the LCD controller this was written for - DS203 units were shipped with
-// different LCD modules, on others the screen shows garbage.
-void LCD_WR_Ctrl(int Reg) 
+// LCD access. DS203 units were shipped with different LCD controllers, the
+// factory SYS (LCD.c of DS203_SYS 1.5x, released by e-Design under the MIT
+// license in github.com/matthiasbock/dso203) supports two of them:
+//   ILI9327  - MIPI DCS commands (0x2A/0x2B window, 0x2C write, 0x2E read),
+//              read ID 0xEF returns 02 04 93 27
+//   R61509V  - 16 bit registers (0x0210..0x0213 window, 0x0200/0x0201 address,
+//              0x0202 GRAM), device code register 0x0000 reads 0xB509
+// The controller is detected at the first access and driven directly, the
+// same way as SYS does it. An unknown controller (other hardware revisions,
+// other SYS versions) is driven through the SYS routines as a fallback.
+
+enum { LcdUnknown, LcdIli9327, LcdR61509, LcdSys };
+static int gLcdType = LcdUnknown;
+static bool gLcdWindowed = false;
+
+static void LCD_WR_Ctrl(int Reg)
 {
   LCD_RS_LOW();
-  LCD_PORT = Reg;      
+  LCD_PORT = Reg;
   LCD_RS_HIGH();
 }
 
-void Set_Pixel(uint_fast16_t Color)
+static void LCD_WR_REG(int Reg, int Data)
 {
-  LCD_PORT = Color;
+  LCD_RS_LOW();
+  LCD_PORT = Reg;
+  LCD_RS_HIGH();
+  LCD_PORT = Data;
 }
 
-void ReadStart(void)
+static void LcdDetect(void)
 {
-}
-
-void ReadFinish(void)
-{
-}
-
-uint32_t ReadPixel()
-{
-    uint16_t Data;
-    LCD_WR_Ctrl(0x2E);
-    Data  = LCD_PORT; 
-    Data  = LCD_PORT; 
+  // ILI9327 the same way as SYS LCD_RD_Type
+  LCD_WR_Ctrl(0xEF);
+  uint32_t id = (LCD_PORT & 0xFF);
+  id  = (LCD_PORT & 0xFF) << 24;
+  id |= (LCD_PORT & 0xFF) << 16;
+  id |= (LCD_PORT & 0xFF) << 8;
+  id |= (LCD_PORT & 0xFF);
+  if (id == 0x02049327)
+  {
+    gLcdType = LcdIli9327;
     LCD_WR_Ctrl(0x2C);
-    return Data;
+    return;
+  }
+  // R61509V device code (index 0x0000 is NOP on DCS controllers)
+  LCD_WR_Ctrl(0x0000);
+  uint16_t code1 = LCD_PORT;
+  uint16_t code2 = LCD_PORT;
+  if (code1 == 0xB509 || code2 == 0xB509)
+  {
+    gLcdType = LcdR61509;
+    LCD_WR_Ctrl(0x0202);
+    return;
+  }
+  gLcdType = LcdSys;
 }
 
-void Set_Block(int x1, int y1, int x2, int y2)
+static inline int LcdType(void)
 {
-    x2--; y2--;
-    LCD_WR_Ctrl(0x2A);      // Block End X Address
-    LCD_PORT = (y1 >> 8); 
-    LCD_PORT = (y1 & 0xFF); 
-    LCD_PORT = (y2 >> 8); 
-    LCD_PORT = (y2 & 0xFF); 
-    LCD_WR_Ctrl(0x2B);      // Block End Y Address
-    LCD_PORT = (x1 >> 8); 
-    LCD_PORT = (x1 & 0xFF); 
-    LCD_PORT = (x2 >> 8); 
-    LCD_PORT = (x2 & 0xFF); 
-    LCD_WR_Ctrl(0x2C); 
+  if (gLcdType == LcdUnknown)
+    LcdDetect();
+  return gLcdType;
 }
 
-void Set_Posi(uint_fast16_t x, uint_fast16_t y)
+int LcdControllerType(void)
 {
-    LCD_WR_Ctrl(0x2A);      // Block End X Address
-    LCD_PORT = (0x00); 
-    LCD_PORT = (y & 0xFF); 
-    LCD_PORT = (0x00); 
-    LCD_PORT = (0xEF); 
-    LCD_WR_Ctrl(0x2B);      // Block End Y Address
-    LCD_PORT = (x >> 8); 
-    LCD_PORT = (x & 0xFF); 
-    LCD_PORT = (399 >> 8); 
-    LCD_PORT = (399 & 0xFF); 
-    LCD_WR_Ctrl(0x2C); 
+  return LcdType();
 }
-#else
-// LCD access through the SYS (factory firmware) routines. SYS knows which LCD
-// controller is fitted in this particular unit, the same way the original
-// app and community firmwares (Wildcat, ...) draw.
-static bool gLcdWindowed = false;
 
 void Set_Pixel(uint_fast16_t Color)
 {
-  __LCD_SetPixl(Color);
+  if (LcdType() == LcdSys)
+    __LCD_SetPixl(Color);
+  else
+    LCD_PORT = Color;
 }
 
 void ReadStart(void)
 {
+  // R61509V: GRAM index, the first read after it is a dummy one
+  if (LcdType() == LcdR61509)
+  {
+    LCD_WR_Ctrl(0x0202);
+    (void)LCD_PORT;
+  }
 }
 
 void ReadFinish(void)
 {
+  if (LcdType() == LcdR61509)
+    LCD_WR_Ctrl(0x0202);
 }
 
 uint32_t ReadPixel()
 {
-  return __LCD_GetPixl();
+  switch (LcdType())
+  {
+    case LcdIli9327:
+    {
+      uint16_t Data;
+      LCD_WR_Ctrl(0x2E);
+      Data = LCD_PORT;
+      Data = LCD_PORT;
+      LCD_WR_Ctrl(0x2C);
+      return Data;
+    }
+    case LcdR61509:
+      return LCD_PORT;
+    default:
+      return __LCD_GetPixl();
+  }
+}
+
+// x1..x2-1 horizontal (0..399), y1..y2-1 vertical (0..239), as SYS LCD_Set_Block
+static void SetBlockInclusive(int x1, int x2, int y1, int y2)
+{
+  switch (LcdType())
+  {
+    case LcdIli9327:
+      LCD_WR_Ctrl(0x2A);
+      LCD_PORT = (y1 >> 8);
+      LCD_PORT = (y1 & 0xFF);
+      LCD_PORT = (y2 >> 8);
+      LCD_PORT = (y2 & 0xFF);
+      LCD_WR_Ctrl(0x2B);
+      LCD_PORT = (x1 >> 8);
+      LCD_PORT = (x1 & 0xFF);
+      LCD_PORT = (x2 >> 8);
+      LCD_PORT = (x2 & 0xFF);
+      LCD_WR_Ctrl(0x2C);
+      break;
+    case LcdR61509:
+      LCD_WR_REG(0x0211, y2);
+      LCD_WR_REG(0x0213, x2);
+      LCD_WR_REG(0x0210, y1);
+      LCD_WR_REG(0x0212, x1);
+      LCD_WR_REG(0x0200, y1);
+      LCD_WR_REG(0x0201, x1);
+      LCD_WR_Ctrl(0x0202);
+      break;
+    default:
+      __LCD_Set_Block(x1, x2, y1, y2);
+  }
 }
 
 void Set_Block(int x1, int y1, int x2, int y2)
 {
-  // callers pass exclusive end coordinates, SYS expects inclusive
-  __LCD_Set_Block(x1, x2-1, y1, y2-1);
+  // callers pass exclusive end coordinates
+  SetBlockInclusive(x1, x2-1, y1, y2-1);
   gLcdWindowed = true;
 }
 
@@ -116,12 +174,34 @@ void Set_Posi(uint_fast16_t x, uint_fast16_t y)
   // has to be the whole screen again after a Set_Block
   if (gLcdWindowed)
   {
-    __LCD_Set_Block(0, 399, 0, 239);
+    SetBlockInclusive(0, 399, 0, 239);
     gLcdWindowed = false;
   }
-  __Point_SCR(x, y);
+  switch (LcdType())
+  {
+    case LcdIli9327:
+      // SYS Point_SCR: row y to the end of the screen
+      LCD_WR_Ctrl(0x2A);
+      LCD_PORT = (0x00);
+      LCD_PORT = (y & 0xFF);
+      LCD_PORT = (0x00);
+      LCD_PORT = (0xEF);
+      LCD_WR_Ctrl(0x2B);
+      LCD_PORT = (x >> 8);
+      LCD_PORT = (x & 0xFF);
+      LCD_PORT = (399 >> 8);
+      LCD_PORT = (399 & 0xFF);
+      LCD_WR_Ctrl(0x2C);
+      break;
+    case LcdR61509:
+      LCD_WR_REG(0x0200, y);
+      LCD_WR_REG(0x0201, x);
+      LCD_WR_Ctrl(0x0202);
+      break;
+    default:
+      __Point_SCR(x, y);
+  }
 }
-#endif
 
 void xBeep(bool b)
 {
