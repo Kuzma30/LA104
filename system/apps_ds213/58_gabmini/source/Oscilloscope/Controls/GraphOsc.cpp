@@ -479,12 +479,10 @@ void CWndOscGraph::OnPaintTY()
 	{
 		int clrCol = 0x0101;
 
+		// area between the cursors X1 and X2, the cursors themselves are drawn
+		// over the traces below
 		if ( bAreaT && nIndex > nMarkerT1 && nIndex < nMarkerT2 )
 			clrCol = RGB565(101060);
-		if ( nMarkerT1 == nIndex )
-			clrCol = Settings.MarkT1.u16Color;
-		if ( nMarkerT2 == nIndex )
-			clrCol = Settings.MarkT2.u16Color;
 
 		_PrepareColumn( column, x, clrCol );
 
@@ -660,10 +658,18 @@ void CWndOscGraph::OnPaintTY()
 			for ( int _y = 0; _y < DivsY*BlkY; _y += 3 )
 				column[_y] = RGB565(ffffff);
 		}
-		if ( nMarkerY1 > 0 )
+		// cursors: dashed lines in their own colors over everything, they
+		// were gray full lines that could not be told from the grid
+		if ( nMarkerY1 > 0 && (x & 3) < 2 )
 			column[nMarkerY1] = Settings.MarkY1.u16Color;
-		if ( nMarkerY2 > 0 )
+		if ( nMarkerY2 > 0 && (x & 3) >= 2 )
 			column[nMarkerY2] = Settings.MarkY2.u16Color;
+		if ( nMarkerT1 == nIndex )
+			for ( int _y = 0; _y < DivsY*BlkY; _y += 4 )
+				column[_y] = column[_y+1] = Settings.MarkT1.u16Color;
+		if ( nMarkerT2 == nIndex )
+			for ( int _y = 2; _y < DivsY*BlkY; _y += 4 )
+				column[_y] = column[_y+1] = Settings.MarkT2.u16Color;
 
 		if ( x <= nCut )
 		{

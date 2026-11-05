@@ -31,6 +31,13 @@ CWndMenuCursor::CWndMenuCursor()
 
 	if (code == ToWord('L', 'E') )
 	{
+		// cursors outside of the shown window (e.g. after moving the window
+		// or a new trigger mode) are moved into it, they were not visible
+		int nBegin = Settings.Time.Shift, nEnd = nBegin + CWndGraph::MaxX;
+		CSettings::Marker* arrT[2] = { &Settings.MarkT1, &Settings.MarkT2 };
+		for ( int i = 0; i < 2; i++ )
+			if ( arrT[i]->nValue < nBegin || arrT[i]->nValue >= nEnd )
+				arrT[i]->nValue = nBegin + CWndGraph::MaxX * (i + 1) / 3;
 		MainWnd.m_wndGraph.ShowWindow(true);
 		MainWnd.m_wndLReferences.ShowWindow(true);
 		MainWnd.m_wndTReferences.ShowWindow(true);
@@ -51,12 +58,10 @@ CWndMenuCursor::CWndMenuCursor()
 		{
 			m_itmDeltaY.Invalidate();
 		}
-		if ( !BIOS::ADC::Enabled() )
-		{
-			// we should redraw the graph, but not immediatelly for keeping
-			// keyboard response quick
-			MainWnd.m_wndGraph.Invalidate();
-		}
+		// the graph was redrawn only by the next acquisition: stopped, or
+		// waiting for a trigger, the cursor did not move on the screen
+		MainWnd.m_wndGraph.Invalidate();
+		MainWnd.m_wndTReferences.Invalidate();
 		return;
 	}
 

@@ -214,7 +214,7 @@ void CSettings::Reset()
 	MarkT1.Source = Marker::_CH1;
 	MarkT1.Display = Marker::_Physical;
 	MarkT1.nValue = 100;
-	MarkT1.u16Color = RGB565(707070);
+	MarkT1.u16Color = RGB565(ff8000);
 	MarkT1.Type = Marker::_Time;
 	MarkT1.strName = "X1";
 	MarkT1.strFullName = "Cursor X1";
@@ -223,7 +223,7 @@ void CSettings::Reset()
 	MarkT2.Source = Marker::_CH1;
 	MarkT2.Display = Marker::_Physical;
 	MarkT2.nValue = 200;
-	MarkT2.u16Color = RGB565(d0d0d0);
+	MarkT2.u16Color = RGB565(00c0ff);
 	MarkT2.Type = Marker::_Time;
 	MarkT2.strName = "X2";
 	MarkT2.strFullName = "Cursor X2";
@@ -232,7 +232,7 @@ void CSettings::Reset()
 	MarkY1.Source = Marker::_CH1;
 	MarkY1.Display = Marker::_Physical;
 	MarkY1.nValue = 200;
-	MarkY1.u16Color = RGB565(707070);
+	MarkY1.u16Color = RGB565(ff8000);
 	MarkY1.Type = Marker::_Voltage;
 	MarkY1.strName = "Y1";
 	MarkY1.strFullName = "Cursor Y1";
@@ -241,7 +241,7 @@ void CSettings::Reset()
 	MarkY2.Source = Marker::_CH1;
 	MarkY2.Display = Marker::_Physical;
 	MarkY2.nValue = 200;
-	MarkY2.u16Color = RGB565(d0d0d0);
+	MarkY2.u16Color = RGB565(00c0ff);
 	MarkY2.Type = Marker::_Voltage;
 	MarkY2.strName = "Y2";
 	MarkY2.strFullName = "Cursor Y2";
