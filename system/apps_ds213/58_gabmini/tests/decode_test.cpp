@@ -583,10 +583,10 @@ static void TestWarnings()
     cfg.ch[I2c][1] = Ch3;
     Expect("i2c same ch", cfg, {"Select channels"});
     cfg.protocol = Uart;
-    Expect("uart flat", cfg, {"No data"});
+    Expect("uart flat", cfg, {"No data on CH3"});
     // only part of the buffer was acquired
     valid = 100;
-    Expect("partial buf", cfg, {"No data"});
+    Expect("partial buf", cfg, {"No data on CH3"});
     valid = N;
 }
 

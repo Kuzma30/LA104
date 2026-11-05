@@ -1615,6 +1615,21 @@ namespace Decoder
         case TWarning:
             if (a.value < sizeof(g_warnings) / sizeof(g_warnings[0]))
                 w.S(g_warnings[a.value]);
+            if (a.value == WNoSignal && proto > Off && proto < ProtocolCount)
+            {
+                // which inputs were decoded, e.g. "No data on CH3" when the
+                // signal is connected to another channel
+                bool bFirst = true;
+                for (int r = 0; r < MaxRoles; r++)
+                {
+                    int ch = cfg.ch[proto][r];
+                    if (!RoleName(proto, r) || ch < Ch1 || ch > Ch4)
+                        continue;
+                    w.S(bFirst ? " on " : ",");
+                    w.S(ChannelText[ch]);
+                    bFirst = false;
+                }
+            }
             break;
         }
         *w.p = 0;
