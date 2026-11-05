@@ -252,7 +252,8 @@ namespace SettingsStore
         if ( _Read( pSector, TIo::Verify ) && _Read( pSector, TIo::Read ) )
         {
             // derived values
-            Settings.Time.InvalidFirst = Settings.Trig.Sync == CSettings::Trigger::_None ? 150 : 30;
+            Settings.Time.InvalidFirst = (Settings.Trig.Sync == CSettings::Trigger::_None ||
+                Settings.Trig.Sync == CSettings::Trigger::_Scan) ? 150 : 30;
             if ( Settings.Time.Shift < Settings.Time.InvalidFirst )
                 Settings.Time.Shift = Settings.Time.InvalidFirst;
             Settings.Trig.State = Settings.Trig.Sync == CSettings::Trigger::_Single ?

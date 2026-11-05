@@ -209,8 +209,13 @@ void CWndMenuInput::_ApplyTrigger()
 {
 	MainWnd.m_wndLReferences.Invalidate();
 	// first 150 samples in buffer are for storing pre-trigger
-	// samples. When no trigger is set, these samples are invalid.
-	int nInvalid = Settings.Trig.Sync == CSettings::Trigger::_None ? 150 : 30;
+	// samples. Without a trigger condition (None, Scan) the FPGA starts
+	// immediately after the restart and these samples are the end of the
+	// previous acquisition (the FPGA stopped writing when it was full), the
+	// waveform would have a step at the trigger position.
+	bool bUnconditional = Settings.Trig.Sync == CSettings::Trigger::_None ||
+		Settings.Trig.Sync == CSettings::Trigger::_Scan;
+	int nInvalid = bUnconditional ? 150 : 30;
 	Settings.Time.InvalidFirst = nInvalid;
 	if ( Settings.Time.Shift < nInvalid )
 		Settings.Time.Shift = nInvalid;
