@@ -82,6 +82,12 @@ module tb_scope;
         dut.U4.Tthreshold = 0;
         dut.U4.Delay = 0;
         for (k = 0; k < 4096; k = k + 1) dut.U2.Mem_data[k] = 0;
+`ifdef COUNTERS
+        // Din = 0 at time 0 is an x -> 0 edge for the simulator
+        #1;
+        dut.U7.BinAR = 0; dut.U7.BinAF = 0; dut.U7.BinBR = 0; dut.U7.BinBF = 0;
+        dut.U7.GrayAR = 0; dut.U7.GrayAF = 0; dut.U7.GrayBR = 0; dut.U7.GrayBF = 0;
+`endif
     end
 
     // sample clock: 72 MHz or slower (TIM1 / MCO of the timebase)
@@ -90,9 +96,11 @@ module tb_scope;
 
     // ADC data: two different saw waves (inverted on the pins, as the ADC is)
     integer phase = 0;
+    reg zdrive = 0;                     // quadrature test: CH_A carries Z
+    reg [7:0] zval = 0;
     always @(negedge MCI) begin
         phase = phase + 1;
-        Din[7:0]  <= ~((phase * 3) & 8'hff);
+        Din[7:0]  <= zdrive ? ~zval : ~((phase * 3) & 8'hff);
         Din[15:8] <= ~(((phase * 5) + 100) & 8'hff);
     end
 
@@ -258,6 +266,61 @@ module tb_scope;
 
     reg [31:0] cr, cf, dr, df, prev;
     integer ok, i, e0;
+
+    // ---- quadrature encoder on C (A) and D (B), Z on CH_A
+    integer qpos = 0;                   // model position (x4 steps)
+    integer qstep_t = 200000;           // time between steps
+    integer zwidth = 2;                 // Z high for this many steps
+    integer ppr4 = 400;                 // steps per revolution
+    // forward: (A,B) 00 -> 10 -> 11 -> 01
+    task qstep(input integer dir);
+        reg [1:0] st;
+        begin
+            qpos = qpos + dir;
+            st = qpos & 3;
+            Din[16] = (st == 1 || st == 2);
+            Din[17] = (st == 2 || st == 3);
+            // Z: high in the first zwidth steps of every revolution
+            zval = (((qpos % ppr4) + ppr4) % ppr4) < zwidth ? 8'd220 : 8'd30;
+            #(qstep_t);
+        end
+    endtask
+    task qmove(input integer n);
+        integer j;
+        begin
+            for (j = 0; j < (n < 0 ? -n : n); j = j + 1)
+                qstep(n < 0 ? -1 : 1);
+        end
+    endtask
+
+    // reads a latched set of four counters (select 0x20 or 0x28), returns the sum
+    reg [15:0] qw [0:7];
+    task read_quad(input [7:0] base, output [31:0] pos, output [15:0] zc);
+        integer j;
+        begin
+            for (j = 0; j < 8; j = j + 1) begin
+                set_param(5, base + j);
+                C_D = 1; H_L = 0; #GPIO;
+                bus_read(w);
+                qw[j] = w;
+                C_D = 0; #GPIO;
+            end
+            pos = gray2bin({qw[1], qw[0]}) + gray2bin({qw[3], qw[2]}) +
+                  gray2bin({qw[5], qw[4]}) + gray2bin({qw[7], qw[6]});
+            zc = 0;
+            if (base == 8'h28) begin
+                set_param(5, 8'h30);
+                C_D = 1; H_L = 0; #GPIO;
+                bus_read(w);
+                C_D = 0; #GPIO;
+                zc = gray2bin({16'h0, w});
+            end
+        end
+    endtask
+
+    reg [31:0] q0, q1, qz, qz0;
+    reg [15:0] zc, zc0;
+    integer qbase;
 `endif
 
     // ---------------------------------------------------------------- run
@@ -293,7 +356,7 @@ module tb_scope;
         set_param(5, 8'h18); C_D = 1; H_L = 0; #GPIO; bus_read(w); C_D = 0;
         check("id 0xC0D2", w == 16'hC0D2);
         H_L = 0; #GPIO; bus_read(w);
-        check("version 2.62 in status", (w >> 6) == 262);
+        check("version 2.63 in status", (w >> 6) == 263);
 
         // counts since power up equal the model
         read_cnt(8'h10, cr); read_cnt(8'h12, cf); read_cnt(8'h14, dr); read_cnt(8'h16, df);
@@ -337,6 +400,102 @@ module tb_scope;
         $display("     after wrap %0d", cr);
         check("wrap of 32 bits", ok && cr < 32'd1000);
         half_c = 0;
+
+        // ---------------------------------------------------- quadrature
+        $display("---- quadrature");
+        set_param(5, 8'h19); C_D = 1; H_L = 0; #GPIO; bus_read(w); C_D = 0; #GPIO;
+        check("id 0xC0D3", w == 16'hC0D3);
+        mci_half = 6944;
+        // start from A = B = 0, the counters already hold the edges of the
+        // tests above: positions are compared as differences
+        Din[16] = 0; Din[17] = 0; #1000000;
+        qpos = 0;
+        read_quad(8'h20, q0, zc);
+        qmove(1000);
+        read_quad(8'h20, q1, zc);
+        $display("     forward 1000: %0d", $signed(q1 - q0));
+        check("forward 1000 steps", q1 - q0 == 1000);
+        qmove(-1500);
+        read_quad(8'h20, q1, zc);
+        $display("     back 1500: %0d", $signed(q1 - q0));
+        check("backward 1500 (negative)", $signed(q1 - q0) == -500);
+
+        // bouncing edge: A toggles 5 times while B is stable
+        qbase = qpos;
+        for (i = 0; i < 5; i = i + 1) begin
+            Din[16] = ~Din[16]; #30000;
+        end
+        Din[16] = ~Din[16]; #30000;     // even number of toggles: back to the level
+        read_quad(8'h20, q1, zc);
+        check("bouncing edge cancels", $signed(q1 - q0) == -500);
+
+        // Z on CH_A: threshold 128, hysteresis 8, active high
+        zval = 30; zdrive = 1; #1000000;
+        set_param(8'h10, 128);
+        set_param(8'h11, 8);
+        set_param(8'h0f, 1);
+        read_quad(8'h28, qz0, zc0);
+        // to a revolution boundary, then 3 revolutions forward
+        qmove(500 + 10);                // position 10 (model)
+        read_quad(8'h28, qz, zc);
+        // from -500 to 10: Z at -400 and at 0, latched at the first Z step
+        $display("     Z from -500 to 10: count %0d, latched %0d", zc - zc0, $signed(qz - q0));
+        check("2 Z, latched at 0", zc - zc0 == 2 && $signed(qz - q0) == 0);
+        zc0 = zc;
+        qmove(3 * 400);
+        read_quad(8'h28, qz, zc);
+        read_quad(8'h20, q1, w);
+        $display("     3 revolutions: Z count %0d, latched %0d, now %0d", zc - zc0, $signed(qz - q0), $signed(q1 - q0));
+        check("3 revs: 3 Z, at 1200, pos 1210", zc - zc0 == 3 && $signed(qz - q0) == 1200 && $signed(q1 - q0) == 1210);
+        check("in the revolution: 10", $signed(q1 - qz) == 10);
+
+        // backward: Z high at 1200 and 1201, going down from 1210 the
+        // first position with Z is 1201
+        qmove(-20);
+        read_quad(8'h28, qz, zc);
+        $display("     backward over Z: latched %0d", $signed(qz - q0));
+        check("backward: Z at 1201", $signed(qz - q0) == 1201);
+
+        // noise around the threshold (within the hysteresis): no Z
+        read_quad(8'h28, qz0, zc0);
+        for (i = 0; i < 40; i = i + 1) begin
+            zval = (i & 1) ? 8'd133 : 8'd123; #200000;
+        end
+        zval = 30; #200000;
+        read_quad(8'h28, qz, zc);
+        check("noise within hysteresis: no Z", zc == zc0);
+        // active low: the edge to low counts
+        set_param(8'h0f, 8'h05);
+        read_quad(8'h28, qz0, zc0);
+        zval = 220; #500000; zval = 30; #500000;
+        read_quad(8'h28, qz, zc);
+        check("active low", zc - zc0 == 1);
+        zval = 220; #500000;            // inactive again (no count)
+        read_quad(8'h28, qz, zc);
+        check("active low: high not counted", zc - zc0 == 1);
+
+        // fast encoder: 10 MHz steps (each edge 100 ns apart), slow MCI,
+        // reading while it runs, then exact
+        mci_half = 833333;
+        zdrive = 0;
+        set_param(8'h0f, 0);
+        qstep_t = 100000;
+        read_quad(8'h20, q0, zc);
+        fork
+            qmove(30000);
+            begin
+                ok = 1; prev = q0;
+                for (i = 0; i < 6; i = i + 1) begin
+                    read_quad(8'h20, q1, zc);
+                    if ($signed(q1 - prev) < 0 || q1 - prev > 32'd20000) ok = 0;
+                    prev = q1;
+                end
+            end
+        join
+        read_quad(8'h20, q1, zc);
+        $display("     10 MHz steps: %0d", q1 - q0);
+        check("reading while it runs", ok);
+        check("10 MHz steps exact", q1 - q0 == 30000);
 
         // the FIFO still works after the counter accesses
         mci_half = 6944;

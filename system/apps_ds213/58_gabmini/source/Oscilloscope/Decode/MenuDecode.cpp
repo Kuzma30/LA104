@@ -2,6 +2,7 @@
 #include "DecodeBand.h"
 #include "HwCounter.h"
 #include "FpgaCounter.h"
+#include "QuadCounter.h"
 #include <MainWnd.h>
 
 using namespace Decoder;
@@ -17,6 +18,9 @@ static const char* const g_textRgb[] = {"GRB", "RGB"};
 static const char* const g_textBand[] = {"Top", "Bottom"};
 static const char* const g_textEdge[] = {"Rising", "Falling", "Both"};
 static const char* const g_textSource[] = {"Input", "Wave Out", "FPGA C/D"};
+static const char* const g_textQuadRes[] = {"x4", "x2", "x1"};
+static const char* const g_textDirection[] = {"Normal", "Reverse"};
+static const char* const g_textActive[] = {"High", "Low"};
 
 // ---------------------------------------------------------------------------
 
@@ -46,6 +50,73 @@ namespace DecodeUi
     static int _FpgaChannel()
     {
         return Settings.Decode.ch[Counter][0] == Ch4 ? FpgaCounter::D : FpgaCounter::C;
+    }
+
+    // Encoder: the quadrature decoder of the FPGA counts A = CH3 (C) and
+    // B = CH4 (D) all the time, Z comes from CH1 / CH2
+    static bool s_bQuadTried = false;
+
+    static bool _QuadChannels()
+    {
+        const uint8_t* ch = Settings.Decode.ch[Encoder];
+        bool bAB = (ch[0] == Ch3 && ch[1] == Ch4) || (ch[0] == Ch4 && ch[1] == Ch3);
+        return bAB && (ch[2] == Ch1 || ch[2] == Ch2 || ch[2] == ChOff);
+    }
+
+    static bool _QuadWanted()
+    {
+        return Settings.Decode.protocol == Encoder && QuadCounter::Available() && _QuadChannels();
+    }
+
+    // direction of the FPGA values: A = D reverses, as the setting does
+    static int _QuadSign()
+    {
+        int n = Settings.Decode.ch[Encoder][0] == Ch4 ? -1 : 1;
+        return Settings.Decode.quadDir ? -n : n;
+    }
+
+    // Z threshold: the middle of the levels seen on the Z channel in all
+    // acquisitions since its settings changed (a short index pulse is not
+    // in every buffer)
+    static int s_nZMin = 255, s_nZMax = 0;
+    static uint32_t s_nZKey = 0xffffffff;
+
+    static void _TrackZ()
+    {
+        int ch = Settings.Decode.ch[Encoder][2];
+        if ( ch != Ch1 && ch != Ch2 )
+            return;
+        CSettings::AnalogChannel& a = ch == Ch1 ? Settings.CH1 : Settings.CH2;
+        uint32_t nKey = (uint32_t)ch | ((uint32_t)a.Resolution << 4) | ((uint32_t)a.Coupling << 8) |
+            ((uint32_t)(a.u16Position & 0xffff) << 12);
+        if ( nKey != s_nZKey )
+        {
+            s_nZKey = nKey;
+            s_nZMin = 255;
+            s_nZMax = 0;
+        }
+        const uint8_t* p = Sampler::GetBuffer() + (ch == Ch1 ? 0 : 1);
+        for ( int i = Settings.Time.InvalidFirst; i < Sampler::GetValid(); i++ )
+        {
+            int v = p[i * Decoder::BytesPerSample];
+            if ( v < s_nZMin ) s_nZMin = v;
+            if ( v > s_nZMax ) s_nZMax = v;
+        }
+    }
+
+    static bool _ZLevelKnown()
+    {
+        return s_nZMax - s_nZMin >= 12;
+    }
+
+    static void _QuadSetZ()
+    {
+        int ch = Settings.Decode.ch[Encoder][2];
+        int nSource = ch == Ch1 ? QuadCounter::ZCh1 : ch == Ch2 ? QuadCounter::ZCh2 : QuadCounter::ZOff;
+        if ( !_ZLevelKnown() )
+            nSource = QuadCounter::ZOff;    // no Z level seen yet
+        QuadCounter::SetZ( nSource, Settings.Decode.invert[Encoder] != 0,
+            (s_nZMin + s_nZMax) / 2, (s_nZMax - s_nZMin) / 8 );
     }
 
     float SampleRate()
@@ -79,6 +150,8 @@ namespace DecodeUi
             s_nSwSequence = Sampler::GetSequence();
             s_nSwTotal += Decoder::CountedEdges;
         }
+        if ( Settings.Decode.protocol == Encoder )
+            _TrackZ();
         if ( s_nSelected >= Decoder::Count )
             s_nSelected = -1;
         if ( MainWnd.m_wndMenuDecode.IsVisible() )
@@ -116,6 +189,10 @@ namespace DecodeUi
         s_nSwSequence = Sampler::GetSequence();   // the shown buffer is not counted
         HwCounter::Reset();
         FpgaCounter::Reset();
+        QuadCounter::Reset();
+        s_nZKey = 0xffffffff;       // the Z level is measured again
+        s_nZMin = 255;
+        s_nZMax = 0;
     }
 
     int CounterChannel()
@@ -159,7 +236,24 @@ namespace DecodeUi
         nLastEdge = Settings.Decode.cntEdge;
         FpgaCounter::Tick();
 
-        if ( Settings.Decode.protocol != Counter || !MainWnd.m_wndMenuDecode.IsVisible() )
+        bool bQuad = _QuadWanted();
+        if ( !bQuad )
+            s_bQuadTried = false;
+        if ( bQuad && !QuadCounter::Active() && !s_bQuadTried )
+        {
+            s_bQuadTried = true;
+            QuadCounter::Start();
+            if ( MainWnd.m_wndMenuDecode.IsVisible() )
+                MainWnd.m_wndMenuDecode.m_itmInfo.Invalidate();
+        }
+        else if ( !bQuad && QuadCounter::Active() )
+            QuadCounter::Stop();
+        if ( QuadCounter::Active() )
+            _QuadSetZ();
+        QuadCounter::Tick();
+
+        if ( (Settings.Decode.protocol != Counter && Settings.Decode.protocol != Encoder) ||
+             !MainWnd.m_wndMenuDecode.IsVisible() )
             return;
         static uint32_t nLast = 0;
         uint32_t nNow = BIOS::SYS::GetTick();
@@ -173,6 +267,17 @@ namespace DecodeUi
     {
         HwCounter::Stop();
         FpgaCounter::Stop();
+        QuadCounter::Stop();
+    }
+
+    bool ZLevelKnown()
+    {
+        return _ZLevelKnown();
+    }
+
+    int QuadSign()
+    {
+        return _QuadSign();
     }
 }
 
@@ -312,6 +417,207 @@ static void CounterText(int nLine, char* text)
 }
 
 // ---------------------------------------------------------------------------
+// Encoder
+
+// x4 steps in the units of the resolution setting (floor, also negative)
+static int64_t QuadScale64(int64_t n)
+{
+    int nShift = Settings.Decode.quadRes == QuadX1 ? 2 : Settings.Decode.quadRes == QuadX2 ? 1 : 0;
+    return n >> nShift;
+}
+
+static int QuadDiv()
+{
+    return Settings.Decode.quadRes == QuadX1 ? 4 : Settings.Decode.quadRes == QuadX2 ? 2 : 1;
+}
+
+// signed number in nMax characters at most, M / G when it does not fit
+static void FormatSigned(int64_t n, char* buf, int nMax)
+{
+    char* p = buf;
+    uint64_t u = (uint64_t)n;
+    if ( n < 0 )
+    {
+        *p++ = '-';
+        u = (uint64_t)(-n);
+        nMax--;
+    }
+    char digits[24];
+    int nLen = 0;
+    uint64_t v = u;
+    do
+    {
+        digits[nLen++] = (char)('0' + v % 10);
+        v /= 10;
+    } while ( v );
+    if ( nLen <= nMax )
+    {
+        while ( nLen )
+            *p++ = digits[--nLen];
+        *p = 0;
+        return;
+    }
+    // with a unit: 1.234M
+    char unit = 'M';
+    int nUnitDigits = 6;
+    if ( nLen - 6 > nMax - 1 )
+    {
+        unit = 'G';
+        nUnitDigits = 9;
+    }
+    int nWhole = nLen - nUnitDigits;
+    for ( int i = 0; i < nWhole; i++ )
+        *p++ = digits[nLen - 1 - i];
+    int nDec = nMax - 1 - nWhole - 1;           // unit and the point
+    if ( nDec > 3 ) nDec = 3;
+    if ( nDec > 0 )
+    {
+        *p++ = '.';
+        for ( int i = 0; i < nDec; i++ )
+            *p++ = digits[nLen - 1 - nWhole - i];
+    }
+    *p++ = unit;
+    *p = 0;
+}
+
+// speed: rpm when the steps of a revolution are known, else steps per second
+static void FormatSpeed(float fSteps, bool bPerRev, int32_t nPerRev, char* buf)
+{
+    float f = fSteps;
+    const char* unit = "/s";
+    if ( bPerRev && nPerRev != 0 )
+    {
+        f = fSteps * 60.0f / (float)(nPerRev < 0 ? -nPerRev : nPerRev);
+        unit = "rpm";
+    } else
+        f /= (float)QuadDiv();
+    char* p = buf;
+    *p++ = f < -0.05f ? '-' : '+';
+    if ( f < 0 )
+        f = -f;
+    char tmp[16];
+    if ( f < 99.95f )
+    {
+        // one decimal
+        int n = (int)(f * 10 + 0.5f);
+        strcpy( tmp, CUtils::itoa( n / 10 ) );
+        strcat( tmp, "." );
+        strcat( tmp, CUtils::itoa( n % 10 ) );
+    }
+    else if ( f < 99999.5f )
+        strcpy( tmp, CUtils::itoa( (int)(f + 0.5f) ) );
+    else if ( f < 99999.5e3f )
+    {
+        strcpy( tmp, CUtils::itoa( (int)(f / 1000.0f + 0.5f) ) );
+        strcat( tmp, "k" );
+    } else
+    {
+        strcpy( tmp, CUtils::itoa( (int)(f / 1e6f + 0.5f) ) );
+        strcat( tmp, "M" );
+    }
+    // cut the unit when the value is long ("+12345/s" fits, "+12345rpm" -> "+12345rp")
+    strcpy( p, tmp );
+    strcat( p, unit );
+    buf[8] = 0;
+}
+
+// the four lines of the info panel: total, in the revolution, steps of a
+// revolution, speed
+static void EncoderText(int nLine, char* text)
+{
+    text[0] = 0;
+    int nSign = DecodeUi::QuadSign();
+    if ( QuadCounter::Active() )
+    {
+        // FPGA: counted all the time
+        switch ( nLine )
+        {
+        case 0:
+            FormatSigned( QuadScale64( nSign * QuadCounter::Position() ), text, 8 );
+            break;
+        case 1:
+        {
+            int64_t n;
+            strcpy( text, "R" );
+            if ( Settings.Decode.ch[Encoder][2] == ChOff )
+                strcat( text, " no Z" );
+            else if ( !DecodeUi::ZLevelKnown() )
+                strcat( text, " Z ?" );     // no Z level seen yet
+            else if ( QuadCounter::InRev( n ) )
+                FormatSigned( QuadScale64( nSign * n ), text + 1, 7 );
+            else
+                strcat( text, " -" );
+            break;
+        }
+        case 2:
+        {
+            int32_t n;
+            strcpy( text, "P" );
+            if ( QuadCounter::PerRev( n ) )
+                FormatSigned( QuadScale64( nSign * (int64_t)n ), text + 1, 7 );
+            else
+                strcat( text, " -" );
+            break;
+        }
+        case 3:
+        {
+            float f;
+            int32_t nPerRev;
+            bool bPerRev = QuadCounter::PerRev( nPerRev );
+            if ( QuadCounter::Rate( f ) )
+                FormatSpeed( nSign * f, bPerRev, nPerRev, text );
+            else
+                strcpy( text, "..." );
+            break;
+        }
+        }
+        return;
+    }
+    // samples of the buffer only
+    const TQuadStats& q = Decoder::Quad;
+    switch ( nLine )
+    {
+    case 0:
+        strcpy( text, "b" );
+        FormatSigned( QuadScale64( q.steps ), text + 1, 7 );
+        break;
+    case 1:
+        strcpy( text, "Z " );
+        strcat( text, CUtils::itoa( (int)q.zCount ) );
+        break;
+    case 2:
+        strcpy( text, "P" );
+        if ( q.havePerRev )
+            FormatSigned( QuadScale64( q.perRev ), text + 1, 7 );
+        else
+            strcat( text, " -" );
+        break;
+    case 3:
+        if ( q.errors )
+        {
+            strcpy( text, "AB! " );
+            strcat( text, CUtils::itoa( (int)q.errors ) );
+        }
+        else if ( QuadCounter::Status() == QuadCounter::NoDecoder )
+        {
+            // the FPGA image without the decoder: 2.63 is needed
+            int nVer = FpgaCounter::FpgaVersion();
+            strcpy( text, "FPGA" );
+            strcat( text, CUtils::itoa( nVer / 100 ) );
+            strcat( text, "." );
+            if ( nVer % 100 < 10 )
+                strcat( text, "0" );
+            strcat( text, CUtils::itoa( nVer % 100 ) );
+        }
+        else if ( q.rate != 0 )
+            FormatSpeed( q.rate, q.havePerRev, q.perRev, text );
+        else
+            strcpy( text, "buffer" );
+        break;
+    }
+}
+
+// ---------------------------------------------------------------------------
 
 static void FormatFreq(float f, char* buf)
 {
@@ -382,7 +688,7 @@ void CItemDecodeInfo::Create(CWnd* pParent)
 {
     CRect rc = pParent->GetLast()->m_rcClient;
     rc.top = rc.bottom + CWndMenuItem::Space;
-    rc.bottom = rc.top + 50;
+    rc.bottom = rc.top + 66;      // 4 lines (Encoder)
     CWnd::Create( "Info", WsVisible | WsNoActivate, rc, pParent );
 }
 
@@ -394,6 +700,16 @@ void CItemDecodeInfo::Create(CWnd* pParent)
     char text[16];
     int proto = Settings.Decode.protocol;
     text[0] = 0;
+    if ( proto == Encoder )
+    {
+        static const ui16 arrClr[4] = {RGB565(ffffff), RGB565(ffff00), RGB565(80e0ff), RGB565(b0b0b0)};
+        for ( int i = 0; i < 4; i++ )
+        {
+            EncoderText( i, text );
+            BIOS::LCD::Print( x, y + 16*i, arrClr[i], RGBTRANS, text );
+        }
+        return;
+    }
     if ( proto == Counter )
     {
         static const ui16 arrClr[3] = {RGB565(ffffff), RGB565(ffff00), RGB565(b0b0b0)};
@@ -460,7 +776,7 @@ void CWndListDecode::Create(CWnd* pParent)
     for ( int r = 0; r < MaxRoles; r++ )
         if ( RoleName(p, r) )
             nItems++;
-    static const uint8_t arrParams[ProtocolCount] = {0, 5, 2, 0, 3, 0, 2, 1, 1, 0, 1, 2};
+    static const uint8_t arrParams[ProtocolCount] = {0, 5, 2, 0, 3, 0, 2, 1, 1, 0, 1, 2, 3};
     nItems += arrParams[p];
 
     CListBox::Create( ProtocolText[p], WsVisible | WsModal,
@@ -508,6 +824,11 @@ void CWndListDecode::Create(CWnd* pParent)
             _Add( "Source", g_textSource, &c.cntSource, SourceMax );
         else
             c.cntSource = SourceSamples;
+        break;
+    case Encoder:
+        _Add( "Count", g_textQuadRes, &c.quadRes, QuadResMax );
+        _Add( "Direction", g_textDirection, &c.quadDir, 1 );
+        _Add( "Z active", g_textActive, &c.invert[p], 1 );
         break;
     }
     _Add( "Band", g_textBand, &c.band, BandMax );
@@ -658,15 +979,19 @@ void CWndMenuDecode::Refresh()
             m_itmInfo.Invalidate();
         nLastPulse = nPulse;
     }
-    if ( Settings.Decode.protocol == Counter )
+    if ( Settings.Decode.protocol == Counter || Settings.Decode.protocol == Encoder )
     {
         // redraw only the changed values
         static uint32_t nLastHash = 0;
         uint32_t nHash = 5381;
         char text[16];
-        for ( int i = 0; i < 3; i++ )
+        bool bEncoder = Settings.Decode.protocol == Encoder;
+        for ( int i = 0; i < (bEncoder ? 4 : 3); i++ )
         {
-            CounterText( i, text );
+            if ( bEncoder )
+                EncoderText( i, text );
+            else
+                CounterText( i, text );
             for ( char* p = text; *p; p++ )
                 nHash = nHash * 33 + *p;
             nHash = nHash * 33 + '|';
@@ -676,7 +1001,9 @@ void CWndMenuDecode::Refresh()
         nLastHash = nHash;
     }
     // the List button resets the counter
-    const char* pszList = Settings.Decode.protocol == Counter ? "Reset" : "List";
+    bool bReset = Settings.Decode.protocol == Counter ||
+        (Settings.Decode.protocol == Encoder && QuadCounter::Active());
+    const char* pszList = bReset ? "Reset" : "List";
     if ( m_itmList.m_pszId != pszList )
     {
         m_itmList.m_pszId = pszList;
@@ -747,7 +1074,8 @@ void CWndMenuDecode::Refresh()
         return;
     }
 
-    if ( code == ToWord('d', 'l') && Settings.Decode.protocol == Counter )
+    if ( code == ToWord('d', 'l') && (Settings.Decode.protocol == Counter ||
+         (Settings.Decode.protocol == Encoder && QuadCounter::Active())) )
     {
         DecodeUi::CounterReset();
         m_itmInfo.Invalidate();

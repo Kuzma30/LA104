@@ -1,4 +1,4 @@
-# DS203 FPGA (HW 2.6x, iCE65L04) with 32 bit counters of CH_C and CH_D
+# DS203 FPGA (HW 2.6x, iCE65L04) with counters and quadrature decoder of CH_C / CH_D
 
 - `stock_v25/` original FPGA source of e-Design (FPGA CFG Ver 2.5, MIT
   license, from [matthiasbock/dso203](https://github.com/matthiasbock/dso203),
@@ -27,8 +27,35 @@ Reading the low word latches the whole 32 bit value, the high word comes
 from the latch. The values are in Gray code (converted by the MCU), so a
 value read while the input toggles is always the old or the new one.
 
-The status word (H_L = 0, C_D = 0) has the version 262 in bits 15..6,
-SYS `__Get(FPGAVER)` shows "2.62". The other bits are as in the original.
+The status word (H_L = 0, C_D = 0) has the version 263 in bits 15..6,
+SYS `__Get(FPGAVER)` shows "2.63". The other bits are as in the original.
+
+## Quadrature decoder (FPGA 2.63, `scope/QuadCnt.v`)
+
+Incremental encoder: A = CH_C, B = CH_D, index Z = CH_A or CH_B (the DS203
+has only two digital inputs, Z is compared with a threshold).
+
+- four 32 bit up/down counters, one for every edge of A and B (x4), the
+  direction from the level of the other input, clocked by the pins like the
+  edge counters; position = sum of the four (modulo 2^32, by the MCU);
+  forward when A leads B. A bouncing edge counts +1 / -1 and cancels out.
+- Z: the sample of CH_A / CH_B (as written to the FIFO) compared with a
+  threshold with hysteresis in the sampling clock MCI, so the Z pulse must
+  be longer than one sample period. At the active edge of Z the four
+  counters are captured and a 16 bit Z counter is incremented. The total
+  position is never cleared by Z; position in the revolution = position -
+  captured position (MCU).
+- Gray code everywhere, the counters have no clear (the MCU keeps the start).
+
+| what | how |
+|------|-----|
+| Z control | register `0x0F`: bit 1..0 source (0 off, 1 CH_A, 2 CH_B), bit 2 active low |
+| Z threshold / hysteresis | registers `0x10` / `0x11` (default 128 / 8) |
+| position | Select `0x20` latches the four counters and returns word 0, `0x21`..`0x27` the other words (AR lo/hi, AF, BR, BF) |
+| position at the last Z | Select `0x28`: the same for the captured set (latches the Z counter too), `0x29`..`0x2F`, `0x30` Z counter |
+| ID | Select `0x19` returns `0xC0D3` |
+
+Version 263 in the status word ("2.63").
 
 ## Tests (`tb/run.sh`)
 
@@ -41,8 +68,10 @@ SYS `__Get(FPGAVER)` shows "2.62". The other bits are as in the original.
    clock, wrap of 32 bits.
 
 Size estimate with yosys / nextpnr for iCE40 (the open tools do not support
-iCE65): original 1120 logic cells, with counters 1625 (iCE65L04: 3520),
-18 RAM blocks (20), 7 global buffers (8), all clocks above 100 MHz.
+iCE65): original 1120 logic cells, with counters 1625, with the quadrature
+decoder 2781 (iCE65L04: 3520), 18 RAM blocks (20), 8 global buffers (8),
+all clocks above 100 MHz. If iCEcube2 runs out of global buffers, the clock
+of SCK (the slowest, serial register writes) can be left on local routing.
 
 ## Building the bitstream
 
@@ -58,7 +87,7 @@ Only **Lattice iCEcube2** builds iCE65 bitstreams (the source states that the
 Flashing: the FPGA image is in the STM32 flash at 0x0802C000 and is loaded by
 SYS at power up. It is flashed in the DFU mode like the original package
 (`CFG_FPGA.ADR` with `0x0802C000`, then `V261FPGA.BIN`): copy `CFG_FPGA.ADR`,
-then the new image renamed for example to `V262FPGA.BIN`. The original
+then the new image renamed for example to `V263FPGA.BIN`. The original
 `V261FPGA.BIN` can be flashed back the same way.
 
 Note: the published source is version 2.5, the image of HW 2.60 is 2.61.

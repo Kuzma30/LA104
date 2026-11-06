@@ -571,6 +571,102 @@ static void TestCounter()
     failures += !ok;
 }
 
+// encoder: A = CH3, B = CH4, Z = CH1 (analog), 'spp' samples per step,
+// Z high in the first 2 steps of every revolution of 'ppr4' steps
+static void EncoderSignal(std::vector<int> moves, int spp, int ppr4, int start = 0)
+{
+    Clear();
+    int pos = start, i = 0;
+    auto put = [&](int n)
+    {
+        int st = pos & 3;   // 0 1 2 3 -> (A, B) 00 10 11 01
+        int a = st == 1 || st == 2, b = st == 2 || st == 3;
+        int zr = ((pos % ppr4) + ppr4) % ppr4;
+        for (int k = 0; k < n && i < N; k++, i++)
+        {
+            int v = (zr < 2 ? 200 : 40) + (rand() % 11) - 5;
+            buf[i] = (uint32_t)v | 0x8000 | ((uint32_t)a << 16) | ((uint32_t)b << 17);
+        }
+    };
+    put(spp);
+    for (int m : moves)
+        for (int j = 0; j < (m < 0 ? -m : m); j++)
+        {
+            pos += m < 0 ? -1 : 1;
+            put(spp);
+        }
+    put(N);
+}
+
+static void TestEncoder()
+{
+    fs = 1e6f;
+    TConfig cfg; SetDefaults(cfg);
+    cfg.protocol = Encoder;
+    bool ok = cfg.ch[Encoder][0] == Ch3 && cfg.ch[Encoder][1] == Ch4 && cfg.ch[Encoder][2] == Ch1;
+    EncoderSignal({600, -249}, 4, 200);
+    Expect("encoder", cfg, {"+200", "Z", "+200", "Z", "+200", "Z", "-199", "Z", "-50"});
+    ok &= Quad.steps == 351 && Quad.edges == 849 && Quad.zCount == 4 && Quad.errors == 0;
+    ok &= Quad.havePerRev && Quad.perRev == -199 && Quad.haveInRev && Quad.inRev == 351 - 401;
+    // 4 samples per step at 1 MHz: 250k steps/s, net 351 of 849 steps
+    float fExp = 351.0f * 1e6f / (849 * 4);
+    ok &= Quad.rate > fExp * 0.99f && Quad.rate < fExp * 1.01f;
+    std::vector<std::string> l = Texts(true, cfg);
+    ok &= l.size() == 9 && l[0] == "Forward 200 steps 797us" && l[1] == "Z, since start 200" &&
+        l[3] == "Z, revolution 200" && l[7] == "Z, revolution -199" &&
+        l[6] == "Backward 199 steps 793us";
+    printf("%-14s %s  steps=%d z=%u rev=%d in=%d rate=%.0f %s\n", "encoder stats", ok ? "OK  " : "FAIL",
+        Quad.steps, Quad.zCount, Quad.perRev, Quad.inRev, Quad.rate, l.empty() ? "" : l[0].c_str());
+    failures += !ok;
+    Shot("encoder", cfg, 760);
+
+    // x1, reversed direction, Z active low
+    cfg.quadRes = QuadX1;
+    cfg.quadDir = 1;
+    Decode(cfg);
+    ok = Quad.steps == -351 && QuadScale(Quad.steps, cfg) == -88 && QuadScale(Quad.perRev, cfg) == 49;
+    l = Texts(false, cfg);
+    ok &= l.size() == 9 && l[0] == "-50" && l[2] == "-50" && l[6] == "+49";
+    cfg.invert[Encoder] = 1;
+    Decode(cfg);
+    // the falling edges of Z: after the pulse at the start, 200, 400, at 599
+    // (going back from 600) and at 399
+    ok &= Quad.zCount == 5;
+    cfg.invert[Encoder] = 0;
+    cfg.quadRes = QuadX4;
+    cfg.quadDir = 0;
+    // without Z
+    cfg.ch[Encoder][2] = ChOff;
+    Decode(cfg);
+    ok &= Quad.steps == 351 && Quad.zCount == 0 && !Quad.haveInRev && Count == 2;
+    cfg.ch[Encoder][2] = Ch1;
+    printf("%-14s %s  x1 reverse %d\n", "encoder opts", ok ? "OK  " : "FAIL", QuadScale(-351, cfg));
+    failures += !ok;
+
+    // too slow sampling: A and B change in the same sample
+    Clear();
+    for (int i = 0, ph = 0; i < N; i++)
+    {
+        if (i % 3 == 0)
+            ph += (i / 3) % 7 == 3 ? 2 : 1;   // every 7th step skips a state
+        int st = ph & 3;
+        int a = st == 1 || st == 2, b = st == 2 || st == 3;
+        buf[i] = 40 | ((uint32_t)a << 16) | ((uint32_t)b << 17);
+    }
+    Decode(cfg);
+    ok = Quad.errors > 50 && Count > 0;
+    uint32_t nErrors = Quad.errors;
+    bool bWarn = false;
+    for (int i = 0; i < Count; i++)
+        bWarn |= Get(i).type == TWarning && Get(i).value == WSampleRate;
+    ok &= bWarn;
+    // the same channel twice
+    cfg.ch[Encoder][1] = Ch3;
+    Expect("encoder chan", cfg, {"Select channels"});
+    printf("%-14s %s  errors=%u\n", "encoder slow", ok ? "OK  " : "FAIL", nErrors);
+    failures += !ok;
+}
+
 static void TestWarnings()
 {
     Clear();
@@ -627,6 +723,7 @@ int main(int argc, char** argv)
     TestPs2();
     TestPulse();
     TestCounter();
+    TestEncoder();
     TestWarnings();
     TestOverflow();
     char tmp[32];

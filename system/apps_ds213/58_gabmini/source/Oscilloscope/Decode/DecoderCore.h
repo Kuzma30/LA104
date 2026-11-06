@@ -20,7 +20,7 @@
 namespace Decoder
 {
     enum EProtocol {
-        Off, Uart, Lin, I2c, Spi, OneWire, Can, Ws2812, Nec, Ps2, Pulse, Counter,
+        Off, Uart, Lin, I2c, Spi, OneWire, Can, Ws2812, Nec, Ps2, Pulse, Counter, Encoder,
         ProtocolCount, ProtocolMax = ProtocolCount - 1
     };
     enum EChannel { Ch1, Ch2, Ch3, Ch4, ChOff, ChMax = ChOff, ChMaxRequired = Ch4 };
@@ -30,6 +30,9 @@ namespace Decoder
     // samples of the input channel, the hardware timer counter on the Wave
     // Out connector or the counters of C and D in the FPGA (DS203 only)
     enum ECountSource { SourceSamples, SourceWaveOut, SourceFpga, SourceMax = SourceFpga };
+    // Encoder (quadrature A, B, index Z): counted steps x4 (every edge of A
+    // and B), x2 or x1 (one per period of A)
+    enum EQuadRes { QuadX4, QuadX2, QuadX1, QuadResMax = QuadX1 };
 
     enum { MaxRoles = 4 };
 
@@ -52,6 +55,9 @@ namespace Decoder
         uint8_t band;                        // EBand
         uint8_t cntEdge;                     // ECountEdge
         uint8_t cntSource;                   // ECountSource
+        uint8_t quadRes;                     // EQuadRes
+        uint8_t quadDir;                     // 1 = reverse the direction
+        // invert[Encoder]: Z is active low
     };
 
     enum EType {
@@ -72,6 +78,10 @@ namespace Decoder
         TLeader, TRepeat, TNecAddr, TNecCmd, // NEC IR, aux = number of bits
         TPulse,         // value = width in samples, aux = period in samples (0 = unknown)
         TCount,         // counted edge / pulse, value = number in the buffer (from 1)
+        TQuadRun,       // encoder steps in one direction, value = signed x4 steps
+        TQuadZ,         // index pulse, value = signed x4 steps since the previous Z
+                        // (aux = 1) or since the start of the buffer (aux = 0)
+        TQuadError,     // A and B changed together (sample rate too low)
         TWarning        // value = EWarning
     };
 
@@ -94,6 +104,24 @@ namespace Decoder
     extern bool Overflow;
     extern uint32_t DetectedRate;   // baud / bit rate used by the last decode (0 = n/a)
     extern uint32_t CountedEdges;   // Counter: edges in the decoded part of the buffer
+
+    // Encoder: results of the decoded part of the buffer, x4 steps, the
+    // direction setting applied
+    struct TQuadStats
+    {
+        int32_t steps;          // net steps (forward - backward)
+        uint32_t edges;         // all steps
+        uint32_t zCount;        // index pulses
+        uint32_t errors;        // A and B changed in the same sample
+        bool havePerRev;        // two Z in the buffer
+        int32_t perRev;         // steps between the last two Z
+        bool haveInRev;         // a Z in the buffer
+        int32_t inRev;          // steps since the last Z (at the end of the buffer)
+        float rate;             // steps per second (signed), 0 = unknown
+    };
+    extern TQuadStats Quad;
+    // x4 steps in the units of the resolution setting (floor)
+    int32_t QuadScale(int32_t steps, const TConfig& cfg);
 
     // option tables (also used by the menu)
     extern const uint32_t RateUart[];

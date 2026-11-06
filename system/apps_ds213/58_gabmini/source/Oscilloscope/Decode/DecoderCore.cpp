@@ -6,6 +6,7 @@ namespace Decoder
     bool Overflow = false;
     uint32_t DetectedRate = 0;
     uint32_t CountedEdges = 0;
+    TQuadStats Quad;
 
     const uint32_t RateUart[] = {0, 300, 1200, 2400, 4800, 9600, 14400, 19200, 38400, 57600,
         76800, 115200, 230400, 250000, 460800, 500000, 921600, 1000000, 2000000};
@@ -22,7 +23,7 @@ namespace Decoder
     const char* const BitsSpiText[] = {"4", "8", "9", "10", "12", "16", "24", "32"};
 
     const char* const ProtocolText[] = {"Off", "UART", "LIN", "I2C", "SPI", "1-Wire", "CAN",
-        "WS2812", "NEC IR", "PS/2", "Pulse", "Counter"};
+        "WS2812", "NEC IR", "PS/2", "Pulse", "Counter", "Encoder"};
     const char* const ChannelText[] = {"CH1", "CH2", "CH3", "CH4", "Off"};
 
     static const char* const g_roles[ProtocolCount][MaxRoles] = {
@@ -38,6 +39,7 @@ namespace Decoder
         {"CLK", "DATA", nullptr, nullptr},
         {"Input", nullptr, nullptr, nullptr},
         {"Input", nullptr, nullptr, nullptr},
+        {"A", "B", "Z", nullptr},
     };
 
     const char* RoleName(int protocol, int role)
@@ -47,7 +49,8 @@ namespace Decoder
 
     bool RoleOptional(int protocol, int role)
     {
-        return (protocol == Uart && role == 1) || (protocol == Spi && role >= 2);
+        return (protocol == Uart && role == 1) || (protocol == Spi && role >= 2) ||
+            (protocol == Encoder && role == 2);
     }
 
     void SetDefaults(TConfig& cfg)
@@ -79,6 +82,10 @@ namespace Decoder
         cfg.band = Top;
         cfg.cntEdge = EdgeRise;
         cfg.cntSource = SourceSamples;
+        // encoder: A = CH3, B = CH4 (the FPGA counts these), Z on CH1
+        cfg.ch[Encoder][2] = Ch1;
+        cfg.quadRes = QuadX4;
+        cfg.quadDir = 0;
     }
 
     // ------------------------------------------------------------------
@@ -1135,6 +1142,128 @@ namespace Decoder
     }
 
     // ------------------------------------------------------------------
+    // Quadrature encoder: A, B and optional index Z. Every change of A or B is
+    // one step (x4), the direction from the sequence (A, B) 00 10 11 01
+    // (forward = A leads B). Steps in one direction are marked as one item,
+    // an item ends at a change of direction and at Z. Z marks the steps of
+    // the revolution (since the previous Z), the position in the revolution
+    // starts from 0 there, the total is not changed. Z and errors are marked
+    // in the second row of the band.
+
+    int32_t QuadScale(int32_t steps, const TConfig& cfg)
+    {
+        int nShift = cfg.quadRes == QuadX1 ? 2 : cfg.quadRes == QuadX2 ? 1 : 0;
+        return steps >> nShift;     // arithmetic shift = floor
+    }
+
+    static void DecodeEncoder(const TConfig& cfg)
+    {
+        TLine la, lb, lz;
+        la.Set(cfg.ch[Encoder][0], false);
+        lb.Set(cfg.ch[Encoder][1], false);
+        lz.Set(cfg.ch[Encoder][2], cfg.invert[Encoder]);
+        if (!la.valid || !lb.valid || la.bit == lb.bit ||
+            (lz.valid && (lz.bit == la.bit || lz.bit == lb.bit)))
+        {
+            Warn(WNoChannel);
+            return;
+        }
+        static const uint8_t g_phase[4] = {0, 3, 1, 2};    // (A << 1 | B) -> 00 10 11 01
+        int dirSign = cfg.quadDir ? -1 : 1;
+
+        int ab = (la.L(s_first) << 1) | lb.L(s_first);
+        int z = lz.valid ? lz.L(s_first) : 0;
+        int32_t pos = 0;
+        int runBegin = -1, runEnd = -1, runDir = 0;
+        int32_t runSteps = 0;
+        int32_t lastZPos = 0;
+        bool haveZ = false;
+        int firstStep = -1, lastStep = -1;
+        int32_t firstPos = 0;
+
+        // one slot stays free for the sample rate warning
+        auto add = [&](int b, int e, int type, uint32_t v, int flags, int aux)
+        {
+            if (Count < s_capacity - 2)
+                Add(b, e, type, v, flags, aux);
+        };
+        auto flush = [&]()
+        {
+            if (runBegin >= 0 && runSteps)
+                add(runBegin, runEnd, TQuadRun, (uint32_t)runSteps, 0, 0);
+            runBegin = -1;
+            runSteps = 0;
+            runDir = 0;
+        };
+
+        for (int i = s_first + 1; i < s_count; i++)
+        {
+            int nab = (la.L(i) << 1) | lb.L(i);
+            if (nab != ab)
+            {
+                int d = (g_phase[nab] - g_phase[ab]) & 3;
+                ab = nab;
+                if (d == 2)
+                {
+                    // both changed: the direction is not known
+                    Quad.errors++;
+                    flush();
+                    if (Quad.errors <= 16)
+                        add(i, i, TQuadError, 0, FError | FPoint | FRow1, 0);
+                } else
+                {
+                    int dir = (d == 1 ? 1 : -1) * dirSign;
+                    pos += dir;
+                    Quad.edges++;
+                    if (firstStep < 0)
+                    {
+                        firstStep = i;
+                        firstPos = pos - dir;
+                    }
+                    lastStep = i;
+                    if (dir != runDir)
+                    {
+                        flush();
+                        runDir = dir;
+                        runBegin = i;
+                    }
+                    runEnd = i;
+                    runSteps += dir;
+                }
+            }
+            if (lz.valid)
+            {
+                int nz = lz.L(i);
+                if (nz && !z)
+                {
+                    flush();
+                    Quad.zCount++;
+                    if (haveZ)
+                    {
+                        Quad.perRev = pos - lastZPos;
+                        Quad.havePerRev = true;
+                        add(i, i, TQuadZ, (uint32_t)(pos - lastZPos), FPoint | FRow1, 1);
+                    } else
+                        add(i, i, TQuadZ, (uint32_t)pos, FPoint | FRow1, 0);
+                    lastZPos = pos;
+                    haveZ = true;
+                }
+                z = nz;
+            }
+        }
+        flush();
+        Quad.steps = pos;
+        Quad.haveInRev = haveZ;
+        Quad.inRev = pos - lastZPos;
+        if (lastStep > firstStep && s_fs > 0)
+            Quad.rate = (float)(pos - firstPos) * s_fs / (float)(lastStep - firstStep);
+        if (Quad.errors > Quad.edges / 8 && Quad.errors > 2)
+            Warn(WSampleRate);
+        // the counts are complete even when not all items fit
+        Overflow = false;
+    }
+
+    // ------------------------------------------------------------------
 
     static void Sort()
     {
@@ -1160,6 +1289,7 @@ namespace Decoder
         Overflow = false;
         DetectedRate = 0;
         CountedEdges = 0;
+        Quad = TQuadStats();
         s_samples = samples;
         s_fs = sampleRate;
         s_first = first;
@@ -1199,6 +1329,7 @@ namespace Decoder
         case Ps2: DecodePs2(cfg); break;
         case Pulse: DecodePulse(cfg); break;
         case Counter: DecodeCounter(cfg); break;
+        case Encoder: DecodeEncoder(cfg); break;
         }
         Sort();
         if (Overflow)
@@ -1611,6 +1742,42 @@ namespace Decoder
                 }
             } else
                 w.Dec(a.value);
+            break;
+        case TQuadRun:
+        {
+            int32_t n = (int32_t)a.value;
+            if (longForm)
+            {
+                char tmp[16];
+                w.S(n < 0 ? "Backward " : "Forward ");
+                int32_t m = n < 0 ? -n : n;
+                w.Dec((uint32_t)QuadScale(m, cfg));
+                w.S(cfg.quadRes == QuadX4 ? " steps " : " pulses ");
+                FormatTime((a.end - a.begin + 1) / sampleRate, tmp);
+                w.S(tmp);
+            } else
+            {
+                w.C(n < 0 ? '-' : '+');
+                w.Dec((uint32_t)QuadScale(n < 0 ? -n : n, cfg));
+            }
+            break;
+        }
+        case TQuadZ:
+        {
+            int32_t n = (int32_t)a.value;
+            int32_t m = QuadScale(n < 0 ? -n : n, cfg);
+            if (longForm)
+            {
+                w.S(a.aux ? "Z, revolution " : "Z, since start ");
+                if (n < 0)
+                    w.C('-');
+                w.Dec((uint32_t)m);
+            } else
+                w.S("Z");   // a point mark, the value is in the list
+            break;
+        }
+        case TQuadError:
+            w.S(longForm ? "A and B changed together" : "AB!");
             break;
         case TWarning:
             if (a.value < sizeof(g_warnings) / sizeof(g_warnings[0]))

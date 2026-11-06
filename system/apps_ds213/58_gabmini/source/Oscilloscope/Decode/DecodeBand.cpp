@@ -71,7 +71,7 @@ namespace DecodeBand
             border = Rgb(0xffa030);
             break;
         case TStart: case TRepStart: case TStop: case TBreak: case TSync: case TReset:
-        case TPresence: case TLeader: case TRepeat: case TCanAck: case TCanDlc:
+        case TPresence: case TLeader: case TRepeat: case TCanAck: case TCanDlc: case TQuadZ:
             fill = Rgb(0x184818);
             border = Rgb(0x60e060);
             break;
