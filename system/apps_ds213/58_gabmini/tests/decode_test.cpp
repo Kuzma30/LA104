@@ -660,6 +660,31 @@ static void TestEncoder()
     for (int i = 0; i < Count; i++)
         bWarn |= Get(i).type == TWarning && Get(i).value == WSampleRate;
     ok &= bWarn;
+    // A and B on the analog channels, Z on CH4
+    {
+        Clear();
+        int pos = 0, i = 0;
+        auto put = [&](int n)
+        {
+            int st = pos & 3;
+            int a = st == 1 || st == 2, b = st == 2 || st == 3;
+            int z = (((pos % 100) + 100) % 100) == 0;
+            for (int k = 0; k < n && i < N; k++, i++)
+                buf[i] = (uint32_t)((a ? 190 : 50) + rand() % 9) | ((uint32_t)((b ? 170 : 70) + rand() % 9) << 8) |
+                    ((uint32_t)z << 17);
+        };
+        put(5);
+        for (int j = 0; j < 300; j++) { pos++; put(5); }
+        for (int j = 0; j < 120; j++) { pos--; put(5); }
+        put(N);
+        TConfig c2; SetDefaults(c2);
+        c2.protocol = Encoder;
+        c2.ch[Encoder][0] = Ch1; c2.ch[Encoder][1] = Ch2; c2.ch[Encoder][2] = Ch4;
+        Decode(c2);
+        bool ok2 = Quad.steps == 180 && Quad.errors == 0 && Quad.zCount == 4 && Quad.havePerRev && Quad.perRev == -100;
+        printf("%-14s %s  steps=%d z=%u rev=%d\n", "encoder analog", ok2 ? "OK  " : "FAIL", Quad.steps, Quad.zCount, Quad.perRev);
+        failures += !ok2;
+    }
     // the same channel twice
     cfg.ch[Encoder][1] = Ch3;
     Expect("encoder chan", cfg, {"Select channels"});

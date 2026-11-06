@@ -97,11 +97,12 @@ module tb_scope;
     // ADC data: two different saw waves (inverted on the pins, as the ADC is)
     integer phase = 0;
     reg zdrive = 0;                     // quadrature test: CH_A carries Z
-    reg [7:0] zval = 0;
+    reg adrive = 0;                     // or CH_A carries A and CH_B carries B
+    reg [7:0] zval = 0, aval = 0, bval = 0;
     always @(negedge MCI) begin
         phase = phase + 1;
-        Din[7:0]  <= zdrive ? ~zval : ~((phase * 3) & 8'hff);
-        Din[15:8] <= ~(((phase * 5) + 100) & 8'hff);
+        Din[7:0]  <= adrive ? ~aval : zdrive ? ~zval : ~((phase * 3) & 8'hff);
+        Din[15:8] <= adrive ? ~bval : ~(((phase * 5) + 100) & 8'hff);
     end
 
     // digital inputs: independent generators
@@ -272,16 +273,28 @@ module tb_scope;
     integer qstep_t = 200000;           // time between steps
     integer zwidth = 2;                 // Z high for this many steps
     integer ppr4 = 400;                 // steps per revolution
+    integer qmode = 0;                  // 0: A, B on C, D, Z on CH_A; 1: A, B on CH_A, CH_B, Z on C
     // forward: (A,B) 00 -> 10 -> 11 -> 01
     task qstep(input integer dir);
         reg [1:0] st;
+        reg za, zb, zz;
         begin
             qpos = qpos + dir;
             st = qpos & 3;
-            Din[16] = (st == 1 || st == 2);
-            Din[17] = (st == 2 || st == 3);
+            za = (st == 1 || st == 2);
+            zb = (st == 2 || st == 3);
             // Z: high in the first zwidth steps of every revolution
-            zval = (((qpos % ppr4) + ppr4) % ppr4) < zwidth ? 8'd220 : 8'd30;
+            zz = (((qpos % ppr4) + ppr4) % ppr4) < zwidth;
+            if (qmode == 0) begin
+                Din[16] = za;
+                Din[17] = zb;
+                zval = zz ? 8'd220 : 8'd30;
+            end else begin
+                // analog levels with some noise within the hysteresis
+                aval = za ? 8'd200 + ($random & 7) : 8'd40 + ($random & 7);
+                bval = zb ? 8'd180 + ($random & 7) : 8'd60 + ($random & 7);
+                Din[16] = zz;
+            end
             #(qstep_t);
         end
     endtask
@@ -307,6 +320,7 @@ module tb_scope;
             end
             pos = gray2bin({qw[1], qw[0]}) + gray2bin({qw[3], qw[2]}) +
                   gray2bin({qw[5], qw[4]}) + gray2bin({qw[7], qw[6]});
+            pos = {{8{pos[23]}}, pos[23:0]};    // 24 bit counters
             zc = 0;
             if (base == 8'h28) begin
                 set_param(5, 8'h30);
@@ -318,7 +332,28 @@ module tb_scope;
         end
     endtask
 
-    reg [31:0] q0, q1, qz, qz0;
+    // decoder in MCI: position, errors, position at Z, Z counter
+    reg [31:0] s_pos, s_atz;
+    reg [15:0] s_err, s_z;
+    task read_sync;
+        begin
+            for (k = 0; k < 6; k = k + 1) begin
+                set_param(5, 8'h38 + k);
+                C_D = 1; H_L = 0; #GPIO;
+                bus_read(w);
+                qw[k] = w;
+                C_D = 0; #GPIO;
+            end
+            s_pos = gray2bin({qw[1], qw[0]});
+            s_pos = {{8{s_pos[23]}}, s_pos[23:0]};
+            s_err = gray2bin({16'h0, qw[2]});
+            s_atz = gray2bin({qw[4], qw[3]});
+            s_atz = {{8{s_atz[23]}}, s_atz[23:0]};
+            s_z   = gray2bin({16'h0, qw[5]});
+        end
+    endtask
+    reg [31:0] q0, q1, qz, qz0, sp0;
+    reg [15:0] se0, sz0;
     reg [15:0] zc, zc0;
     integer qbase;
 `endif
@@ -356,7 +391,7 @@ module tb_scope;
         set_param(5, 8'h18); C_D = 1; H_L = 0; #GPIO; bus_read(w); C_D = 0;
         check("id 0xC0D2", w == 16'hC0D2);
         H_L = 0; #GPIO; bus_read(w);
-        check("version 2.63 in status", (w >> 6) == 263);
+        check("version 2.64 in status", (w >> 6) == 264);
 
         // counts since power up equal the model
         read_cnt(8'h10, cr); read_cnt(8'h12, cf); read_cnt(8'h14, dr); read_cnt(8'h16, df);
@@ -404,7 +439,7 @@ module tb_scope;
         // ---------------------------------------------------- quadrature
         $display("---- quadrature");
         set_param(5, 8'h19); C_D = 1; H_L = 0; #GPIO; bus_read(w); C_D = 0; #GPIO;
-        check("id 0xC0D3", w == 16'hC0D3);
+        check("id 0xC0D4", w == 16'hC0D4);
         mci_half = 6944;
         // start from A = B = 0, the counters already hold the edges of the
         // tests above: positions are compared as differences
@@ -433,7 +468,7 @@ module tb_scope;
         zval = 30; zdrive = 1; #1000000;
         set_param(8'h10, 128);
         set_param(8'h11, 8);
-        set_param(8'h0f, 1);
+        set_param(8'h0f, 8'h4e);       // A = C, B = D, Z = CH_A on
         read_quad(8'h28, qz0, zc0);
         // to a revolution boundary, then 3 revolutions forward
         qmove(500 + 10);                // position 10 (model)
@@ -465,7 +500,7 @@ module tb_scope;
         read_quad(8'h28, qz, zc);
         check("noise within hysteresis: no Z", zc == zc0);
         // active low: the edge to low counts
-        set_param(8'h0f, 8'h05);
+        set_param(8'h0f, 8'hce);       // active low
         read_quad(8'h28, qz0, zc0);
         zval = 220; #500000; zval = 30; #500000;
         read_quad(8'h28, qz, zc);
@@ -478,7 +513,7 @@ module tb_scope;
         // reading while it runs, then exact
         mci_half = 833333;
         zdrive = 0;
-        set_param(8'h0f, 0);
+        set_param(8'h0f, 8'h0e);
         qstep_t = 100000;
         read_quad(8'h20, q0, zc);
         fork
@@ -496,6 +531,59 @@ module tb_scope;
         $display("     10 MHz steps: %0d", q1 - q0);
         check("reading while it runs", ok);
         check("10 MHz steps exact", q1 - q0 == 30000);
+
+        // ---- decoder in MCI: A on CH_A, B on CH_B (analog), Z on CH_C
+        $display("---- quadrature from any input");
+        mci_half = 6944;                // 72 MHz
+        qmode = 1; qstep_t = 200000; adrive = 1; Din[16] = 0;
+        qmove(1);                       // levels of the analog inputs
+        set_param(8'h10, 120); set_param(8'h11, 10);   // CH_A
+        set_param(8'h12, 120); set_param(8'h13, 10);   // CH_B
+        set_param(8'h0f, 8'h64);        // A = CH_A, B = CH_B, Z = CH_C on
+        #1000000;
+        read_sync; sp0 = s_pos; se0 = s_err; sz0 = s_z;
+        // to the next revolution boundary, then 2 revolutions and back
+        qbase = qpos;
+        qmove(((ppr4 - (qpos % ppr4)) % ppr4) + 5);   // just after a Z
+        qz0 = qpos;                     // model position after the Z step
+        read_sync;
+        $display("     after Z: pos %0d (model %0d), Z %0d, at Z %0d", $signed(s_pos - sp0), qpos - qbase, s_z - sz0, $signed(s_atz - sp0));
+        check("analog A/B steps", $signed(s_pos - sp0) == qpos - qbase && s_err == se0);
+        check("Z on CH_C latched", s_z - sz0 == 1 && $signed(s_atz - sp0) == qz0 - 5 - qbase);
+        qmove(2 * 400);
+        qmove(-123);
+        read_sync;
+        $display("     +800 -123: pos %0d, Z %0d, at Z %0d, in rev %0d (qbase %0d)", $signed(s_pos - sp0), s_z - sz0, $signed(s_atz - sp0), $signed(s_pos - s_atz), qbase);
+        check("2 revolutions and back", $signed(s_pos - sp0) == qpos - qbase && s_z - sz0 == 4 && s_err == se0);
+        // backward the Z is met at 801 of the revolution; the analog inputs
+        // come one sample later than the digital Z (in the DS203 the ADC
+        // adds its own latency), a step at the same moment as Z may be
+        // captured before or after it
+        check("backward Z at 801 +-1",
+            $signed(s_atz - sp0) >= 809 && $signed(s_atz - sp0) <= 811);
+        // A on CH_D, B on CH_A (mixed): only the source bits change
+        // steps faster than the sampling clock: errors are counted
+        mci_half = 833333;              // 600 kHz
+        qstep_t = 300000;               // 3.3 MHz steps
+        qmove(200);
+        #2000000;
+        read_sync;
+        $display("     too fast: errors %0d", s_err - se0);
+        check("too fast: errors counted", ((s_err - se0) & 8'hff) > 10);
+        adrive = 0; qmode = 0;
+        // C and D in MCI as well (A = D, B = C: reversed), with the pins
+        mci_half = 6944; qstep_t = 200000;
+        qstep(0);                       // C, D to the state of the position
+        set_param(8'h0f, 8'h0b);        // A = CH_D (3), B = CH_C (2)
+        #1000000;
+        read_sync; sp0 = s_pos;
+        read_quad(8'h20, q0, zc);
+        qmove(333);
+        read_sync;
+        read_quad(8'h20, q1, zc);
+        $display("     A = D, B = C: MCI %0d, pins %0d", $signed(s_pos - sp0), $signed(q1 - q0));
+        check("A = D, B = C reversed", $signed(s_pos - sp0) == -333 && $signed(q1 - q0) == 333);
+        set_param(8'h0f, 8'h0e);
 
         // the FIFO still works after the counter accesses
         mci_half = 6944;

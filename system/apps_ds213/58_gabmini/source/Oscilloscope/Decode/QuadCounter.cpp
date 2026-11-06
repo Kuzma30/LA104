@@ -11,23 +11,31 @@ namespace QuadCounter
         SYST_LOAD = 0xE000E014, SYST_VAL = 0xE000E018, SCB_ICSR = 0xE000ED04,
         PENDSTSET = 1 << 26,
 
-        RegZCtrl = 0x0F, RegZThr = 0x10, RegZHys = 0x11,
-        SelId = 0x19, Id = 0xC0D3,
-        SelNow = 0x20,          // 4 counters, reading word 0 latches them
-        SelAtZ = 0x28,          // captured at the last Z, with the Z counter
-        SelZCount = 0x30
+        // registers (serial)
+        RegCtrl = 0x0F,         // bit1..0 A, 3..2 B, 5..4 Z, 6 Z on, 7 Z active low
+        RegThr1 = 0x10, RegHys1 = 0x11, RegThr2 = 0x12, RegHys2 = 0x13,
+        SelId = 0x19, Id = 0xC0D4,
+        // A = C, B = D counted by the pins: four counters, word 0 latches them
+        SelPins = 0x20, SelPinsAtZ = 0x28, SelPinsZ = 0x30,
+        // decoder in the sampling clock: position, errors, position at Z, Z
+        SelSync = 0x38,
+        Mask = 0xffffff         // the counters have 24 bits
     };
 
     static bool s_bActive = false;
     static EStatus s_eStatus = Off;
-    static uint8_t s_arrZ[3] = {0xff, 0xff, 0xff};    // written Z registers
+    static uint8_t s_arrReg[5] = {0xff, 0xff, 0xff, 0xff, 0xff};
+    static uint8_t s_nInputs = 0xff;    // A | B << 2 | Z << 4 (Z = 4 off)
+    static bool s_bPins = true;
+    static int s_nPinSign = 1;          // A = D, B = C counted by the pins: reversed
 
-    static uint32_t s_nLastRaw = 0;     // last raw position (sum of the counters)
+    static uint32_t s_nLastRaw = 0;     // last raw position (24 bit)
     static int64_t s_nPos = 0;          // extended position
     static int64_t s_nBase = 0;         // position at Reset()
     static uint16_t s_nLastZRaw = 0;
-    static uint32_t s_nZ = 0;           // Z pulses since Start()
-    static uint32_t s_nZBase = 0;
+    static uint32_t s_nZ = 0, s_nZBase = 0;
+    static uint8_t s_nLastErrRaw = 0;
+    static uint32_t s_nErr = 0, s_nErrBase = 0, s_nErrTick = 0;
     static bool s_bHaveZ = false;
     static int64_t s_nZPos = 0;         // extended position at the last Z
     static bool s_bHavePerRev = false;
@@ -50,37 +58,66 @@ namespace QuadCounter
         return g;
     }
 
-    // sum of the four up/down counters of a latched set
-    static uint32_t _ReadSet(uint8_t nBase)
+    static int32_t _Signed24(uint32_t n)
+    {
+        n &= Mask;
+        return (n & 0x800000) ? (int32_t)(n | 0xff000000) : (int32_t)n;
+    }
+
+    static uint32_t _Word32(uint8_t nSel)
+    {
+        uint32_t nLo = FpgaBus::ReadSelected( nSel );
+        uint32_t nHi = FpgaBus::ReadSelected( (uint8_t)(nSel + 1) );
+        return _Gray2Bin( nLo | (nHi << 16) );
+    }
+
+    // sum of the four up/down counters of a latched set (pins)
+    static uint32_t _ReadPins(uint8_t nBase)
     {
         uint32_t nSum = 0;
         for ( int i = 0; i < 4; i++ )
-        {
-            uint32_t nLo = FpgaBus::ReadSelected( (uint8_t)(nBase + 2*i) );
-            uint32_t nHi = FpgaBus::ReadSelected( (uint8_t)(nBase + 2*i + 1) );
-            nSum += _Gray2Bin( nLo | (nHi << 16) );
-        }
-        return nSum;
+            nSum += _Word32( (uint8_t)(nBase + 2*i) );
+        return (uint32_t)(nSum * s_nPinSign) & Mask;
     }
 
-    // position at the last Z and the Z counter; the capture in the FPGA runs
-    // in the sampling clock, the set is read twice to get a consistent one
-    static bool _ReadAtZ(uint32_t& nPos, uint16_t& nZ)
+    // one latched reading: position now, position at the last Z, Z counter,
+    // errors (sampling clock decoder only)
+    struct TSet
     {
-        for ( int nTry = 0; nTry < 4; nTry++ )
+        uint32_t nPos, nAtZ;
+        uint16_t nZ;
+        uint8_t nErr;
+    };
+
+    static void _ReadZOnly(TSet& s)
+    {
+        if ( s_bPins )
         {
-            uint32_t nPos1 = _ReadSet( SelAtZ );
-            uint16_t nZ1 = (uint16_t)_Gray2Bin( FpgaBus::ReadSelected( SelZCount ) );
-            uint32_t nPos2 = _ReadSet( SelAtZ );
-            uint16_t nZ2 = (uint16_t)_Gray2Bin( FpgaBus::ReadSelected( SelZCount ) );
-            if ( nPos1 == nPos2 && nZ1 == nZ2 )
-            {
-                nPos = nPos1;
-                nZ = nZ1;
-                return true;
-            }
+            s.nPos = _ReadPins( SelPins );
+            FpgaBus::ReadSelected( SelPinsAtZ );           // latches the Z counter
+            s.nZ = (uint16_t)_Gray2Bin( FpgaBus::ReadSelected( SelPinsZ ) );
+            s.nErr = 0;
+        } else
+        {
+            s.nPos = _Word32( SelSync ) & Mask;            // latches the whole set
+            s.nErr = (uint8_t)_Gray2Bin( FpgaBus::ReadSelected( SelSync + 2 ) );
+            s.nZ = (uint16_t)_Gray2Bin( FpgaBus::ReadSelected( SelSync + 5 ) );
         }
-        return false;
+    }
+
+    static void _ReadAtZ(TSet& s)
+    {
+        if ( s_bPins )
+        {
+            s.nAtZ = _ReadPins( SelPinsAtZ );
+            s.nZ = (uint16_t)_Gray2Bin( FpgaBus::ReadSelected( SelPinsZ ) );
+        } else
+        {
+            // latch again, the position at Z and Z of the same moment
+            FpgaBus::ReadSelected( SelSync );
+            s.nAtZ = _Word32( SelSync + 3 ) & Mask;
+            s.nZ = (uint16_t)_Gray2Bin( FpgaBus::ReadSelected( SelSync + 5 ) );
+        }
     }
 
     static uint64_t _Clocks()
@@ -99,28 +136,64 @@ namespace QuadCounter
         return (uint64_t)nTick * (nLoad + 1) + (nLoad - (nVal & 0xffffff));
     }
 
+    static void _StartGate()
+    {
+        s_nGatePos = s_nPos;
+        s_nGateClocks = _Clocks();
+        s_nGateTick = BIOS::SYS::GetTick();
+        s_bRate = false;
+    }
+
+    // starts counting from the current state of the FPGA
+    static void _Restart()
+    {
+        TSet s;
+        _ReadZOnly( s );
+        s_nLastRaw = s.nPos;
+        s_nLastZRaw = s.nZ;
+        s_nLastErrRaw = s.nErr;
+        s_nPos = s_nBase = 0;
+        s_nZ = s_nZBase = 0;
+        s_nErr = s_nErrBase = 0;
+        s_nErrTick = 0;
+        s_bHaveZ = s_bHavePerRev = false;
+        _StartGate();
+    }
+
     static void _Update()
     {
-        uint32_t nRaw = _ReadSet( SelNow );
-        s_nPos += (int32_t)(nRaw - s_nLastRaw);
-        s_nLastRaw = nRaw;
+        TSet s;
+        _ReadZOnly( s );
+        s_nPos += _Signed24( s.nPos - s_nLastRaw );
+        s_nLastRaw = s.nPos;
+        uint8_t nNewErr = (uint8_t)(s.nErr - s_nLastErrRaw);
+        if ( nNewErr )
+        {
+            s_nErr += nNewErr;
+            s_nLastErrRaw = s.nErr;
+            s_nErrTick = BIOS::SYS::GetTick();
+        }
+        if ( s.nZ == s_nLastZRaw )
+            return;
 
-        // reading word 0 of the set latches the Z counter as well: a new Z?
-        FpgaBus::ReadSelected( SelAtZ );
-        if ( (uint16_t)_Gray2Bin( FpgaBus::ReadSelected( SelZCount ) ) == s_nLastZRaw )
+        // a new Z: the captured position, read twice for a consistent set
+        TSet z1, z2;
+        int nTry;
+        for ( nTry = 0; nTry < 4; nTry++ )
+        {
+            _ReadAtZ( z1 );
+            _ReadAtZ( z2 );
+            if ( z1.nAtZ == z2.nAtZ && z1.nZ == z2.nZ )
+                break;
+        }
+        if ( nTry == 4 )
             return;
-        uint32_t nZPosRaw;
-        uint16_t nZRaw;
-        if ( !_ReadAtZ( nZPosRaw, nZRaw ) )
-            return;
-        uint16_t nNew = (uint16_t)(nZRaw - s_nLastZRaw);
-        if ( nNew == 0 )
-            return;
-        s_nLastZRaw = nZRaw;
+        uint16_t nNew = (uint16_t)(z1.nZ - s_nLastZRaw);
+        s_nLastZRaw = z1.nZ;
         s_nZ += nNew;
         // the captured position relative to the current one
-        int64_t nZPos = s_nPos - (int32_t)(nRaw - nZPosRaw);
-        if ( s_bHaveZ )
+        int64_t nZPos = s_nPos - _Signed24( s.nPos - z1.nAtZ );
+        if ( s_bHaveZ && nNew )
         {
             // average when more Z came since the last reading; going back
             // and forth over the index is not a revolution
@@ -135,20 +208,17 @@ namespace QuadCounter
         s_bHaveZ = true;
     }
 
-    static void _StartGate()
+    static void _Write(int nIndex, uint8_t nAddr, uint8_t nValue)
     {
-        s_nGatePos = s_nPos;
-        s_nGateClocks = _Clocks();
-        s_nGateTick = BIOS::SYS::GetTick();
-        s_bRate = false;
+        if ( s_arrReg[nIndex] == nValue )
+            return;
+        s_arrReg[nIndex] = nValue;
+        FpgaBus::SetParam( nAddr, nValue );
     }
 
-    static void _WriteZ(int nIndex, uint8_t nAddr, uint8_t nValue)
+    static uint8_t _Clamp(int n, int nMin, int nMax)
     {
-        if ( s_arrZ[nIndex] == nValue )
-            return;
-        s_arrZ[nIndex] = nValue;
-        FpgaBus::SetParam( nAddr, nValue );
+        return (uint8_t)(n < nMin ? nMin : n > nMax ? nMax : n);
     }
 
     // ------------------------------------------------------------------
@@ -167,25 +237,22 @@ namespace QuadCounter
             s_eStatus = NoDecoder;
             return false;
         }
-        s_arrZ[0] = s_arrZ[1] = s_arrZ[2] = 0xff;   // written again by SetZ
-        s_nLastRaw = _ReadSet( SelNow );
-        s_nPos = s_nBase = 0;
-        uint32_t nZPos;
-        if ( !_ReadAtZ( nZPos, s_nLastZRaw ) )
-            s_nLastZRaw = 0;
-        s_nZ = s_nZBase = 0;
-        s_bHaveZ = s_bHavePerRev = false;
+        for ( int i = 0; i < 5; i++ )
+            s_arrReg[i] = 0xff;     // written again by Configure
+        s_nInputs = 0xff;
+        s_bPins = true;
+        s_nPinSign = 1;
         s_bActive = true;
         s_eStatus = Running;
         s_nLastTick = BIOS::SYS::GetTick();
-        _StartGate();
+        _Restart();
         return true;
     }
 
     void Stop()
     {
         if ( s_bActive )
-            _WriteZ( 0, RegZCtrl, 0 );
+            _Write( 0, RegCtrl, 0x0e );     // A = C, B = D, Z off (power up state)
         s_bActive = false;
         s_bRate = false;
         if ( s_eStatus == Running )
@@ -202,19 +269,33 @@ namespace QuadCounter
         return s_eStatus;
     }
 
-    void SetZ(int nSource, bool bActiveLow, int nThreshold, int nHysteresis)
+    bool ByPins()
+    {
+        return s_bPins;
+    }
+
+    void Configure(int nA, int nB, int nZ, bool bZActiveLow,
+                   int nThr1, int nHys1, int nThr2, int nHys2)
     {
         if ( !s_bActive )
             return;
-        if ( nThreshold < 0 ) nThreshold = 0;
-        if ( nThreshold > 255 ) nThreshold = 255;
-        if ( nHysteresis < 1 ) nHysteresis = 1;
-        if ( nHysteresis > 64 ) nHysteresis = 64;
-        uint8_t nCtrl = (uint8_t)((nSource == ZCh1 ? 1 : nSource == ZCh2 ? 2 : 0) | (bActiveLow ? 4 : 0));
-        // threshold first: a new source must not see an old threshold
-        _WriteZ( 1, RegZThr, (uint8_t)nThreshold );
-        _WriteZ( 2, RegZHys, (uint8_t)nHysteresis );
-        _WriteZ( 0, RegZCtrl, nCtrl );
+        bool bZ = nZ >= Ch1 && nZ <= Ch4;
+        uint8_t nInputs = (uint8_t)((nA & 3) | ((nB & 3) << 2) | ((bZ ? nZ : 4) << 4));
+        // thresholds first: a new input must not see an old threshold
+        _Write( 1, RegThr1, _Clamp( nThr1, 0, 255 ) );
+        _Write( 2, RegHys1, _Clamp( nHys1, 1, 64 ) );
+        _Write( 3, RegThr2, _Clamp( nThr2, 0, 255 ) );
+        _Write( 4, RegHys2, _Clamp( nHys2, 1, 64 ) );
+        uint8_t nCtrl = (uint8_t)((nA & 3) | ((nB & 3) << 2) | ((bZ ? nZ & 3 : 0) << 4) |
+            (bZ ? 0x40 : 0) | (bZActiveLow ? 0x80 : 0));
+        _Write( 0, RegCtrl, nCtrl );
+        if ( nInputs != s_nInputs )
+        {
+            s_nInputs = nInputs;
+            s_bPins = (nA == Ch3 && nB == Ch4) || (nA == Ch4 && nB == Ch3);
+            s_nPinSign = nA == Ch4 ? -1 : 1;
+            _Restart();
+        }
     }
 
     void Reset()
@@ -224,6 +305,8 @@ namespace QuadCounter
         _Update();
         s_nBase = s_nPos;
         s_nZBase = s_nZ;
+        s_nErrBase = s_nErr;
+        s_nErrTick = 0;
         _StartGate();
     }
 
@@ -235,6 +318,16 @@ namespace QuadCounter
     uint32_t ZCount()
     {
         return s_bActive ? s_nZ - s_nZBase : 0;
+    }
+
+    uint32_t Errors()
+    {
+        return s_bActive ? s_nErr - s_nErrBase : 0;
+    }
+
+    uint32_t LastErrorTick()
+    {
+        return s_nErrTick;
     }
 
     bool InRev(int64_t& nSteps)
@@ -285,11 +378,14 @@ namespace QuadCounter
     void Stop() {}
     bool Active() { return false; }
     EStatus Status() { return Off; }
-    void SetZ(int, bool, int, int) {}
+    void Configure(int, int, int, bool, int, int, int, int) {}
+    bool ByPins() { return false; }
     void Reset() {}
     void Tick() {}
     int64_t Position() { return 0; }
     uint32_t ZCount() { return 0; }
+    uint32_t Errors() { return 0; }
+    uint32_t LastErrorTick() { return 0; }
     bool InRev(int64_t& n) { n = 0; return false; }
     bool PerRev(int32_t& n) { n = 0; return false; }
     bool Rate(float& f) { f = 0; return false; }

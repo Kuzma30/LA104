@@ -27,35 +27,41 @@ Reading the low word latches the whole 32 bit value, the high word comes
 from the latch. The values are in Gray code (converted by the MCU), so a
 value read while the input toggles is always the old or the new one.
 
-The status word (H_L = 0, C_D = 0) has the version 263 in bits 15..6,
-SYS `__Get(FPGAVER)` shows "2.63". The other bits are as in the original.
+The status word (H_L = 0, C_D = 0) has the version 264 in bits 15..6,
+SYS `__Get(FPGAVER)` shows "2.64". The other bits are as in the original.
 
-## Quadrature decoder (FPGA 2.63, `scope/QuadCnt.v`)
+## Quadrature decoder (FPGA 2.64, `scope/QuadCnt.v`)
 
-Incremental encoder: A = CH_C, B = CH_D, index Z = CH_A or CH_B (the DS203
-has only two digital inputs, Z is compared with a threshold).
+Incremental encoder: A, B and the index Z on any of the four inputs. CH_A
+and CH_B are compared with a threshold with hysteresis (one per channel),
+CH_C and CH_D are digital.
 
-- four 32 bit up/down counters, one for every edge of A and B (x4), the
-  direction from the level of the other input, clocked by the pins like the
-  edge counters; position = sum of the four (modulo 2^32, by the MCU);
-  forward when A leads B. A bouncing edge counts +1 / -1 and cancels out.
-- Z: the sample of CH_A / CH_B (as written to the FIFO) compared with a
-  threshold with hysteresis in the sampling clock MCI, so the Z pulse must
-  be longer than one sample period. At the active edge of Z the four
-  counters are captured and a 16 bit Z counter is incremented. The total
-  position is never cleared by Z; position in the revolution = position -
-  captured position (MCU).
-- Gray code everywhere, the counters have no clear (the MCU keeps the start).
+- `QuadSync`: the decoder in the sampling clock MCI, for any inputs. The
+  steps must be slower than the sample rate of the timebase, two changes in
+  one sample are counted as errors (the direction is not known then).
+- `QuadCnt`: A = CH_C and B = CH_D are counted by the pins as well, without
+  this limit (independently of the timebase): four up/down counters, one for
+  every edge of A and B, the direction from the level of the other input;
+  position = sum of the four (by the MCU). A bouncing edge counts +1 / -1.
+- x4, forward when A leads B. Counters 24 bits (the MCU reads them every
+  100 ms and extends them), Gray code, no clear (the MCU keeps the start).
+- Z: sampled in MCI, the pulse must be longer than one sample period. At its
+  active edge both positions are captured and a 16 bit Z counter is
+  incremented. The total position is never cleared by Z; position in the
+  revolution = position - captured position (MCU). The analog inputs come
+  later than the digital ones (ADC latency), with analog A / B and digital Z
+  a step at the same moment as Z may be captured before or after it.
 
 | what | how |
 |------|-----|
-| Z control | register `0x0F`: bit 1..0 source (0 off, 1 CH_A, 2 CH_B), bit 2 active low |
-| Z threshold / hysteresis | registers `0x10` / `0x11` (default 128 / 8) |
-| position | Select `0x20` latches the four counters and returns word 0, `0x21`..`0x27` the other words (AR lo/hi, AF, BR, BF) |
-| position at the last Z | Select `0x28`: the same for the captured set (latches the Z counter too), `0x29`..`0x2F`, `0x30` Z counter |
-| ID | Select `0x19` returns `0xC0D3` |
+| control | register `0x0F`: bit 1..0 A, 3..2 B, 5..4 Z (0 CH_A, 1 CH_B, 2 CH_C, 3 CH_D), bit 6 Z on, bit 7 Z active low; power up `0x0E` (A = C, B = D, Z off) |
+| thresholds | `0x10` / `0x11` CH_A threshold / hysteresis, `0x12` / `0x13` CH_B (raw sample values, default 128 / 8) |
+| pins: position | Select `0x20` latches the four counters and returns word 0, `0x21`..`0x27` the other words (AR lo/hi, AF, BR, BF) |
+| pins: position at Z | Select `0x28`: the same for the captured set (latches the Z counter too), `0x29`..`0x2F`, `0x30` Z counter |
+| MCI decoder | Select `0x38` latches: `0x38` / `0x39` position, `0x3A` errors (8 bit), `0x3B` / `0x3C` position at Z, `0x3D` Z counter |
+| ID | Select `0x19` returns `0xC0D4` |
 
-Version 263 in the status word ("2.63").
+Version 264 in the status word ("2.64").
 
 ## Tests (`tb/run.sh`)
 
@@ -69,7 +75,7 @@ Version 263 in the status word ("2.63").
 
 Size estimate with yosys / nextpnr for iCE40 (the open tools do not support
 iCE65): original 1120 logic cells, with counters 1625, with the quadrature
-decoder 2781 (iCE65L04: 3520), 18 RAM blocks (20), 8 global buffers (8),
+decoder 2902 (iCE65L04: 3520), 18 RAM blocks (20), 8 global buffers (8),
 all clocks above 100 MHz. If iCEcube2 runs out of global buffers, the clock
 of SCK (the slowest, serial register writes) can be left on local routing.
 
@@ -87,7 +93,7 @@ Only **Lattice iCEcube2** builds iCE65 bitstreams (the source states that the
 Flashing: the FPGA image is in the STM32 flash at 0x0802C000 and is loaded by
 SYS at power up. It is flashed in the DFU mode like the original package
 (`CFG_FPGA.ADR` with `0x0802C000`, then `V261FPGA.BIN`): copy `CFG_FPGA.ADR`,
-then the new image renamed for example to `V263FPGA.BIN`. The original
+then the new image renamed for example to `V264FPGA.BIN`. The original
 `V261FPGA.BIN` can be flashed back the same way.
 
 Note: the published source is version 2.5, the image of HW 2.60 is 2.61.

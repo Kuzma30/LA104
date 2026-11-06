@@ -52,15 +52,15 @@ namespace DecodeUi
         return Settings.Decode.ch[Counter][0] == Ch4 ? FpgaCounter::D : FpgaCounter::C;
     }
 
-    // Encoder: the quadrature decoder of the FPGA counts A = CH3 (C) and
-    // B = CH4 (D) all the time, Z comes from CH1 / CH2
+    // Encoder: the quadrature decoder of the FPGA counts all the time,
+    // A, B and Z on any inputs (A, B on CH3 / CH4: by the pins)
     static bool s_bQuadTried = false;
 
     static bool _QuadChannels()
     {
         const uint8_t* ch = Settings.Decode.ch[Encoder];
-        bool bAB = (ch[0] == Ch3 && ch[1] == Ch4) || (ch[0] == Ch4 && ch[1] == Ch3);
-        return bAB && (ch[2] == Ch1 || ch[2] == Ch2 || ch[2] == ChOff);
+        bool bAB = ch[0] <= Ch4 && ch[1] <= Ch4 && ch[0] != ch[1];
+        return bAB && (ch[2] == ChOff || (ch[2] <= Ch4 && ch[2] != ch[0] && ch[2] != ch[1]));
     }
 
     static bool _QuadWanted()
@@ -68,55 +68,84 @@ namespace DecodeUi
         return Settings.Decode.protocol == Encoder && QuadCounter::Available() && _QuadChannels();
     }
 
-    // direction of the FPGA values: A = D reverses, as the setting does
+    // the FPGA counts in the orientation of the inputs (forward = A leads B)
     static int _QuadSign()
     {
-        int n = Settings.Decode.ch[Encoder][0] == Ch4 ? -1 : 1;
-        return Settings.Decode.quadDir ? -n : n;
+        return Settings.Decode.quadDir ? -1 : 1;
     }
 
-    // Z threshold: the middle of the levels seen on the Z channel in all
-    // acquisitions since its settings changed (a short index pulse is not
-    // in every buffer)
-    static int s_nZMin = 255, s_nZMax = 0;
-    static uint32_t s_nZKey = 0xffffffff;
+    // thresholds of the analog inputs: the middle of the levels seen in all
+    // acquisitions since the settings of the channel changed (a short index
+    // pulse is not in every buffer)
+    static int s_arrMin[2] = {255, 255}, s_arrMax[2] = {0, 0};
+    static uint32_t s_arrKey[2] = {0xffffffff, 0xffffffff};
+    static bool s_bLevelsOk = false;
 
-    static void _TrackZ()
+    static bool _UsedByEncoder(int ch)
     {
-        int ch = Settings.Decode.ch[Encoder][2];
+        const uint8_t* p = Settings.Decode.ch[Encoder];
+        return p[0] == ch || p[1] == ch || p[2] == ch;
+    }
+
+    static void _TrackLevels()
+    {
+        for ( int ch = Ch1; ch <= Ch2; ch++ )
+        {
+            if ( !_UsedByEncoder(ch) )
+                continue;
+            CSettings::AnalogChannel& a = ch == Ch1 ? Settings.CH1 : Settings.CH2;
+            uint32_t nKey = ((uint32_t)a.Resolution << 4) | ((uint32_t)a.Coupling << 8) |
+                ((uint32_t)(a.u16Position & 0xffff) << 12);
+            if ( nKey != s_arrKey[ch] )
+            {
+                s_arrKey[ch] = nKey;
+                s_arrMin[ch] = 255;
+                s_arrMax[ch] = 0;
+            }
+            const uint8_t* p = Sampler::GetBuffer() + ch;
+            int nMin = s_arrMin[ch], nMax = s_arrMax[ch];
+            for ( int i = Settings.Time.InvalidFirst; i < Sampler::GetValid(); i++ )
+            {
+                int v = p[i * Decoder::BytesPerSample];
+                if ( v < nMin ) nMin = v;
+                if ( v > nMax ) nMax = v;
+            }
+            s_arrMin[ch] = nMin;
+            s_arrMax[ch] = nMax;
+        }
+    }
+
+    static void _ForgetLevels()
+    {
+        for ( int ch = Ch1; ch <= Ch2; ch++ )
+        {
+            s_arrKey[ch] = 0xffffffff;
+            s_arrMin[ch] = 255;
+            s_arrMax[ch] = 0;
+        }
+    }
+
+    // digital inputs and switched off Z need no level
+    static bool _LevelKnown(int ch)
+    {
         if ( ch != Ch1 && ch != Ch2 )
-            return;
-        CSettings::AnalogChannel& a = ch == Ch1 ? Settings.CH1 : Settings.CH2;
-        uint32_t nKey = (uint32_t)ch | ((uint32_t)a.Resolution << 4) | ((uint32_t)a.Coupling << 8) |
-            ((uint32_t)(a.u16Position & 0xffff) << 12);
-        if ( nKey != s_nZKey )
-        {
-            s_nZKey = nKey;
-            s_nZMin = 255;
-            s_nZMax = 0;
-        }
-        const uint8_t* p = Sampler::GetBuffer() + (ch == Ch1 ? 0 : 1);
-        for ( int i = Settings.Time.InvalidFirst; i < Sampler::GetValid(); i++ )
-        {
-            int v = p[i * Decoder::BytesPerSample];
-            if ( v < s_nZMin ) s_nZMin = v;
-            if ( v > s_nZMax ) s_nZMax = v;
-        }
+            return true;
+        return s_arrMax[ch] - s_arrMin[ch] >= 12;
     }
 
-    static bool _ZLevelKnown()
+    static void _QuadConfigure()
     {
-        return s_nZMax - s_nZMin >= 12;
-    }
-
-    static void _QuadSetZ()
-    {
-        int ch = Settings.Decode.ch[Encoder][2];
-        int nSource = ch == Ch1 ? QuadCounter::ZCh1 : ch == Ch2 ? QuadCounter::ZCh2 : QuadCounter::ZOff;
-        if ( !_ZLevelKnown() )
-            nSource = QuadCounter::ZOff;    // no Z level seen yet
-        QuadCounter::SetZ( nSource, Settings.Decode.invert[Encoder] != 0,
-            (s_nZMin + s_nZMax) / 2, (s_nZMax - s_nZMin) / 8 );
+        const uint8_t* ch = Settings.Decode.ch[Encoder];
+        int nZ = ch[2] <= Ch4 && _LevelKnown(ch[2]) ? ch[2] : QuadCounter::ChOff;
+        QuadCounter::Configure( ch[0], ch[1], nZ, Settings.Decode.invert[Encoder] != 0,
+            (s_arrMin[0] + s_arrMax[0]) / 2, (s_arrMax[0] - s_arrMin[0]) / 8,
+            (s_arrMin[1] + s_arrMax[1]) / 2, (s_arrMax[1] - s_arrMin[1]) / 8 );
+        // A and B on analog inputs: the steps counted before their levels
+        // were known are not valid
+        bool bOk = _LevelKnown(ch[0]) && _LevelKnown(ch[1]);
+        if ( bOk && !s_bLevelsOk )
+            QuadCounter::Reset();
+        s_bLevelsOk = bOk;
     }
 
     float SampleRate()
@@ -151,7 +180,7 @@ namespace DecodeUi
             s_nSwTotal += Decoder::CountedEdges;
         }
         if ( Settings.Decode.protocol == Encoder )
-            _TrackZ();
+            _TrackLevels();
         if ( s_nSelected >= Decoder::Count )
             s_nSelected = -1;
         if ( MainWnd.m_wndMenuDecode.IsVisible() )
@@ -190,9 +219,8 @@ namespace DecodeUi
         HwCounter::Reset();
         FpgaCounter::Reset();
         QuadCounter::Reset();
-        s_nZKey = 0xffffffff;       // the Z level is measured again
-        s_nZMin = 255;
-        s_nZMax = 0;
+        _ForgetLevels();            // the levels are measured again
+        s_bLevelsOk = false;
     }
 
     int CounterChannel()
@@ -249,7 +277,7 @@ namespace DecodeUi
         else if ( !bQuad && QuadCounter::Active() )
             QuadCounter::Stop();
         if ( QuadCounter::Active() )
-            _QuadSetZ();
+            _QuadConfigure();
         QuadCounter::Tick();
 
         if ( (Settings.Decode.protocol != Counter && Settings.Decode.protocol != Encoder) ||
@@ -270,9 +298,10 @@ namespace DecodeUi
         QuadCounter::Stop();
     }
 
-    bool ZLevelKnown()
+    bool LevelKnown(int nRole)
     {
-        return _ZLevelKnown();
+        int ch = Settings.Decode.ch[Encoder][nRole];
+        return ch == ChOff || _LevelKnown(ch);
     }
 
     int QuadSign()
@@ -533,7 +562,10 @@ static void EncoderText(int nLine, char* text)
         switch ( nLine )
         {
         case 0:
-            FormatSigned( QuadScale64( nSign * QuadCounter::Position() ), text, 8 );
+            if ( !DecodeUi::LevelKnown(0) || !DecodeUi::LevelKnown(1) )
+                strcpy( text, "A/B ?" );        // no level of an analog input seen yet
+            else
+                FormatSigned( QuadScale64( nSign * QuadCounter::Position() ), text, 8 );
             break;
         case 1:
         {
@@ -541,7 +573,7 @@ static void EncoderText(int nLine, char* text)
             strcpy( text, "R" );
             if ( Settings.Decode.ch[Encoder][2] == ChOff )
                 strcat( text, " no Z" );
-            else if ( !DecodeUi::ZLevelKnown() )
+            else if ( !DecodeUi::LevelKnown(2) )
                 strcat( text, " Z ?" );     // no Z level seen yet
             else if ( QuadCounter::InRev( n ) )
                 FormatSigned( QuadScale64( nSign * n ), text + 1, 7 );
@@ -564,7 +596,14 @@ static void EncoderText(int nLine, char* text)
             float f;
             int32_t nPerRev;
             bool bPerRev = QuadCounter::PerRev( nPerRev );
-            if ( QuadCounter::Rate( f ) )
+            uint32_t nErrors = QuadCounter::Errors();
+            if ( nErrors && BIOS::SYS::GetTick() - QuadCounter::LastErrorTick() < 3000 )
+            {
+                // steps faster than the sampling: a faster timebase is needed
+                strcpy( text, "AB! " );
+                FormatSigned( nErrors, text + 4, 4 );
+            }
+            else if ( QuadCounter::Rate( f ) )
                 FormatSpeed( nSign * f, bPerRev, nPerRev, text );
             else
                 strcpy( text, "..." );
@@ -600,7 +639,7 @@ static void EncoderText(int nLine, char* text)
         }
         else if ( QuadCounter::Status() == QuadCounter::NoDecoder )
         {
-            // the FPGA image without the decoder: 2.63 is needed
+            // the FPGA image without the decoder: 2.64 is needed
             int nVer = FpgaCounter::FpgaVersion();
             strcpy( text, "FPGA" );
             strcat( text, CUtils::itoa( nVer / 100 ) );

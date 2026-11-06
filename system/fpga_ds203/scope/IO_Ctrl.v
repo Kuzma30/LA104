@@ -10,7 +10,7 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
                 nPD, Trigg_Mode, Vthreshold, Tthreshold, CtrlReg, 
                 C_Rise, C_Fall, D_Rise, D_Fall, CntClr,
                 QAR, QAF, QBR, QBF, LAR, LAF, LBR, LBF, ZGray,
-                ZCtrl, ZThr, ZHys, DB ); 
+                SGray, EGray, LSync, QCtrl, AThr, AHys, BThr, BHys, DB );
 
   input     CE;                 // Databus selece enable -> Active high
   input     nRD;                // Databus read enable   -> Active low
@@ -64,27 +64,38 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
   input     [31:0]D_Fall;
   output    CntClr;
 
-  // LA104: quadrature decoder (QuadCnt.v, FPGA 2.63), Gray code
-  //   registers (serial): 0x0F Z control (bit1..0 source 0 off / 1 CH_A /
-  //   2 CH_B, bit2 active low), 0x10 Z threshold, 0x11 Z hysteresis
-  //   Select 0x20: reading latches the four quadrature counters, word 0 is
-  //          returned, 0x21..0x27 the other words of the latch
+  // LA104: quadrature decoder (QuadCnt.v, FPGA 2.64), Gray code, the
+  //   counters have 24 bits, the errors 8 bits
+  //   registers (serial): 0x0F control (QuadSync: bit1..0 A, 3..2 B,
+  //   5..4 Z: 0 CH_A, 1 CH_B, 2 CH_C, 3 CH_D; bit6 Z on, bit7 Z active low),
+  //   0x10 / 0x11 CH_A threshold / hysteresis, 0x12 / 0x13 CH_B
+  //   Select 0x20: reading latches the four counters of A = C, B = D (pins),
+  //          word 0 is returned, 0x21..0x27 the other words of the latch
   //          (AR lo/hi, AF lo/hi, BR lo/hi, BF lo/hi)
-  //   Select 0x28: the same for the counters captured at the last Z, and
+  //   Select 0x28: the same for these counters captured at the last Z, and
   //          the Z counter, 0x29..0x2F the other words, 0x30 the Z counter
-  //   Select 0x19: ID 0xC0D3 (quadrature decoder present)
-  input     [31:0]QAR;
-  input     [31:0]QAF;
-  input     [31:0]QBR;
-  input     [31:0]QBF;
-  input     [31:0]LAR;
-  input     [31:0]LAF;
-  input     [31:0]LBR;
-  input     [31:0]LBF;
+  //   Select 0x38: latches the position of the decoder in MCI (word 0),
+  //          its errors and its position at the last Z with the Z counter:
+  //          0x39 position hi, 0x3A errors, 0x3B / 0x3C position at Z,
+  //          0x3D Z counter
+  //   Select 0x19: ID 0xC0D4 (quadrature decoder with any inputs)
+  input     [23:0]QAR;
+  input     [23:0]QAF;
+  input     [23:0]QBR;
+  input     [23:0]QBF;
+  input     [23:0]LAR;
+  input     [23:0]LAF;
+  input     [23:0]LBR;
+  input     [23:0]LBF;
   input     [15:0]ZGray;
-  output    [ 7:0]ZCtrl;
-  output    [ 7:0]ZThr;
-  output    [ 7:0]ZHys;
+  input     [23:0]SGray;
+  input     [ 7:0]EGray;
+  input     [23:0]LSync;
+  output    [ 7:0]QCtrl;
+  output    [ 7:0]AThr;
+  output    [ 7:0]AHys;
+  output    [ 7:0]BThr;
+  output    [ 7:0]BHys;
 
   inout     [15:0]DB;           // Data bus to MCU
 
@@ -107,18 +118,20 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
   reg       [ 7:0]CntCtrl;
   reg       [31:0]Hold;
   wire      [31:0]CntMux;
-  reg       [ 7:0]ZCtrl;
-  reg       [ 7:0]ZThr;
-  reg       [ 7:0]ZHys;
+  reg       [ 7:0]QCtrl;
+  reg       [ 7:0]AThr;
+  reg       [ 7:0]AHys;
+  reg       [ 7:0]BThr;
+  reg       [ 7:0]BHys;
   reg      [127:0]HoldQ;
   reg       [15:0]HoldZ;
   wire      [15:0]HoldW;
-  // version in the status word (SYS: FPGAVER = status >> 6): "2.63"
-  wire      [ 9:0]Version = 10'd263;
+  // version in the status word (SYS: FPGAVER = status >> 6): "2.64"
+  wire      [ 9:0]Version = 10'd264;
 
   initial begin
     CntCtrl = 0;
-    ZCtrl = 0; ZThr = 128; ZHys = 8;
+    QCtrl = 8'h0e; AThr = 128; AHys = 8; BThr = 128; BHys = 8;   // A = CH_C, B = CH_D
     HoldQ = 0; HoldZ = 0;
   end
 
@@ -156,18 +169,20 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
   // quadrature: the whole set is latched at once with word 0
   always @( negedge nRD ) begin
    if ( Select == 8'h20 )
-     HoldQ <= { QBF, QBR, QAF, QAR };
+     HoldQ <= { 8'h0, QBF, 8'h0, QBR, 8'h0, QAF, 8'h0, QAR };
    else if ( Select == 8'h28 ) begin
-     HoldQ <= { LBF, LBR, LAF, LAR };
+     HoldQ <= { 8'h0, LBF, 8'h0, LBR, 8'h0, LAF, 8'h0, LAR };
      HoldZ <= ZGray;
-   end
+   end else if ( Select == 8'h38 )
+     HoldQ <= { 32'h0, ZGray, 8'h0, LSync, 8'h0, EGray, 8'h0, SGray };
   end
 
   always @( negedge nRD ) begin
-   if ( Select[7:4] == 4'h2 || Select == 8'h30 ) begin
+   if ( Select[7:4] == 4'h2 || Select[7:3] == 5'b00111 || Select == 8'h30 ) begin
      case( Select )
        8'h20:   Data <= QAR[15:0];
        8'h28:   Data <= LAR[15:0];
+       8'h38:   Data <= SGray[15:0];
        8'h30:   Data <= HoldZ;
        default: Data <= HoldW;
      endcase
@@ -188,7 +203,7 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
      8'h10, 8'h12, 8'h14, 8'h16: Data <= CntMux[15:0];
      8'h11, 8'h13, 8'h15, 8'h17: Data <= Hold[31:16];
      8'h18:   Data <= 16'hC0D2;
-     8'h19:   Data <= 16'hC0D3;
+     8'h19:   Data <= 16'hC0D4;
      default: Data <= 0;
    endcase 
   end
@@ -219,9 +234,11 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
           8'h0C:  Delay    [23:16] <= DataBuff;      
           8'h0D:  Delay    [31:24] <= DataBuff;      
           8'h0E:  CntCtrl   [ 7:0] <= DataBuff;
-          8'h0F:  ZCtrl     [ 7:0] <= DataBuff;
-          8'h10:  ZThr      [ 7:0] <= DataBuff;
-          8'h11:  ZHys      [ 7:0] <= DataBuff;
+          8'h0F:  QCtrl     [ 7:0] <= DataBuff;
+          8'h10:  AThr      [ 7:0] <= DataBuff;
+          8'h11:  AHys      [ 7:0] <= DataBuff;
+          8'h12:  BThr      [ 7:0] <= DataBuff;
+          8'h13:  BHys      [ 7:0] <= DataBuff;
         endcase 
       end
     end 

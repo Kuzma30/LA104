@@ -25,7 +25,7 @@ namespace DecodeUi
     void CounterReset();
     uint64_t CounterTotal();
     int CounterChannel();            // FPGA counter: FpgaCounter::C or D
-    bool ZLevelKnown();              // Encoder: the levels of Z were seen
+    bool LevelKnown(int nRole);      // Encoder: the levels of the input (A, B, Z) were seen
     int QuadSign();                  // Encoder: direction of the FPGA values
 }
 

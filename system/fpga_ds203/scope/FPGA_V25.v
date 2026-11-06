@@ -68,11 +68,13 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
   wire	  [31:0]CF_Link;
   wire	  [31:0]DR_Link;
   wire	  [31:0]DF_Link;
-  // LA104: quadrature decoder A = CH_C, B = CH_D, Z = CH_A / CH_B
-  wire	  [31:0]QAR_Link, QAF_Link, QBR_Link, QBF_Link;
-  wire	  [31:0]LAR_Link, LAF_Link, LBR_Link, LBF_Link;
+  // LA104: quadrature decoder, A = CH_C, B = CH_D by the pins, any inputs in MCI
+  wire	  [23:0]QAR_Link, QAF_Link, QBR_Link, QBF_Link;
+  wire	  [23:0]LAR_Link, LAF_Link, LBR_Link, LBF_Link;
   wire	  [15:0]ZGray_Link;
-  wire	  [ 7:0]ZCtrl_Link, ZThr_Link, ZHys_Link;
+  wire	  [ 7:0]QCtrl_Link, AThr_Link, AHys_Link, BThr_Link, BHys_Link;
+  wire	  [23:0]SGray_Link, LSync_Link;
+  wire	  [ 7:0]EGray_Link;
 
   assign Din_Bus = { Din[17:16], ~Din[15:8], ~Din[7:0] };
 
@@ -135,11 +137,13 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
   QuadCnt U7( .A( Din[16] ), .B( Din[17] ),
     .GrayAR( QAR_Link ), .GrayAF( QAF_Link ), .GrayBR( QBR_Link ), .GrayBF( QBF_Link ) );
 
-  QuadZ U8( .Mclk( MCI ), .Din( Din_Bus[15:0] ),
-    .ZCtrl( ZCtrl_Link ), .ZThr( ZThr_Link ), .ZHys( ZHys_Link ),
+  QuadSync U8( .Mclk( MCI ), .Din( Din_Bus ),
+    .Ctrl( QCtrl_Link ), .AThr( AThr_Link ), .AHys( AHys_Link ),
+    .BThr( BThr_Link ), .BHys( BHys_Link ),
     .QAR( QAR_Link ), .QAF( QAF_Link ), .QBR( QBR_Link ), .QBF( QBF_Link ),
     .LAR( LAR_Link ), .LAF( LAF_Link ), .LBR( LBR_Link ), .LBF( LBF_Link ),
-    .ZGray( ZGray_Link ) );
+    .ZGray( ZGray_Link ), .SGray( SGray_Link ), .EGray( EGray_Link ),
+    .LSync( LSync_Link ) );
 
   IO_Ctrl U4( 
     .CE( CE ), 
@@ -180,8 +184,9 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
     .CntClr( CntClr_Link ),
     .QAR( QAR_Link ), .QAF( QAF_Link ), .QBR( QBR_Link ), .QBF( QBF_Link ),
     .LAR( LAR_Link ), .LAF( LAF_Link ), .LBR( LBR_Link ), .LBF( LBF_Link ),
-    .ZGray( ZGray_Link ),
-    .ZCtrl( ZCtrl_Link ), .ZThr( ZThr_Link ), .ZHys( ZHys_Link ),
+    .ZGray( ZGray_Link ), .SGray( SGray_Link ), .EGray( EGray_Link ), .LSync( LSync_Link ),
+    .QCtrl( QCtrl_Link ), .AThr( AThr_Link ), .AHys( AHys_Link ),
+    .BThr( BThr_Link ), .BHys( BHys_Link ),
     .DB( DB ) 
   );
   
