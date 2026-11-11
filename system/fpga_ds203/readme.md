@@ -1,4 +1,4 @@
-# DS203 FPGA (HW 2.6x, iCE65L04) with counters and quadrature decoder of CH_C / CH_D
+# DS203 FPGA (HW 2.6x, iCE65L04) with edge counters and a quadrature decoder (FPGA 2.64)
 
 - `stock_v25/` original FPGA source of e-Design (FPGA CFG Ver 2.5, MIT
   license, from [matthiasbock/dso203](https://github.com/matthiasbock/dso203),
