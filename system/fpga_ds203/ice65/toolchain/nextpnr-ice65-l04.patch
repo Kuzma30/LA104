@@ -1,0 +1,395 @@
+diff --git a/ice40/CMakeLists.txt b/ice40/CMakeLists.txt
+index 13dc83c..b2a9a4e 100644
+--- a/ice40/CMakeLists.txt
++++ b/ice40/CMakeLists.txt
+@@ -40,7 +40,7 @@ add_nextpnr_architecture(${family}
+     MAIN_SOURCE  main.cc
+ )
+ 
+-set(ALL_ICE40_DEVICES 384 1k 5k u4k 8k)
++set(ALL_ICE40_DEVICES 384 1k 5k u4k 8k l04)
+ set(ICE40_DEVICES ${ALL_ICE40_DEVICES} CACHE STRING
+     "Include support for these iCE40 devices (available: ${ALL_ICE40_DEVICES})")
+ message(STATUS "Enabled iCE40 devices: ${ICE40_DEVICES}")
+@@ -56,6 +56,10 @@ foreach (device ${ICE40_DEVICES})
+     elseif (device STREQUAL "u4k")
+         set(timing_opts
+             --slow ${ICEBOX_DATADIR}/timings_u4k.txt)
++    elseif (device STREQUAL "l04")
++        # iCE65 L04: no measured timing data; scaled iCE40 LP8K estimate
++        set(timing_opts
++            --slow ${ICEBOX_DATADIR}/timings_l04.txt)
+     elseif (device STREQUAL "384")
+         set(timing_opts
+             --slow ${ICEBOX_DATADIR}/timings_lp384.txt)
+diff --git a/ice40/arch.cc b/ice40/arch.cc
+index f451ff0..fadb73a 100644
+--- a/ice40/arch.cc
++++ b/ice40/arch.cc
+@@ -59,6 +59,8 @@ static const ChipInfoPOD *get_chip_info(ArchArgs::ArchArgsTypes chip)
+         chipdb = "ice40/chipdb-5k.bin";
+     } else if (chip == ArchArgs::LP8K || chip == ArchArgs::HX8K || chip == ArchArgs::LP4K || chip == ArchArgs::HX4K) {
+         chipdb = "ice40/chipdb-8k.bin";
++    } else if (chip == ArchArgs::L04) {
++        chipdb = "ice40/chipdb-l04.bin";
+     } else {
+         log_error("Unknown chip\n");
+     }
+@@ -161,6 +163,8 @@ std::string Arch::getChipName() const
+         return "Lattice iCE40HX4K";
+     } else if (args.type == ArchArgs::HX8K) {
+         return "Lattice iCE40HX8K";
++    } else if (args.type == ArchArgs::L04) {
++        return "Lattice iCE65L04";
+     } else {
+         log_error("Unknown chip\n");
+     }
+@@ -194,6 +198,8 @@ IdString Arch::archArgsToId(ArchArgs args) const
+         return id_hx4k;
+     if (args.type == ArchArgs::HX8K)
+         return id_hx8k;
++    if (args.type == ArchArgs::L04)
++        return id_l04;
+     return IdString();
+ }
+ 
+@@ -717,7 +723,7 @@ bool Arch::place()
+             cfg.timing_mx = 60;
+             cfg.timing_my = 60;
+         } else if (args.type == ArchArgs::LP384 || args.type == ArchArgs::LP1K || args.type == ArchArgs::LP4K ||
+-                   args.type == ArchArgs::LP8K) {
++                   args.type == ArchArgs::LP8K || args.type == ArchArgs::L04) {
+             cfg.timing_c = 1600;
+             cfg.timing_mx = 90;
+             cfg.timing_my = 90;
+@@ -1160,7 +1166,7 @@ TimingClockingInfo Arch::getPortClockingInfo(const CellInfo *cell, IdString port
+                 bool has_ld = get_cell_delay_internal(cell, port, id_O, dlut);
+                 NPNR_ASSERT(has_ld);
+                 if (args.type == ArchArgs::LP1K || args.type == ArchArgs::LP4K || args.type == ArchArgs::LP8K ||
+-                    args.type == ArchArgs::LP384) {
++                    args.type == ArchArgs::LP384 || args.type == ArchArgs::L04) {
+                     info.setup = DelayPair(30 + dlut.maxDelay());
+                 } else if (args.type == ArchArgs::UP3K || args.type == ArchArgs::UP5K || args.type == ArchArgs::U4K ||
+                            args.type == ArchArgs::U1K || args.type == ArchArgs::U2K) { // XXX verify u4k
+@@ -1190,7 +1196,8 @@ TimingClockingInfo Arch::getPortClockingInfo(const CellInfo *cell, IdString port
+         }
+     } else if (cell->type == id_SB_IO) {
+         delay_t io_setup = 80, io_clktoq = 140;
+-        if (args.type == ArchArgs::LP1K || args.type == ArchArgs::LP8K || args.type == ArchArgs::LP384) {
++        if (args.type == ArchArgs::LP1K || args.type == ArchArgs::LP8K || args.type == ArchArgs::LP384 ||
++            args.type == ArchArgs::L04) {
+             io_setup = 115;
+             io_clktoq = 210;
+         } else if (args.type == ArchArgs::UP3K || args.type == ArchArgs::UP5K || args.type == ArchArgs::U4K ||
+diff --git a/ice40/arch.h b/ice40/arch.h
+index 2e8940a..76a39b9 100644
+--- a/ice40/arch.h
++++ b/ice40/arch.h
+@@ -373,7 +373,8 @@ struct ArchArgs
+         UP5K,
+         U1K,
+         U2K,
+-        U4K
++        U4K,
++        L04
+     } type = NONE;
+     std::string package;
+ };
+diff --git a/ice40/arch_place.cc b/ice40/arch_place.cc
+index 1d69d62..5232ae4 100644
+--- a/ice40/arch_place.cc
++++ b/ice40/arch_place.cc
+@@ -195,6 +195,9 @@ bool Arch::isBelLocationValid(BelId bel, bool explain_invalid) const
+         } else if (cell->type == id_SB_GB) {
+             if (cell->gbInfo.forPadIn)
+                 return true;
++            // Buffers without a fabric input (iCE65 L04, unconfirmed locations) only serve clock pads
++            if (getBelPinWire(bel, id_USER_SIGNAL_TO_GLOBAL_BUFFER) == WireId())
++                return false;
+             NPNR_ASSERT(cell->ports.at(id_GLOBAL_BUFFER_OUTPUT).net != nullptr);
+             const NetInfo *net = cell->ports.at(id_GLOBAL_BUFFER_OUTPUT).net;
+             int glb_id = get_driven_glb_netwk(bel);
+diff --git a/ice40/arch_pybindings.cc b/ice40/arch_pybindings.cc
+index 0a9615d..cf6e38a 100644
+--- a/ice40/arch_pybindings.cc
++++ b/ice40/arch_pybindings.cc
+@@ -56,6 +56,7 @@ void arch_wrap_python(py::module &m)
+             .value("U1K", ArchArgs::U1K)
+             .value("U2K", ArchArgs::U2K)
+             .value("U4K", ArchArgs::U4K)
++            .value("L04", ArchArgs::L04)
+             .export_values();
+ 
+     py::class_<BelId>(m, "BelId").def_readwrite("index", &BelId::index);
+diff --git a/ice40/bitstream.cc b/ice40/bitstream.cc
+index dd245d4..51633f5 100644
+--- a/ice40/bitstream.cc
++++ b/ice40/bitstream.cc
+@@ -323,6 +323,9 @@ void write_asc(const Context *ctx, std::ostream &out)
+     case ArchArgs::U4K:
+         out << ".device u4k" << std::endl;
+         break;
++    case ArchArgs::L04:
++        out << ".device l04" << std::endl;
++        break;
+     default:
+         NPNR_ASSERT_FALSE("unsupported device type\n");
+     }
+@@ -551,7 +554,33 @@ void write_asc(const Context *ctx, std::ostream &out)
+             input_en = (input_en & !used_by_pll_out) | used_by_pll_pad;
+             input_en |= cell.second->ioInfo.global;
+ 
+-            if (!lvds) {
++            if (ctx->args.type == ArchArgs::L04) {
++                // iCE65 L04, as seen in iCEcube-generated bitstreams:
++                //  - top/bottom/right banks: one bit per pad that disables the pull-up, IE bits unused
++                //  - left bank (bank 3): three "pad in use" bits per pad plus an input-disable bit
++                if (lvds)
++                    log_error("LVDS IO is not supported on iCE65 L04 (cell '%s')\n", cell.second->name.c_str(ctx));
++                if (cell.second->getPort(id_LATCH_INPUT_VALUE) != nullptr)
++                    log_error("LATCH_INPUT_VALUE is not supported on iCE65 L04 (cell '%s'): the latch signal "
++                              "location is unknown\n",
++                              cell.second->name.c_str(ctx));
++                if (x == 0) {
++                    if (pullup)
++                        log_warning("PULLUP on bank 3 pin (cell '%s') is not supported on iCE65 L04, ignoring\n",
++                                    cell.second->name.c_str(ctx));
++                    std::string pad = "IoCtrl.B3_PAD" + std::to_string(z);
++                    set_config(ti, config.at(y).at(x), pad + "_USED_0", true);
++                    set_config(ti, config.at(y).at(x), pad + "_USED_1", true);
++                    set_config(ti, config.at(y).at(x), pad + "_USED_2", true);
++                    set_config(ti, config.at(y).at(x), pad + "_NOINPUT", !input_en);
++                } else {
++                    auto ieren = get_ieren(bi, x, y, z);
++                    int iex, iey, iez;
++                    std::tie(iex, iey, iez) = ieren;
++                    NPNR_ASSERT(iez != -1);
++                    set_config(ti, config.at(iey).at(iex), "IoCtrl.REN_" + std::to_string(iez), !pullup);
++                }
++            } else if (!lvds) {
+                 auto ieren = get_ieren(bi, x, y, z);
+                 int iex, iey, iez;
+                 std::tie(iex, iey, iez) = ieren;
+@@ -630,14 +659,16 @@ void write_asc(const Context *ctx, std::ostream &out)
+             int x = beli.x, y = beli.y;
+             const TileInfoPOD &ti_ramt = bi.tiles_nonrouting[TILE_RAMT];
+             const TileInfoPOD &ti_ramb = bi.tiles_nonrouting[TILE_RAMB];
+-            if (!(ctx->args.type == ArchArgs::LP1K || ctx->args.type == ArchArgs::HX1K)) {
++            if (!(ctx->args.type == ArchArgs::LP1K || ctx->args.type == ArchArgs::HX1K ||
++                  ctx->args.type == ArchArgs::L04)) {
+                 set_config(ti_ramb, config.at(y).at(x), "RamConfig.PowerUp", true);
+             }
+             bool negclk_r = get_param_or_def(ctx, cell.second.get(), id_NEG_CLK_R);
+             bool negclk_w = get_param_or_def(ctx, cell.second.get(), id_NEG_CLK_W);
+             int write_mode = get_param_or_def(ctx, cell.second.get(), id_WRITE_MODE);
+             int read_mode = get_param_or_def(ctx, cell.second.get(), id_READ_MODE);
+-            if (ctx->args.type == ArchArgs::LP1K || ctx->args.type == ArchArgs::HX1K) {
++            if (ctx->args.type == ArchArgs::LP1K || ctx->args.type == ArchArgs::HX1K ||
++                ctx->args.type == ArchArgs::L04) {
+                 set_config(ti_ramb, config.at(y).at(x), "NegClk", negclk_w);
+                 set_config(ti_ramt, config.at(y + 1).at(x), "NegClk", negclk_r);
+             } else {
+@@ -770,6 +801,12 @@ void write_asc(const Context *ctx, std::ostream &out)
+             if (sb_io_used_by_pll_out.count(Loc(x, y, z))) {
+                 continue;
+             }
++            if (ctx->args.type == ArchArgs::L04) {
++                // Unused pads: pull-up stays on (all bits clear); bank 3 pads get their input disabled
++                if (x == 0)
++                    set_config(ti, config.at(y).at(x), "IoCtrl.B3_PAD" + std::to_string(z) + "_NOINPUT", true);
++                continue;
++            }
+ 
+             auto ieren = get_ieren(bi, x, y, z);
+             int iex, iey, iez;
+@@ -822,7 +859,8 @@ void write_asc(const Context *ctx, std::ostream &out)
+             } else if (ctx->args.type == ArchArgs::U4K || ctx->args.type == ArchArgs::U1K ||
+                        ctx->args.type == ArchArgs::U2K) {
+                 setColBufCtrl = (y == 4 || y == 5 || y == 16 || y == 17);
+-            } else if (ctx->args.type == ArchArgs::LP384) {
++            } else if (ctx->args.type == ArchArgs::LP384 || ctx->args.type == ArchArgs::L04) {
++                // iCE65 L04 has no column buffer control bits
+                 setColBufCtrl = false;
+             }
+             if (setColBufCtrl) {
+@@ -967,6 +1005,9 @@ void read_config(Context *ctx, std::istream &in, chipconfig_t &config)
+                 case ArchArgs::U4K:
+                     expected = "u4k";
+                     break;
++                case ArchArgs::L04:
++                    expected = "l04";
++                    break;
+                 default:
+                     log_error("unsupported device type\n");
+                 }
+diff --git a/ice40/chipdb.py b/ice40/chipdb.py
+index f6f5c7c..573de1c 100644
+--- a/ice40/chipdb.py
++++ b/ice40/chipdb.py
+@@ -1,5 +1,6 @@
+ #!/usr/bin/env python3
+ 
++import os
+ import sys
+ import re
+ import textwrap
+@@ -868,6 +869,8 @@ def add_bel_io(x, y, z):
+ 
+     for gidx, ginfo in glbinfo.items():
+         if (ginfo['pi_gb_x'], ginfo['pi_gb_y'], ginfo['pi_gb_pio']) == (x,y,z):
++            if not l04_global_ok("padin", gidx):
++                continue
+             add_bel_output(bel, wire_names[(x, y, "glb_netwk_%d" % gidx)], "GLOBAL_BUFFER_OUTPUT")
+ 
+ def add_bel_ram(x, y):
+@@ -901,7 +904,18 @@ def add_bel_ram(x, y):
+     add_bel_input(bel, wire_names[(x, y1, "ram/RCLKE")], "RCLKE")
+     add_bel_input(bel, wire_names[(x, y1, "ram/RE")], "RE")
+ 
+-def add_bel_gb(xy, x, y, g):
++# iCE65 L04: only some global buffer locations have been confirmed against a
++# vendor bitstream (fabric inputs of networks 3, 4, 6 and the pad input of
++# network 1). Only those are offered to the placer unless the chipdb is
++# built with ICE65_UNVERIFIED=1 in the environment.
++L04_VERIFIED_GLOBALS = {"gbufin": (3, 4, 6), "padin": (1,)}
++
++def l04_global_ok(kind, gidx):
++    if dev_name != "l04" or os.environ.get("ICE65_UNVERIFIED", "0") == "1":
++        return True
++    return gidx in L04_VERIFIED_GLOBALS[kind]
++
++def add_bel_gb(xy, x, y, g, fabric_input=True):
+     if xy[0] != x or xy[1] != y:
+         return
+ 
+@@ -911,7 +925,9 @@ def add_bel_gb(xy, x, y, g):
+     bel_pos.append((x, y, 2))
+     bel_wires.append(list())
+ 
+-    add_bel_input(bel, wire_names[(x, y, "fabout")], "USER_SIGNAL_TO_GLOBAL_BUFFER")
++    # Without the fabric input the buffer can only stand in for a clock pad (SB_GB_IO)
++    if fabric_input:
++        add_bel_input(bel, wire_names[(x, y, "fabout")], "USER_SIGNAL_TO_GLOBAL_BUFFER")
+     add_bel_output(bel, wire_names[(x, y, "glb_netwk_%d" % g)], "GLOBAL_BUFFER_OUTPUT")
+ 
+ def is_ec_wire(ec_entry):
+@@ -1052,7 +1068,10 @@ for tile_xy, tile_type in sorted(tiles.items()):
+             add_bel_io(tile_xy[0], tile_xy[1], i)
+ 
+         for gidx, ginfo in glbinfo.items():
+-            add_bel_gb(tile_xy, ginfo['gb_x'], ginfo['gb_y'], gidx)
++            fabric_ok = l04_global_ok("gbufin", gidx)
++            if not fabric_ok and not l04_global_ok("padin", gidx):
++                continue
++            add_bel_gb(tile_xy, ginfo['gb_x'], ginfo['gb_y'], gidx, fabric_ok)
+ 
+     if tile_type == "ramb":
+         add_bel_ram(tile_xy[0], tile_xy[1])
+diff --git a/ice40/constids.inc b/ice40/constids.inc
+index d6f4565..6406ac9 100644
+--- a/ice40/constids.inc
++++ b/ice40/constids.inc
+@@ -617,6 +617,7 @@ X(router)
+ X(u1k)
+ X(u2k)
+ X(u4k)
++X(l04)
+ X(up3k)
+ X(up5k)
+ X(noglobal)
+diff --git a/ice40/delay.cc b/ice40/delay.cc
+index ca2436a..1cd7673 100644
+--- a/ice40/delay.cc
++++ b/ice40/delay.cc
+@@ -61,7 +61,7 @@ struct model_params_t
+             return model_hx8k;
+ 
+         if (args.type == ArchArgs::LP384 || args.type == ArchArgs::LP1K || args.type == ArchArgs::LP4K ||
+-            args.type == ArchArgs::LP8K)
++            args.type == ArchArgs::LP8K || args.type == ArchArgs::L04)
+             return model_lp8k;
+ 
+         if (args.type == ArchArgs::UP3K || args.type == ArchArgs::UP5K || args.type == ArchArgs::U1K ||
+diff --git a/ice40/main.cc b/ice40/main.cc
+index 2ed8560..70c0e41 100644
+--- a/ice40/main.cc
++++ b/ice40/main.cc
+@@ -72,6 +72,8 @@ po::options_description Ice40CommandHandler::getArchOptions()
+         specific.add_options()("u2k", "set device type to iCE5LP2K");
+     if (Arch::is_available(ArchArgs::U4K))
+         specific.add_options()("u4k", "set device type to iCE5LP4K");
++    if (Arch::is_available(ArchArgs::L04))
++        specific.add_options()("l04", "set device type to iCE65L04 (experimental)");
+     specific.add_options()("package", po::value<std::string>(), "set device package");
+     specific.add_options()("pcf", po::value<std::string>(), "PCF constraints file to ingest");
+     specific.add_options()("asc", po::value<std::string>(), "asc bitstream file to write");
+@@ -90,7 +92,7 @@ void Ice40CommandHandler::validate()
+     conflicting_options(vm, "read", "json");
+     if ((vm.count("lp384") + vm.count("lp1k") + vm.count("lp4k") + vm.count("lp8k") + vm.count("hx1k") +
+          vm.count("hx4k") + vm.count("hx8k") + vm.count("up3k") + vm.count("up5k") + vm.count("u1k") + vm.count("u2k") +
+-         vm.count("u4k")) > 1)
++         vm.count("u4k") + vm.count("l04")) > 1)
+         log_error("Only one device type can be set\n");
+ }
+ 
+@@ -188,6 +190,11 @@ std::unique_ptr<Context> Ice40CommandHandler::createContext(dict<std::string, Pr
+         chipArgs.package = "sg48";
+     }
+ 
++    if (vm.count("l04")) {
++        chipArgs.type = ArchArgs::L04;
++        chipArgs.package = "vq100";
++    }
++
+     if (vm.count("package"))
+         chipArgs.package = vm["package"].as<std::string>();
+     else
+@@ -240,6 +247,9 @@ std::unique_ptr<Context> Ice40CommandHandler::createContext(dict<std::string, Pr
+         if (arch_type == "u4k") {
+             chipArgs.type = ArchArgs::U4K;
+         }
++        if (arch_type == "l04") {
++            chipArgs.type = ArchArgs::L04;
++        }
+         if (chipArgs.type == ArchArgs::NONE)
+             log_error("Unsupported FPGA type '%s'.\n", arch_type.c_str());
+     }
+diff --git a/ice40/pack.cc b/ice40/pack.cc
+index 16eb5a1..62a4b9e 100644
+--- a/ice40/pack.cc
++++ b/ice40/pack.cc
+@@ -704,9 +704,33 @@ static void promote_globals(Context *ctx)
+         }
+     }
+     int prom_globals = 0, prom_resets = 0, prom_cens = 0, prom_logics = 0;
+-    int gbs_available = 8, resets_available = 4, cens_available = 4;
++    // Count the global buffers this device really offers. Even-numbered networks can drive
++    // resets, odd-numbered ones clock enables (8/4/4 on all regular iCE40 parts).
++    int gbs_available = 0, resets_available = 0, cens_available = 0;
++    for (auto bel : ctx->getBels()) {
++        if (ctx->getBelType(bel) != id_SB_GB)
++            continue;
++        if (ctx->getBelPinWire(bel, id_USER_SIGNAL_TO_GLOBAL_BUFFER) == WireId())
++            continue; // pad-only buffer
++        ++gbs_available;
++        if ((ctx->get_driven_glb_netwk(bel) % 2) == 0)
++            ++resets_available;
++        else
++            ++cens_available;
++    }
++    if (gbs_available < 8) {
++        // Few buffers (iCE65 L04 with only the confirmed networks): keep them for clocks
++        resets_available = 0;
++        cens_available = 0;
++    }
+     for (auto &cell : ctx->cells)
+         if (is_gbuf(ctx, cell.second.get())) {
++            /* A buffer standing in for a clock pad on a pad-only location takes nothing away */
++            if (cell.second->attrs.count(id_BEL)) {
++                BelId fixed = ctx->getBelByNameStr(cell.second->attrs[id_BEL].as_string());
++                if (ctx->getBelPinWire(fixed, id_USER_SIGNAL_TO_GLOBAL_BUFFER) == WireId())
++                    continue;
++            }
+             /* One less buffer available */
+             --gbs_available;
+ 

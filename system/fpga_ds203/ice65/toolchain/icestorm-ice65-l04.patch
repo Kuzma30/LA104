@@ -1,0 +1,1319 @@
+diff --git a/icebox/Makefile b/icebox/Makefile
+index ffe439a..b92f68f 100644
+--- a/icebox/Makefile
++++ b/icebox/Makefile
+@@ -6,7 +6,7 @@ else
+   SED_I = sed -i ''
+ endif
+ 
+-all: chipdb-384.txt chipdb-1k.txt chipdb-8k.txt chipdb-5k.txt chipdb-lm4k.txt chipdb-u4k.txt
++all: chipdb-384.txt chipdb-1k.txt chipdb-8k.txt chipdb-5k.txt chipdb-lm4k.txt chipdb-u4k.txt chipdb-l04.txt
+ 
+ chipdb-384.txt: icebox.py iceboxdb.py icebox_chipdb.py
+ 	$(PYTHON3) icebox_chipdb.py -3 > chipdb-384.new
+@@ -24,6 +24,10 @@ chipdb-u4k.txt: icebox.py iceboxdb.py icebox_chipdb.py
+ 	$(PYTHON3) icebox_chipdb.py -u > chipdb-u4k.new
+ 	mv chipdb-u4k.new chipdb-u4k.txt
+ 
++chipdb-l04.txt: icebox.py iceboxdb.py icebox_chipdb.py
++	$(PYTHON3) icebox_chipdb.py -6 > chipdb-l04.new
++	mv chipdb-l04.new chipdb-l04.txt
++
+ chipdb-lm4k.txt: icebox.py iceboxdb.py icebox_chipdb.py
+ 	$(PYTHON3) icebox_chipdb.py -4 > chipdb-lm4k.new
+ 	mv chipdb-lm4k.new chipdb-lm4k.txt
+@@ -38,7 +42,7 @@ check: all
+ 	$(PYTHON3) tc_logic_xpr.py
+ 
+ clean:
+-	rm -f chipdb-1k.txt chipdb-8k.txt chipdb-384.txt chipdb-5k.txt chipdb-lm4k.txt chipdb-u4k.txt
++	rm -f chipdb-1k.txt chipdb-8k.txt chipdb-384.txt chipdb-5k.txt chipdb-lm4k.txt chipdb-u4k.txt chipdb-l04.txt
+ 	rm -f icebox.pyc iceboxdb.pyc
+ 
+ install: all
+@@ -50,6 +54,7 @@ install: all
+ 	cp chipdb-5k.txt     $(DESTDIR)$(PREFIX)/share/$(PROGRAM_PREFIX)icebox/
+ 	cp chipdb-u4k.txt    $(DESTDIR)$(PREFIX)/share/$(PROGRAM_PREFIX)icebox/
+ 	cp chipdb-lm4k.txt   $(DESTDIR)$(PREFIX)/share/$(PROGRAM_PREFIX)icebox/
++	cp chipdb-l04.txt    $(DESTDIR)$(PREFIX)/share/$(PROGRAM_PREFIX)icebox/
+ 	cp icebox.py         $(DESTDIR)$(PREFIX)/bin/$(subst -,_,$(PROGRAM_PREFIX))icebox.py
+ 	cp iceboxdb.py       $(DESTDIR)$(PREFIX)/bin/$(subst -,_,$(PROGRAM_PREFIX))iceboxdb.py
+ 	cp icebox_chipdb.py  $(DESTDIR)$(PREFIX)/bin/$(PROGRAM_PREFIX)icebox_chipdb$(PY_EXE)
+@@ -101,6 +106,7 @@ uninstall:
+ 	rm -f $(DESTDIR)$(PREFIX)/share/$(PROGRAM_PREFIX)icebox/chipdb-1k.txt
+ 	rm -f $(DESTDIR)$(PREFIX)/share/$(PROGRAM_PREFIX)icebox/chipdb-8k.txt
+ 	rm -f $(DESTDIR)$(PREFIX)/share/$(PROGRAM_PREFIX)icebox/chipdb-lm4k.txt
++	rm -f $(DESTDIR)$(PREFIX)/share/$(PROGRAM_PREFIX)icebox/chipdb-l04.txt
+ 	rm -f $(DESTDIR)$(PREFIX)/share/$(PROGRAM_PREFIX)icebox/chipdb-u4k.txt
+ 	-rmdir $(DESTDIR)$(PREFIX)/share/$(PROGRAM_PREFIX)icebox
+ 
+diff --git a/icebox/icebox.py b/icebox/icebox.py
+index 7ae8a0f..a5df577 100644
+--- a/icebox/icebox.py
++++ b/icebox/icebox.py
+@@ -106,6 +106,11 @@ class iceconfig:
+             self.io_tiles[(0, y)] = ["0" * 18 for i in range(16)]
+             self.io_tiles[(self.max_x, y)] = ["0" * 18 for i in range(16)]
+ 
++    def setup_empty_l04(self):
++        # iCE65 L04: same tile grid as the iCE40 LM4K
++        self.setup_empty_lm4k()
++        self.device = "l04"
++
+     def setup_empty_lm4k(self):
+         self.clear()
+         self.device = "lm4k"
+@@ -239,6 +244,7 @@ class iceconfig:
+             if self.device == "384": return pinloc_db["384-qn32"]
+             if self.device == "1k": return pinloc_db["1k-tq144"]
+             if self.device == "lm4k": return pinloc_db["lm4k-cm49"]
++            if self.device == "l04": return pinloc_db["l04-vq100"]
+             if self.device == "u4k": return pinloc_db["u4k-sg48"]
+             if self.device == "5k": return pinloc_db["5k-sg48"]
+             if self.device == "8k": return pinloc_db["8k-ct256"]
+@@ -266,6 +272,8 @@ class iceconfig:
+             return ["1k"]
+         if self.device == "lm4k":
+             return ["lm4k"]
++        if self.device == "l04":
++            return [ ]
+         if self.device == "u4k":
+             return ["u4k"]
+         if self.device == "5k":
+@@ -296,6 +304,10 @@ class iceconfig:
+                     entries.append((x, src_y, x, y))
+             return entries
+ 
++        # iCE65 L04: no column buffer bits seen in vendor bitstreams
++        if self.device == "l04":
++            return list()
++
+         # TODO(awygle) - actually capture 0 and 21 here
+         if self.device == "lm4k":
+             entries = list()
+@@ -420,6 +432,14 @@ class iceconfig:
+     
+     def tile_db(self, x, y):
+         # Only these devices have IO on the left and right sides.
++        if self.device == "l04":
++          if x == 0: return iotile_l_l04_db
++          if x == self.max_x: return iotile_r_db
++          if y == 0: return iotile_b_db
++          if y == self.max_y: return iotile_t_db
++          if (x, y) in self.logic_tiles: return logictile_l04_db
++          if (x, y) in self.ramb_tiles: return rambtile_l04_db
++          if (x, y) in self.ramt_tiles: return ramttile_l04_db
+         if self.device in ["384", "1k", "lm4k", "8k"]:
+           if x == 0: return iotile_l_db
+           if x == self.max_x: return iotile_r_db
+@@ -559,20 +579,20 @@ class iceconfig:
+                     if (nx, ny) in self.dsp_tiles[i]: #TODO: check this
+                         return (nx, ny, "mult/O_%d" % (i * 8 + func))
+                 if (nx, ny) in self.ramb_tiles:
+-                    if self.device == "1k":
++                    if self.device in ("1k", "l04"):
+                         return (nx, ny, "ram/RDATA_%d" % func)
+                     elif self.device == "5k" or self.device == "u4k":
+                         return (nx, ny, "ram/RDATA_%d" % (15-func))
+-                    elif self.device == "8k" or self.device == "lm4k":
++                    elif self.device in ("8k", "lm4k"):
+                         return (nx, ny, "ram/RDATA_%d" % (15-func))
+                     else:
+                         assert False
+                 if (nx, ny) in self.ramt_tiles:
+-                    if self.device == "1k":
++                    if self.device in ("1k", "l04"):
+                         return (nx, ny, "ram/RDATA_%d" % (8+func))
+                     elif self.device == "5k" or self.device == "u4k":
+                         return (nx, ny, "ram/RDATA_%d" % (7-func))
+-                    elif self.device == "8k" or self.device == "lm4k":
++                    elif self.device in ("8k", "lm4k"):
+                         return (nx, ny, "ram/RDATA_%d" % (7-func))
+                     else:
+                         assert False
+@@ -610,11 +630,11 @@ class iceconfig:
+ 
+         match = re_match_cached(r"ram/RDATA_(\d+)", netname)
+         if match:
+-            if self.device == "1k":
++            if self.device in ("1k", "l04"):
+                 funcnets |= self.follow_funcnet(x, y, int(match.group(1)) % 8)
+             elif self.device == "5k" or self.device == "u4k":
+                 funcnets |= self.follow_funcnet(x, y, 7 - int(match.group(1)) % 8)
+-            elif self.device == "8k" or self.device == "lm4k":
++            elif self.device in ("8k", "lm4k"):
+                 funcnets |= self.follow_funcnet(x, y, 7 - int(match.group(1)) % 8)
+             else:
+                 assert False
+@@ -848,6 +868,8 @@ class iceconfig:
+                 add_seed_segments(idx, tile, logictile_db)
+             elif self.device == "5k" or self.device == "u4k":
+                 add_seed_segments(idx, tile, logictile_5k_db)
++            elif self.device == "l04":
++                add_seed_segments(idx, tile, logictile_l04_db)
+             elif self.device == "8k" or self.device == "lm4k":
+                 add_seed_segments(idx, tile, logictile_8k_db)
+             elif self.device == "384":
+@@ -856,21 +878,25 @@ class iceconfig:
+                 assert False
+ 
+         for idx, tile in self.ramb_tiles.items():
+-            if self.device == "1k":
++            if self.device == "l04":
++                add_seed_segments(idx, tile, rambtile_l04_db)
++            elif self.device == "1k":
+                 add_seed_segments(idx, tile, rambtile_db)
+             elif self.device == "5k" or self.device == "u4k":
+                 add_seed_segments(idx, tile, rambtile_8k_db)
+-            elif self.device == "8k" or self.device == "lm4k":
++            elif self.device in ("8k", "lm4k"):
+                 add_seed_segments(idx, tile, rambtile_8k_db)
+             else:
+                 assert False
+ 
+         for idx, tile in self.ramt_tiles.items():
+-            if self.device == "1k":
++            if self.device == "l04":
++                add_seed_segments(idx, tile, ramttile_l04_db)
++            elif self.device == "1k":
+                 add_seed_segments(idx, tile, ramttile_db)
+             elif self.device == "5k" or self.device == "u4k":
+                 add_seed_segments(idx, tile, ramttile_8k_db)
+-            elif self.device == "8k" or self.device == "lm4k":
++            elif self.device in ("8k", "lm4k"):
+                 add_seed_segments(idx, tile, ramttile_8k_db)
+             else:
+                 assert False
+@@ -1015,7 +1041,7 @@ class iceconfig:
+                     self.extra_bits.add((int(line[1]), int(line[2]), int(line[3])))
+                     continue
+                 if line[0] == ".device":
+-                    assert line[1] in ["1k", "lm4k", "u4k", "5k", "8k", "384"]
++                    assert line[1] in ["1k", "lm4k", "l04", "u4k", "5k", "8k", "384"]
+                     self.device = line[1]
+                     continue
+                 if line[0] == ".warmboot":
+@@ -1423,10 +1449,14 @@ def get_lutff_seq_bits(tile, index):
+     lutff_bits = get_lutff_bits(tile, index)
+     return [lutff_bits[i] for i in [8, 9, 18, 19]]
+ 
+-def get_carry_cascade_bit(tile):
++def get_carry_cascade_bit(tile, device=None):
++    if device == "l04":
++        return tile[1][1]
+     return tile[1][49]
+ 
+-def get_carry_bit(tile):
++def get_carry_bit(tile, device=None):
++    if device == "l04":
++        return tile[1][0]
+     return tile[1][50]
+ 
+ def get_negclk_bit(tile):
+@@ -1492,7 +1522,7 @@ def parse_db(text, device="1k"):
+             line = line_1k
+         elif line_8k != line:
+             # global network is the same for 8k, 5k, lm4k, and u4k
+-            if device != "8k" and device != "5k" and device != "lm4k" and device != "u4k":
++            if device != "8k" and device != "5k" and device != "lm4k" and device != "u4k" and device != "l04":
+                 continue
+             line = line_8k
+         elif line_384 != line:
+@@ -1507,6 +1537,19 @@ def parse_db(text, device="1k"):
+     return db
+ 
+ extra_bits_db = {
++    # iCE65 L04. Only padin 1 is confirmed (DS203 V2.61 bitstream, MCI clock
++    # on VQ100 pin 15). The rest assumes the same layout as the 1k/lm4k table
++    # with the two rows swapped.
++    "l04": {
++        (0, 654, 175): ("padin_glb_netwk", "0"), # unverified
++        (0, 655, 175): ("padin_glb_netwk", "1"), # confirmed
++        (1, 654, 174): ("padin_glb_netwk", "2"), # unverified
++        (1, 655, 174): ("padin_glb_netwk", "3"), # unverified
++        (1, 654, 175): ("padin_glb_netwk", "4"), # unverified
++        (1, 655, 175): ("padin_glb_netwk", "5"), # unverified
++        (0, 654, 174): ("padin_glb_netwk", "6"), # unverified
++        (0, 655, 174): ("padin_glb_netwk", "7"), # unverified
++    },
+     "1k": {
+         (0, 330, 142): ("padin_glb_netwk", "0"),
+         (0, 331, 142): ("padin_glb_netwk", "1"),
+@@ -1569,7 +1612,24 @@ extra_bits_db = {
+     }
+ }
+ 
++# iCE65 L04 global networks whose fabric input (gbufin) / pad input (padin)
++# location has been confirmed against a vendor bitstream.
++l04_verified_gbufin = (3, 4, 6)
++l04_verified_padin = (1,)
++
+ gbufin_db = {
++    # iCE65 L04: 1k pattern moved to the L04 centre tiles. Networks 3, 4, 6
++    # confirmed on the DS203 V2.61 bitstream, the rest by analogy.
++    "l04": [
++        (25, 10,  7),
++        ( 0, 10,  6), # confirmed
++        (13, 21,  1),
++        (13,  0,  0),
++        ( 0, 11,  3), # confirmed
++        (25, 11,  2),
++        (12,  0,  5),
++        (12, 21,  4), # confirmed
++    ],
+     "1k": [
+         (13,  8,  7),
+         ( 0,  8,  6),
+@@ -1641,6 +1701,14 @@ gbufin_db = {
+ # Note: This may not work if your icepack configuration of cell sizes is incorrect because
+ # icebox_vlog.py won't correctly interpret the meaning of particular bits.
+ iolatch_db = {
++    # iCE65 L04: not verified. Placed like the 1k ones relative to the centre
++    # (GBIN) tiles so that the io_global/latch nets exist; do not rely on them.
++    "l04": [
++        ( 0,  9),
++        (25, 12),
++        (11,  0),
++        (14, 21),
++    ],
+     "1k": [
+         ( 0,  7),
+         (13, 10),
+@@ -1676,6 +1744,12 @@ iolatch_db = {
+ # The x, y cell locations of the WARMBOOT controls. Run tests/sb_warmboot.v
+ # through icecube.sh to determine these values.
+ warmbootinfo_db = {
++    "l04": {
++        # unknown for iCE65; lm4k locations used as placeholders
++        "BOOT": ( 23, 0, "fabout" ),
++        "S0":   ( 24, 0, "fabout" ),
++        "S1":   ( 25, 1, "fabout" ),
++    },
+     "1k": {
+         "BOOT": ( 12, 0, "fabout" ),
+         "S0":   ( 13, 1, "fabout" ),
+@@ -2268,6 +2342,18 @@ pllinfo_db = {
+ }
+ 
+ padin_pio_db = {
++    # iCE65 L04: 1k pattern moved to the L04 centre tiles. glb_netwk_1
++    # confirmed (VQ100 pin 15), the rest by analogy; these are the GBIN pads.
++    "l04": [
++        (25, 10, 1),  # glb_netwk_0  VQ100 pin 62
++        ( 0, 10, 1),  # glb_netwk_1  VQ100 pin 15 (confirmed)
++        (13, 21, 0),  # glb_netwk_2  VQ100 pin 89
++        (13,  0, 0),  # glb_netwk_3  VQ100 pin 34
++        ( 0, 11, 0),  # glb_netwk_4  VQ100 pin 13
++        (25, 11, 0),  # glb_netwk_5  VQ100 pin 63
++        (12,  0, 1),  # glb_netwk_6  VQ100 pin 33
++        (12, 21, 1),  # glb_netwk_7  VQ100 pin 90
++    ],
+     "1k": [
+         (13,  8, 1),  # glb_netwk_0
+         ( 0,  8, 1),  # glb_netwk_1
+@@ -2336,6 +2422,187 @@ padin_pio_db = {
+ }
+ 
+ ieren_db = {
++    # iCE65 L04. Top/bottom/right: pad z uses REN_(1-z) of its own tile (seen
++    # on 22 tiles of the DS203 bitstream); IE bits are never set there.
++    # Left side (bank 3) has a different IO cell, see iotile_l_l04_db.
++    "l04": [
++        ( 0,  1, 0,  0,  1, 0),
++        ( 0,  1, 1,  0,  1, 1),
++        ( 0,  2, 0,  0,  2, 0),
++        ( 0,  2, 1,  0,  2, 1),
++        ( 0,  3, 0,  0,  3, 0),
++        ( 0,  3, 1,  0,  3, 1),
++        ( 0,  4, 0,  0,  4, 0),
++        ( 0,  4, 1,  0,  4, 1),
++        ( 0,  5, 0,  0,  5, 0),
++        ( 0,  5, 1,  0,  5, 1),
++        ( 0,  6, 0,  0,  6, 0),
++        ( 0,  6, 1,  0,  6, 1),
++        ( 0,  7, 0,  0,  7, 0),
++        ( 0,  7, 1,  0,  7, 1),
++        ( 0,  8, 0,  0,  8, 0),
++        ( 0,  8, 1,  0,  8, 1),
++        ( 0,  9, 0,  0,  9, 0),
++        ( 0,  9, 1,  0,  9, 1),
++        ( 0, 10, 0,  0, 10, 0),
++        ( 0, 10, 1,  0, 10, 1),
++        ( 0, 11, 0,  0, 11, 0),
++        ( 0, 11, 1,  0, 11, 1),
++        ( 0, 12, 0,  0, 12, 0),
++        ( 0, 12, 1,  0, 12, 1),
++        ( 0, 13, 0,  0, 13, 0),
++        ( 0, 13, 1,  0, 13, 1),
++        ( 0, 14, 0,  0, 14, 0),
++        ( 0, 14, 1,  0, 14, 1),
++        ( 0, 15, 0,  0, 15, 0),
++        ( 0, 15, 1,  0, 15, 1),
++        ( 0, 16, 0,  0, 16, 0),
++        ( 0, 16, 1,  0, 16, 1),
++        ( 0, 17, 0,  0, 17, 0),
++        ( 0, 17, 1,  0, 17, 1),
++        ( 0, 18, 0,  0, 18, 0),
++        ( 0, 18, 1,  0, 18, 1),
++        ( 0, 19, 0,  0, 19, 0),
++        ( 0, 19, 1,  0, 19, 1),
++        ( 0, 20, 0,  0, 20, 0),
++        ( 0, 20, 1,  0, 20, 1),
++        ( 1,  0, 0,  1,  0, 1),
++        ( 1,  0, 1,  1,  0, 0),
++        ( 1, 21, 0,  1, 21, 1),
++        ( 1, 21, 1,  1, 21, 0),
++        ( 2,  0, 0,  2,  0, 1),
++        ( 2,  0, 1,  2,  0, 0),
++        ( 2, 21, 0,  2, 21, 1),
++        ( 2, 21, 1,  2, 21, 0),
++        ( 3,  0, 0,  3,  0, 1),
++        ( 3,  0, 1,  3,  0, 0),
++        ( 3, 21, 0,  3, 21, 1),
++        ( 3, 21, 1,  3, 21, 0),
++        ( 4,  0, 0,  4,  0, 1),
++        ( 4,  0, 1,  4,  0, 0),
++        ( 4, 21, 0,  4, 21, 1),
++        ( 4, 21, 1,  4, 21, 0),
++        ( 5,  0, 0,  5,  0, 1),
++        ( 5,  0, 1,  5,  0, 0),
++        ( 5, 21, 0,  5, 21, 1),
++        ( 5, 21, 1,  5, 21, 0),
++        ( 6,  0, 0,  6,  0, 1),
++        ( 6,  0, 1,  6,  0, 0),
++        ( 6, 21, 0,  6, 21, 1),
++        ( 6, 21, 1,  6, 21, 0),
++        ( 7,  0, 0,  7,  0, 1),
++        ( 7,  0, 1,  7,  0, 0),
++        ( 7, 21, 0,  7, 21, 1),
++        ( 7, 21, 1,  7, 21, 0),
++        ( 8,  0, 0,  8,  0, 1),
++        ( 8,  0, 1,  8,  0, 0),
++        ( 8, 21, 0,  8, 21, 1),
++        ( 8, 21, 1,  8, 21, 0),
++        ( 9,  0, 0,  9,  0, 1),
++        ( 9,  0, 1,  9,  0, 0),
++        ( 9, 21, 0,  9, 21, 1),
++        ( 9, 21, 1,  9, 21, 0),
++        (10,  0, 0, 10,  0, 1),
++        (10,  0, 1, 10,  0, 0),
++        (10, 21, 0, 10, 21, 1),
++        (10, 21, 1, 10, 21, 0),
++        (11,  0, 0, 11,  0, 1),
++        (11,  0, 1, 11,  0, 0),
++        (11, 21, 0, 11, 21, 1),
++        (11, 21, 1, 11, 21, 0),
++        (12,  0, 0, 12,  0, 1),
++        (12,  0, 1, 12,  0, 0),
++        (12, 21, 0, 12, 21, 1),
++        (12, 21, 1, 12, 21, 0),
++        (13,  0, 0, 13,  0, 1),
++        (13,  0, 1, 13,  0, 0),
++        (13, 21, 0, 13, 21, 1),
++        (13, 21, 1, 13, 21, 0),
++        (14,  0, 0, 14,  0, 1),
++        (14,  0, 1, 14,  0, 0),
++        (14, 21, 0, 14, 21, 1),
++        (14, 21, 1, 14, 21, 0),
++        (15,  0, 0, 15,  0, 1),
++        (15,  0, 1, 15,  0, 0),
++        (15, 21, 0, 15, 21, 1),
++        (15, 21, 1, 15, 21, 0),
++        (16,  0, 0, 16,  0, 1),
++        (16,  0, 1, 16,  0, 0),
++        (16, 21, 0, 16, 21, 1),
++        (16, 21, 1, 16, 21, 0),
++        (17,  0, 0, 17,  0, 1),
++        (17,  0, 1, 17,  0, 0),
++        (17, 21, 0, 17, 21, 1),
++        (17, 21, 1, 17, 21, 0),
++        (18,  0, 0, 18,  0, 1),
++        (18,  0, 1, 18,  0, 0),
++        (18, 21, 0, 18, 21, 1),
++        (18, 21, 1, 18, 21, 0),
++        (19,  0, 0, 19,  0, 1),
++        (19,  0, 1, 19,  0, 0),
++        (19, 21, 0, 19, 21, 1),
++        (19, 21, 1, 19, 21, 0),
++        (20,  0, 0, 20,  0, 1),
++        (20,  0, 1, 20,  0, 0),
++        (20, 21, 0, 20, 21, 1),
++        (20, 21, 1, 20, 21, 0),
++        (21,  0, 0, 21,  0, 1),
++        (21,  0, 1, 21,  0, 0),
++        (21, 21, 0, 21, 21, 1),
++        (21, 21, 1, 21, 21, 0),
++        (22,  0, 0, 22,  0, 1),
++        (22,  0, 1, 22,  0, 0),
++        (22, 21, 0, 22, 21, 1),
++        (22, 21, 1, 22, 21, 0),
++        (23,  0, 0, 23,  0, 1),
++        (23,  0, 1, 23,  0, 0),
++        (23, 21, 0, 23, 21, 1),
++        (23, 21, 1, 23, 21, 0),
++        (24,  0, 0, 24,  0, 1),
++        (24,  0, 1, 24,  0, 0),
++        (24, 21, 0, 24, 21, 1),
++        (24, 21, 1, 24, 21, 0),
++        (25,  1, 0, 25,  1, 1),
++        (25,  1, 1, 25,  1, 0),
++        (25,  2, 0, 25,  2, 1),
++        (25,  2, 1, 25,  2, 0),
++        (25,  3, 0, 25,  3, 1),
++        (25,  3, 1, 25,  3, 0),
++        (25,  4, 0, 25,  4, 1),
++        (25,  4, 1, 25,  4, 0),
++        (25,  5, 0, 25,  5, 1),
++        (25,  5, 1, 25,  5, 0),
++        (25,  6, 0, 25,  6, 1),
++        (25,  6, 1, 25,  6, 0),
++        (25,  7, 0, 25,  7, 1),
++        (25,  7, 1, 25,  7, 0),
++        (25,  8, 0, 25,  8, 1),
++        (25,  8, 1, 25,  8, 0),
++        (25,  9, 0, 25,  9, 1),
++        (25,  9, 1, 25,  9, 0),
++        (25, 10, 0, 25, 10, 1),
++        (25, 10, 1, 25, 10, 0),
++        (25, 11, 0, 25, 11, 1),
++        (25, 11, 1, 25, 11, 0),
++        (25, 12, 0, 25, 12, 1),
++        (25, 12, 1, 25, 12, 0),
++        (25, 13, 0, 25, 13, 1),
++        (25, 13, 1, 25, 13, 0),
++        (25, 14, 0, 25, 14, 1),
++        (25, 14, 1, 25, 14, 0),
++        (25, 15, 0, 25, 15, 1),
++        (25, 15, 1, 25, 15, 0),
++        (25, 16, 0, 25, 16, 1),
++        (25, 16, 1, 25, 16, 0),
++        (25, 17, 0, 25, 17, 1),
++        (25, 17, 1, 25, 17, 0),
++        (25, 18, 0, 25, 18, 1),
++        (25, 18, 1, 25, 18, 0),
++        (25, 19, 0, 25, 19, 1),
++        (25, 19, 1, 25, 19, 0),
++        (25, 20, 0, 25, 20, 1),
++        (25, 20, 1, 25, 20, 0),
++    ],
+     "1k": [
+         # IO-block (X, Y, Z) <-> IeRen-block (X, Y, Z)
+         ( 0,  2, 0,  0,  2, 1),
+@@ -2834,6 +3101,63 @@ ieren_db = {
+ # corresponding grid location (x, y, block). This is most easily found through
+ # the package view in iCEcube2 by hovering the mouse over each pin.
+ pinloc_db = {
++    # iCE65 L04 VQ100. Derived without vendor tools from the DS203 (HW 2.x)
++    # schematic and the V2.61 FPGA bitstream: pads follow the pin order round
++    # the die and pin directions match. Only pins used by that design are
++    # listed, so this table is incomplete.
++    "l04-vq100": [
++        (  "2",  0, 20, 0),
++        ( "15",  0, 10, 1),
++        ( "20",  0,  4, 1),
++        ( "24",  0,  2, 1),
++        ( "25",  0,  2, 0),
++        ( "27",  3,  0, 0),
++        ( "29",  4,  0, 0),
++        ( "30",  4,  0, 1),
++        ( "33", 12,  0, 1),
++        ( "34", 13,  0, 0),
++        ( "36", 19,  0, 0),
++        ( "37", 19,  0, 1),
++        ( "40", 21,  0, 1),
++        ( "41", 22,  0, 0),
++        ( "42", 22,  0, 1),
++        ( "51", 25,  1, 0),
++        ( "52", 25,  1, 1),
++        ( "53", 25,  2, 0),
++        ( "54", 25,  2, 1),
++        ( "56", 25,  3, 0),
++        ( "57", 25,  3, 1),
++        ( "59", 25,  4, 0),
++        ( "62", 25, 10, 1),
++        ( "64", 25, 16, 0),
++        ( "65", 25, 16, 1),
++        ( "66", 25, 17, 0),
++        ( "68", 25, 18, 0),
++        ( "78", 24, 21, 1),
++        ( "79", 23, 21, 1),
++        ( "80", 23, 21, 0),
++        ( "81", 22, 21, 0),
++        ( "82", 21, 21, 1),
++        ( "83", 21, 21, 0),
++        ( "85", 20, 21, 1),
++        ( "86", 20, 21, 0),
++        ( "87", 19, 21, 1),
++        ( "90", 12, 21, 1),
++        ( "91",  6, 21, 1),
++        ( "93",  6, 21, 0),
++        ( "94",  5, 21, 1),
++        ( "95",  5, 21, 0),
++        ( "96",  4, 21, 1),
++        ( "97",  4, 21, 0),
++        ( "99",  3, 21, 0),
++        ("100",  2, 21, 0),
++        # not used by the DS203 design; placed by pin order / GBIN symmetry
++        (  "1",  0, 20, 1),
++        ( "28",  3,  0, 1),
++        ( "13",  0, 11, 0),
++        ( "63", 25, 11, 0),
++        ( "89", 13, 21, 0),
++    ],
+     "1k-swg16tr": [
+         ( "A2",  6, 17, 1),
+         ( "A4",  2, 17, 0),
+@@ -6129,6 +6453,35 @@ logictile_8k_db.append([["B1[50]"], "CarryInSet"])
+ logictile_384_db.append([["B1[49]"], "buffer", "carry_in", "carry_in_mux"])
+ logictile_384_db.append([["B1[50]"], "CarryInSet"])
+ 
++# iCE65 L04 logic tile: as iCE40 8k/lm4k, but the carry-in mux bits sit in
++# B1[0]/B1[1] instead of B1[50]/B1[49].
++logictile_l04_db = [e for e in logictile_8k_db if e[0] not in (["B1[49]"], ["B1[50]"])
++                    and e[1] != "ColBufCtrl"]
++logictile_l04_db.append([["B1[1]"], "buffer", "carry_in", "carry_in_mux"])
++logictile_l04_db.append([["B1[0]"], "CarryInSet"])  # all 8 uses start a carry chain; value 1 assumed
++
++# iCE65 L04 RAM tiles follow the iCE40 1k layout (write port in the lower
++# tile), not the 8k/lm4k one: with the 1k database the DS203 design writes
++# on the ADC clock and reads on nRD, with the 8k one it is the reverse.
++rambtile_l04_db = [e for e in rambtile_db if e[1] != "ColBufCtrl"]
++ramttile_l04_db = [e for e in ramttile_db if e[1] != "ColBufCtrl"]
++
++# iCE65 L04 left side (bank 3) uses a different IO cell. The bits the iCE40
++# database calls IE_x/REN_x/PLLCONFIG_x have another meaning there:
++#   pad 0 used: B6[2] B6[3] B9[3] set     pad 0 input unused: B8[3] set
++#   pad 1 used: B0[3] B2[2] B3[3] set     pad 1 input unused: B5[3] set
++# (the three "used" bits probably select the IO standard; only the default
++# as written by iCEcube for LVCMOS is known)
++iotile_l_l04_db = [e for e in iotile_l_db if e[1] not in ("IoCtrl", "PLL", "Icegate", "ColBufCtrl")]
++iotile_l_l04_db.append([["B6[2]"], "IoCtrl", "B3_PAD0_USED_0"])
++iotile_l_l04_db.append([["B6[3]"], "IoCtrl", "B3_PAD0_USED_1"])
++iotile_l_l04_db.append([["B9[3]"], "IoCtrl", "B3_PAD0_USED_2"])
++iotile_l_l04_db.append([["B8[3]"], "IoCtrl", "B3_PAD0_NOINPUT"])
++iotile_l_l04_db.append([["B0[3]"], "IoCtrl", "B3_PAD1_USED_0"])
++iotile_l_l04_db.append([["B2[2]"], "IoCtrl", "B3_PAD1_USED_1"])
++iotile_l_l04_db.append([["B3[3]"], "IoCtrl", "B3_PAD1_USED_2"])
++iotile_l_l04_db.append([["B5[3]"], "IoCtrl", "B3_PAD1_NOINPUT"])
++
+ # The 5k series has a couple of extra IO configuration bits. Add them in to a copy of the db here
+ iotile_t_5k_db = list(iotile_t_db)
+ iotile_t_5k_db.append([["B14[15]"], "IoCtrl", "padeb_test_1"])
+diff --git a/icebox/icebox_chipdb.py b/icebox/icebox_chipdb.py
+index 5673791..adca008 100755
+--- a/icebox/icebox_chipdb.py
++++ b/icebox/icebox_chipdb.py
+@@ -20,6 +20,7 @@ import getopt, sys, re, os
+ 
+ mode_384 = False
+ mode_lm4k = False
++mode_l04 = False
+ mode_5k = False
+ mode_u4k = False
+ mode_8k = False
+@@ -42,11 +43,14 @@ Usage: %s [options] [bitmap.asc]
+ 
+     -u
+         create chipdb for u4k device
++
++    -6
++        create chipdb for iCE65 l04 device
+ """ % os.path.basename(sys.argv[0]))
+     sys.exit(0)
+ 
+ try:
+-    opts, args = getopt.getopt(sys.argv[1:], "3584u")
++    opts, args = getopt.getopt(sys.argv[1:], "3584u6")
+ except:
+     usage()
+ 
+@@ -61,6 +65,8 @@ for o, a in opts:
+         mode_lm4k = True
+     elif o == "-u":
+         mode_u4k = True
++    elif o == "-6":
++        mode_l04 = True
+     else:
+         usage()
+ 
+@@ -75,6 +81,8 @@ elif mode_lm4k:
+     ic.setup_empty_lm4k()
+ elif mode_u4k:
+     ic.setup_empty_u4k()
++elif mode_l04:
++    ic.setup_empty_l04()
+ else:
+     ic.setup_empty_1k()
+ 
+@@ -286,6 +294,13 @@ def print_tile_nonrouting_bits(tile_type, idx):
+         func = ".".join(entry[1:])
+         function_bits[func] = entry[0]
+ 
++    # iCE65 L04: the left (bank 3) IO tiles use extra, differently named bits.
++    # Tools keep one bit table for all IO tiles, so list them here as well.
++    if ic.device == "l04" and tile_type == "io":
++        for entry in icebox.iotile_l_l04_db:
++            if entry[1] == "IoCtrl" and entry[2].startswith("B3_"):
++                function_bits[".".join(entry[1:])] = entry[0]
++
+     for x in sorted(function_bits):
+         print(" ".join([x] + function_bits[x]))
+     print()
+diff --git a/icebox/icebox_vlog.py b/icebox/icebox_vlog.py
+index 4799037..1e8bad4 100755
+--- a/icebox/icebox_vlog.py
++++ b/icebox/icebox_vlog.py
+@@ -823,10 +823,10 @@ for lut in luts_queue:
+         net_in2 = seg_to_net((lut[0], lut[1], "lutff_%d/in_2" % lut[2]), "1'b0")
+         if lut[2] == 0:
+             net_cin = seg_to_net((lut[0], lut[1], "carry_in_mux"))
+-            if icebox.get_carry_cascade_bit(tile) == "0":
++            if icebox.get_carry_cascade_bit(tile, ic.device) == "0":
+                 if not strip_comments:
+                     text_wires.append("// Carry-In for (%d %d)" % (lut[0], lut[1]))
+-                text_wires.append("assign %s = %s;" % (net_cin, icebox.get_carry_bit(tile)))
++                text_wires.append("assign %s = %s;" % (net_cin, icebox.get_carry_bit(tile, ic.device)))
+                 if not strip_comments:
+                     text_wires.append("")
+         else:
+diff --git a/icefuzz/timings_l04.txt b/icefuzz/timings_l04.txt
+new file mode 100644
+index 0000000..afc544c
+--- /dev/null
++++ b/icefuzz/timings_l04.txt
+@@ -0,0 +1,531 @@
++CELL CascadeBuf
++IOPATH  I  O  178.623:232.05:282.197  221.151:287.3:349.388
++
++CELL CascadeMux
++IOPATH  I  O  0:0:0  0:0:0
++
++CELL CEMux
++IOPATH  I  O  731.5:950.3:1155.668  671.96:872.95:1061.602
++
++CELL ClkMux
++IOPATH  I  O  374.256:486.2:591.273  280.692:364.65:443.453
++
++CELL gio2CtrlBuf
++IOPATH  I  O  0:0:0  0:0:0
++
++CELL Glb2LocalMux
++IOPATH  I  O  544.372:707.2:860.032  433.796:563.55:685.338
++
++CELL GlobalMux
++IOPATH  I  O  187.127:243.1:295.636  93.564:121.55:147.818
++
++CELL ICE_CARRY_IN_MUX
++IOPATH  carryinitin  carryinitout  238.163:309.4:376.264  212.645:276.25:335.95
++
++CELL ICE_GB
++IOPATH  USERSIGNALTOGLOBALBUFFER  GLOBALBUFFEROUTPUT  748.511:972.4:1182.544  680.464:884:1075.04
++
++CELL InMux
++IOPATH  I  O  314.714:408.85:497.206  263.68:342.55:416.579
++
++CELL INV
++IOPATH  I  O  0:0:0  0:0:0
++
++CELL IO_PAD
++IOPATH  DIN         PACKAGEPIN  2978.95:2978.95:2978.95  3059.16:3059.16:3059.16
++IOPATH  OE          PACKAGEPIN  2472.6:2472.6:2472.6        2587:2587:2587
++IOPATH  OE          PACKAGEPIN  2564.9:2564.9:2564.9        2524.6:2524.6:2524.6
++IOPATH  OE          PACKAGEPIN  2978.95:2978.95:2978.95  3059.16:3059.16:3059.16
++IOPATH  PACKAGEPIN  DOUT        767:767:767           702:702:702
++
++CELL IoInMux
++IOPATH  I  O  314.714:408.85:497.206  263.68:342.55:416.579
++
++CELL IoSpan4Mux
++IOPATH  I  O  348.738:453.05:550.958  391.268:508.3:618.147
++
++CELL LocalMux
++IOPATH  I  O  399.773:519.35:631.586  374.256:486.2:591.273
++
++CELL LogicCell40
++HOLD      negedge:ce   posedge:clk  0:0:0
++HOLD      negedge:in0  posedge:clk  0:0:0
++HOLD      negedge:in1  posedge:clk  0:0:0
++HOLD      negedge:in2  posedge:clk  0:0:0
++HOLD      negedge:in3  posedge:clk  0:0:0
++HOLD      negedge:sr   posedge:clk  -239.439:-311.058:-378.279
++HOLD      posedge:ce   posedge:clk  0:0:0
++HOLD      posedge:in0  posedge:clk  0:0:0
++HOLD      posedge:in1  posedge:clk  0:0:0
++HOLD      posedge:in2  posedge:clk  0:0:0
++HOLD      posedge:in3  posedge:clk  0:0:0
++HOLD      posedge:sr   posedge:clk  -217.238:-282.217:-343.207
++RECOVERY  negedge:sr   posedge:clk  193.678:251.608:305.984
++RECOVERY  posedge:sr   posedge:clk  0:0:0
++REMOVAL   negedge:sr   posedge:clk  0:0:0
++REMOVAL   posedge:sr   posedge:clk  0:0:0
++SETUP     negedge:ce   posedge:clk  0:0:0
++SETUP     negedge:in0  posedge:clk  484.831:629.85:765.967
++SETUP     negedge:in1  posedge:clk  459.313:596.7:725.652
++SETUP     negedge:in2  posedge:clk  391.268:508.3:618.147
++SETUP     negedge:in3  posedge:clk  263.68:342.55:416.579
++SETUP     negedge:sr   posedge:clk  170.117:221:268.759
++SETUP     posedge:ce   posedge:clk  0:0:0
++SETUP     posedge:in0  posedge:clk  569.889:740.35:900.346
++SETUP     posedge:in1  posedge:clk  484.831:629.85:765.967
++SETUP     posedge:in2  posedge:clk  450.808:585.65:712.214
++SETUP     posedge:in3  posedge:clk  331.726:430.95:524.082
++SETUP     posedge:sr   posedge:clk  246.669:320.45:389.702
++IOPATH    carryin      carryout     153.105:198.9:241.885         127.587:165.75:201.57
++IOPATH    in0          lcout        544.372:707.2:860.032         467.819:607.75:739.09
++IOPATH    in0          ltout        442.302:574.6:698.776          467.819:607.75:739.09
++IOPATH    in1          carryout     314.714:408.85:497.206       297.704:386.75:470.33
++IOPATH    in1          lcout        484.831:629.85:765.967       459.313:596.7:725.652
++IOPATH    in1          ltout        391.268:508.3:618.147         459.313:596.7:725.652
++IOPATH    in2          carryout     280.692:364.65:443.453       161.611:209.95:255.323
++IOPATH    in2          lcout        459.313:596.7:725.652         425.291:552.5:671.9
++IOPATH    in2          ltout        374.256:486.2:591.273         416.785:541.45:658.462
++IOPATH    in3          lcout        382.762:497.25:604.709       348.738:453.05:550.958
++IOPATH    in3          ltout        323.22:419.9:510.644         331.726:430.95:524.082
++IOPATH    posedge:clk  lcout        654.948:850.85:1034.726       654.948:850.85:1034.726
++IOPATH    sr           lcout        0:0:0                       726.686:944.046:1148.062
++IOPATH    sr           lcout        726.652:944.001:1148.008     0:0:0
++
++CELL Odrv4
++IOPATH  I  O  425.291:552.5:671.9  450.808:585.65:712.214
++
++CELL Odrv12
++IOPATH  I  O  595.407:773.5:940.661  654.948:850.85:1034.726
++
++CELL PLL40
++IOPATH  PLLIN  PLLOUTCORE    *:*:*  *:*:*
++IOPATH  PLLIN  PLLOUTGLOBAL  *:*:*  *:*:*
++
++CELL PLL40_2
++IOPATH  PLLIN  PLLOUTCOREA    *:*:*  *:*:*
++IOPATH  PLLIN  PLLOUTCOREB    *:*:*  *:*:*
++IOPATH  PLLIN  PLLOUTGLOBALA  *:*:*  *:*:*
++IOPATH  PLLIN  PLLOUTGLOBALB  *:*:*  *:*:*
++
++CELL PLL40_2F
++IOPATH  PLLIN  PLLOUTCOREA    *:*:*  *:*:*
++IOPATH  PLLIN  PLLOUTCOREB    *:*:*  *:*:*
++IOPATH  PLLIN  PLLOUTGLOBALA  *:*:*  *:*:*
++IOPATH  PLLIN  PLLOUTGLOBALB  *:*:*  *:*:*
++
++CELL PRE_IO
++HOLD    negedge:CLOCKENABLE   posedge:INPUTCLK   0:0:0
++HOLD    negedge:CLOCKENABLE   posedge:OUTPUTCLK  0:0:0
++HOLD    negedge:DOUT0         posedge:OUTPUTCLK  0:0:0
++HOLD    negedge:DOUT1         negedge:OUTPUTCLK  0:0:0
++HOLD    negedge:OUTPUTENABLE  posedge:OUTPUTCLK  0:0:0
++HOLD    negedge:PADIN         negedge:INPUTCLK   0:0:0
++HOLD    negedge:PADIN         posedge:INPUTCLK   0:0:0
++HOLD    posedge:CLOCKENABLE   posedge:INPUTCLK   0:0:0
++HOLD    posedge:CLOCKENABLE   posedge:OUTPUTCLK  0:0:0
++HOLD    posedge:DOUT0         posedge:OUTPUTCLK  0:0:0
++HOLD    posedge:DOUT1         negedge:OUTPUTCLK  0:0:0
++HOLD    posedge:OUTPUTENABLE  posedge:OUTPUTCLK  0:0:0
++HOLD    posedge:PADIN         negedge:INPUTCLK   0:0:0
++HOLD    posedge:PADIN         posedge:INPUTCLK   0:0:0
++SETUP   negedge:CLOCKENABLE   posedge:INPUTCLK   85.058:110.5:134.38
++SETUP   negedge:CLOCKENABLE   posedge:OUTPUTCLK  85.058:110.5:134.38
++SETUP   negedge:DOUT0         posedge:OUTPUTCLK  85.058:110.5:134.38
++SETUP   negedge:DOUT1         negedge:OUTPUTCLK  85.058:110.5:134.38
++SETUP   negedge:OUTPUTENABLE  posedge:OUTPUTCLK  85.058:110.5:134.38
++SETUP   negedge:PADIN         negedge:INPUTCLK   2286.531:2970.461:3612.401
++SETUP   negedge:PADIN         posedge:INPUTCLK   2286.531:2970.461:3612.401
++SETUP   posedge:CLOCKENABLE   posedge:INPUTCLK   93.564:121.55:147.818
++SETUP   posedge:CLOCKENABLE   posedge:OUTPUTCLK  93.564:121.55:147.818
++SETUP   posedge:DOUT0         posedge:OUTPUTCLK  93.564:121.55:147.818
++SETUP   posedge:DOUT1         negedge:OUTPUTCLK  93.564:121.55:147.818
++SETUP   posedge:OUTPUTENABLE  posedge:OUTPUTCLK  93.564:121.55:147.818
++SETUP   posedge:PADIN         negedge:INPUTCLK   2295.033:2981.511:3625.843
++SETUP   posedge:PADIN         posedge:INPUTCLK   2295.033:2981.511:3625.843
++IOPATH  DOUT0                 PADOUT             2432.664:3160.3:3843.268     2713.347:3524.95:4286.724
++IOPATH  LATCHINPUTVALUE       DIN0               416.785:541.45:658.462    450.808:585.65:712.214
++IOPATH  negedge:INPUTCLK      DIN1               170.117:221:268.759      170.117:221:268.759
++IOPATH  negedge:OUTPUTCLK     PADOUT             136.093:176.8:215.008      170.117:221:268.759
++IOPATH  OUTPUTENABLE          PADOEN             212.645:276.25:335.95    255.174:331.5:403.14
++IOPATH  PADIN                 DIN0               748.511:972.4:1182.544      561.383:729.3:886.908
++IOPATH  posedge:INPUTCLK      DIN0               170.117:221:268.759      170.117:221:268.759
++IOPATH  posedge:OUTPUTCLK     PADOEN             136.093:176.8:215.008      170.117:221:268.759
++IOPATH  posedge:OUTPUTCLK     PADOUT             136.093:176.8:215.008      170.117:221:268.759
++
++CELL PRE_IO_GBUF
++IOPATH  PADSIGNALTOGLOBALBUFFER  GLOBALBUFFEROUTPUT  2258.542:2934.1:3568.188  2071.42:2691:3272.555
++
++CELL SB_PLL40_2F_CORE
++IOPATH  REFERENCECLK  PLLOUTCOREA    *:*:*  *:*:*
++IOPATH  REFERENCECLK  PLLOUTCOREB    *:*:*  *:*:*
++IOPATH  REFERENCECLK  PLLOUTGLOBALA  *:*:*  *:*:*
++IOPATH  REFERENCECLK  PLLOUTGLOBALB  *:*:*  *:*:*
++
++CELL SB_PLL40_CORE
++IOPATH  REFERENCECLK  PLLOUTCORE    *:*:*  *:*:*
++IOPATH  REFERENCECLK  PLLOUTGLOBAL  *:*:*  *:*:*
++
++CELL SB_RAM40_4K
++HOLD    negedge:MASK[0]    posedge:WCLK  0:0:0
++HOLD    negedge:MASK[1]    posedge:WCLK  0:0:0
++HOLD    negedge:MASK[2]    posedge:WCLK  0:0:0
++HOLD    negedge:MASK[3]    posedge:WCLK  0:0:0
++HOLD    negedge:MASK[4]    posedge:WCLK  0:0:0
++HOLD    negedge:MASK[5]    posedge:WCLK  0:0:0
++HOLD    negedge:MASK[6]    posedge:WCLK  0:0:0
++HOLD    negedge:MASK[7]    posedge:WCLK  0:0:0
++HOLD    negedge:MASK[8]    posedge:WCLK  0:0:0
++HOLD    negedge:MASK[9]    posedge:WCLK  0:0:0
++HOLD    negedge:MASK[10]   posedge:WCLK  0:0:0
++HOLD    negedge:MASK[11]   posedge:WCLK  0:0:0
++HOLD    negedge:MASK[12]   posedge:WCLK  0:0:0
++HOLD    negedge:MASK[13]   posedge:WCLK  0:0:0
++HOLD    negedge:MASK[14]   posedge:WCLK  0:0:0
++HOLD    negedge:MASK[15]   posedge:WCLK  0:0:0
++HOLD    negedge:RADDR[0]   posedge:RCLK  68.046:88.4:107.504
++HOLD    negedge:RADDR[1]   posedge:RCLK  68.046:88.4:107.504
++HOLD    negedge:RADDR[2]   posedge:RCLK  68.046:88.4:107.504
++HOLD    negedge:RADDR[3]   posedge:RCLK  68.046:88.4:107.504
++HOLD    negedge:RADDR[4]   posedge:RCLK  68.046:88.4:107.504
++HOLD    negedge:RADDR[5]   posedge:RCLK  68.046:88.4:107.504
++HOLD    negedge:RADDR[6]   posedge:RCLK  68.046:88.4:107.504
++HOLD    negedge:RADDR[7]   posedge:RCLK  68.046:88.4:107.504
++HOLD    negedge:RADDR[8]   posedge:RCLK  68.046:88.4:107.504
++HOLD    negedge:RADDR[9]   posedge:RCLK  68.046:88.4:107.504
++HOLD    negedge:RADDR[10]  posedge:RCLK  68.046:88.4:107.504
++HOLD    negedge:RCLKE      posedge:RCLK  63.794:82.875:100.785
++HOLD    negedge:RE         posedge:RCLK  102.07:132.6:161.256
++HOLD    negedge:WADDR[0]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WADDR[1]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WADDR[2]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WADDR[3]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WADDR[4]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WADDR[5]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WADDR[6]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WADDR[7]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WADDR[8]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WADDR[9]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WADDR[10]  posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WCLKE      posedge:WCLK  33.173:43.095:52.408
++HOLD    negedge:WDATA[0]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WDATA[1]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WDATA[2]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WDATA[3]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WDATA[4]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WDATA[5]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WDATA[6]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WDATA[7]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WDATA[8]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WDATA[9]   posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WDATA[10]  posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WDATA[11]  posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WDATA[12]  posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WDATA[13]  posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WDATA[14]  posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WDATA[15]  posedge:WCLK  42.529:55.25:67.19
++HOLD    negedge:WE         posedge:WCLK  59.541:77.35:94.066
++HOLD    posedge:MASK[0]    posedge:WCLK  0:0:0
++HOLD    posedge:MASK[1]    posedge:WCLK  0:0:0
++HOLD    posedge:MASK[2]    posedge:WCLK  0:0:0
++HOLD    posedge:MASK[3]    posedge:WCLK  0:0:0
++HOLD    posedge:MASK[4]    posedge:WCLK  0:0:0
++HOLD    posedge:MASK[5]    posedge:WCLK  0:0:0
++HOLD    posedge:MASK[6]    posedge:WCLK  0:0:0
++HOLD    posedge:MASK[7]    posedge:WCLK  0:0:0
++HOLD    posedge:MASK[8]    posedge:WCLK  0:0:0
++HOLD    posedge:MASK[9]    posedge:WCLK  0:0:0
++HOLD    posedge:MASK[10]   posedge:WCLK  0:0:0
++HOLD    posedge:MASK[11]   posedge:WCLK  0:0:0
++HOLD    posedge:MASK[12]   posedge:WCLK  0:0:0
++HOLD    posedge:MASK[13]   posedge:WCLK  0:0:0
++HOLD    posedge:MASK[14]   posedge:WCLK  0:0:0
++HOLD    posedge:MASK[15]   posedge:WCLK  0:0:0
++HOLD    posedge:RADDR[0]   posedge:RCLK  68.046:88.4:107.504
++HOLD    posedge:RADDR[1]   posedge:RCLK  68.046:88.4:107.504
++HOLD    posedge:RADDR[2]   posedge:RCLK  68.046:88.4:107.504
++HOLD    posedge:RADDR[3]   posedge:RCLK  68.046:88.4:107.504
++HOLD    posedge:RADDR[4]   posedge:RCLK  68.046:88.4:107.504
++HOLD    posedge:RADDR[5]   posedge:RCLK  68.046:88.4:107.504
++HOLD    posedge:RADDR[6]   posedge:RCLK  68.046:88.4:107.504
++HOLD    posedge:RADDR[7]   posedge:RCLK  68.046:88.4:107.504
++HOLD    posedge:RADDR[8]   posedge:RCLK  68.046:88.4:107.504
++HOLD    posedge:RADDR[9]   posedge:RCLK  68.046:88.4:107.504
++HOLD    posedge:RADDR[10]  posedge:RCLK  68.046:88.4:107.504
++HOLD    posedge:RCLKE      posedge:RCLK  63.794:82.875:100.785
++HOLD    posedge:RE         posedge:RCLK  102.07:132.6:161.256
++HOLD    posedge:WADDR[0]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WADDR[1]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WADDR[2]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WADDR[3]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WADDR[4]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WADDR[5]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WADDR[6]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WADDR[7]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WADDR[8]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WADDR[9]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WADDR[10]  posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WCLKE      posedge:WCLK  33.173:43.095:52.408
++HOLD    posedge:WDATA[0]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WDATA[1]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WDATA[2]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WDATA[3]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WDATA[4]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WDATA[5]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WDATA[6]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WDATA[7]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WDATA[8]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WDATA[9]   posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WDATA[10]  posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WDATA[11]  posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WDATA[12]  posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WDATA[13]  posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WDATA[14]  posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WDATA[15]  posedge:WCLK  42.529:55.25:67.19
++HOLD    posedge:WE         posedge:WCLK  59.541:77.35:94.066
++SETUP   negedge:MASK[0]    posedge:WCLK  331.726:430.95:524.082
++SETUP   negedge:MASK[1]    posedge:WCLK  331.726:430.95:524.082
++SETUP   negedge:MASK[2]    posedge:WCLK  331.726:430.95:524.082
++SETUP   negedge:MASK[3]    posedge:WCLK  331.726:430.95:524.082
++SETUP   negedge:MASK[4]    posedge:WCLK  331.726:430.95:524.082
++SETUP   negedge:MASK[5]    posedge:WCLK  331.726:430.95:524.082
++SETUP   negedge:MASK[6]    posedge:WCLK  331.726:430.95:524.082
++SETUP   negedge:MASK[7]    posedge:WCLK  331.726:430.95:524.082
++SETUP   negedge:MASK[8]    posedge:WCLK  331.726:430.95:524.082
++SETUP   negedge:MASK[9]    posedge:WCLK  331.726:430.95:524.082
++SETUP   negedge:MASK[10]   posedge:WCLK  331.726:430.95:524.082
++SETUP   negedge:MASK[11]   posedge:WCLK  331.726:430.95:524.082
++SETUP   negedge:MASK[12]   posedge:WCLK  331.726:430.95:524.082
++SETUP   negedge:MASK[13]   posedge:WCLK  331.726:430.95:524.082
++SETUP   negedge:MASK[14]   posedge:WCLK  331.726:430.95:524.082
++SETUP   negedge:MASK[15]   posedge:WCLK  331.726:430.95:524.082
++SETUP   negedge:RADDR[0]   posedge:RCLK  246.669:320.45:389.702
++SETUP   negedge:RADDR[1]   posedge:RCLK  246.669:320.45:389.702
++SETUP   negedge:RADDR[2]   posedge:RCLK  246.669:320.45:389.702
++SETUP   negedge:RADDR[3]   posedge:RCLK  246.669:320.45:389.702
++SETUP   negedge:RADDR[4]   posedge:RCLK  246.669:320.45:389.702
++SETUP   negedge:RADDR[5]   posedge:RCLK  246.669:320.45:389.702
++SETUP   negedge:RADDR[6]   posedge:RCLK  246.669:320.45:389.702
++SETUP   negedge:RADDR[7]   posedge:RCLK  246.669:320.45:389.702
++SETUP   negedge:RADDR[8]   posedge:RCLK  246.669:320.45:389.702
++SETUP   negedge:RADDR[9]   posedge:RCLK  246.669:320.45:389.702
++SETUP   negedge:RADDR[10]  posedge:RCLK  246.669:320.45:389.702
++SETUP   negedge:RCLKE      posedge:RCLK  323.22:419.9:510.644
++SETUP   negedge:RE         posedge:RCLK  119.081:154.7:188.132
++SETUP   negedge:WADDR[0]   posedge:WCLK  272.186:353.6:430.015
++SETUP   negedge:WADDR[1]   posedge:WCLK  272.186:353.6:430.015
++SETUP   negedge:WADDR[2]   posedge:WCLK  272.186:353.6:430.015
++SETUP   negedge:WADDR[3]   posedge:WCLK  272.186:353.6:430.015
++SETUP   negedge:WADDR[4]   posedge:WCLK  272.186:353.6:430.015
++SETUP   negedge:WADDR[5]   posedge:WCLK  272.186:353.6:430.015
++SETUP   negedge:WADDR[6]   posedge:WCLK  272.186:353.6:430.015
++SETUP   negedge:WADDR[7]   posedge:WCLK  272.186:353.6:430.015
++SETUP   negedge:WADDR[8]   posedge:WCLK  272.186:353.6:430.015
++SETUP   negedge:WADDR[9]   posedge:WCLK  272.186:353.6:430.015
++SETUP   negedge:WADDR[10]  posedge:WCLK  272.186:353.6:430.015
++SETUP   negedge:WCLKE      posedge:WCLK  323.22:419.9:510.644
++SETUP   negedge:WDATA[0]   posedge:WCLK  195.633:254.15:309.074
++SETUP   negedge:WDATA[1]   posedge:WCLK  195.633:254.15:309.074
++SETUP   negedge:WDATA[2]   posedge:WCLK  195.633:254.15:309.074
++SETUP   negedge:WDATA[3]   posedge:WCLK  195.633:254.15:309.074
++SETUP   negedge:WDATA[4]   posedge:WCLK  195.633:254.15:309.074
++SETUP   negedge:WDATA[5]   posedge:WCLK  195.633:254.15:309.074
++SETUP   negedge:WDATA[6]   posedge:WCLK  195.633:254.15:309.074
++SETUP   negedge:WDATA[7]   posedge:WCLK  195.633:254.15:309.074
++SETUP   negedge:WDATA[8]   posedge:WCLK  195.633:254.15:309.074
++SETUP   negedge:WDATA[9]   posedge:WCLK  195.633:254.15:309.074
++SETUP   negedge:WDATA[10]  posedge:WCLK  195.633:254.15:309.074
++SETUP   negedge:WDATA[11]  posedge:WCLK  195.633:254.15:309.074
++SETUP   negedge:WDATA[12]  posedge:WCLK  195.633:254.15:309.074
++SETUP   negedge:WDATA[13]  posedge:WCLK  195.633:254.15:309.074
++SETUP   negedge:WDATA[14]  posedge:WCLK  195.633:254.15:309.074
++SETUP   negedge:WDATA[15]  posedge:WCLK  195.633:254.15:309.074
++SETUP   negedge:WE         posedge:WCLK  161.611:209.95:255.323
++SETUP   posedge:MASK[0]    posedge:WCLK  331.726:430.95:524.082
++SETUP   posedge:MASK[1]    posedge:WCLK  331.726:430.95:524.082
++SETUP   posedge:MASK[2]    posedge:WCLK  331.726:430.95:524.082
++SETUP   posedge:MASK[3]    posedge:WCLK  331.726:430.95:524.082
++SETUP   posedge:MASK[4]    posedge:WCLK  331.726:430.95:524.082
++SETUP   posedge:MASK[5]    posedge:WCLK  331.726:430.95:524.082
++SETUP   posedge:MASK[6]    posedge:WCLK  331.726:430.95:524.082
++SETUP   posedge:MASK[7]    posedge:WCLK  331.726:430.95:524.082
++SETUP   posedge:MASK[8]    posedge:WCLK  331.726:430.95:524.082
++SETUP   posedge:MASK[9]    posedge:WCLK  331.726:430.95:524.082
++SETUP   posedge:MASK[10]   posedge:WCLK  331.726:430.95:524.082
++SETUP   posedge:MASK[11]   posedge:WCLK  331.726:430.95:524.082
++SETUP   posedge:MASK[12]   posedge:WCLK  331.726:430.95:524.082
++SETUP   posedge:MASK[13]   posedge:WCLK  331.726:430.95:524.082
++SETUP   posedge:MASK[14]   posedge:WCLK  331.726:430.95:524.082
++SETUP   posedge:MASK[15]   posedge:WCLK  331.726:430.95:524.082
++SETUP   posedge:RADDR[0]   posedge:RCLK  246.669:320.45:389.702
++SETUP   posedge:RADDR[1]   posedge:RCLK  246.669:320.45:389.702
++SETUP   posedge:RADDR[2]   posedge:RCLK  246.669:320.45:389.702
++SETUP   posedge:RADDR[3]   posedge:RCLK  246.669:320.45:389.702
++SETUP   posedge:RADDR[4]   posedge:RCLK  246.669:320.45:389.702
++SETUP   posedge:RADDR[5]   posedge:RCLK  246.669:320.45:389.702
++SETUP   posedge:RADDR[6]   posedge:RCLK  246.669:320.45:389.702
++SETUP   posedge:RADDR[7]   posedge:RCLK  246.669:320.45:389.702
++SETUP   posedge:RADDR[8]   posedge:RCLK  246.669:320.45:389.702
++SETUP   posedge:RADDR[9]   posedge:RCLK  246.669:320.45:389.702
++SETUP   posedge:RADDR[10]  posedge:RCLK  246.669:320.45:389.702
++SETUP   posedge:RCLKE      posedge:RCLK  323.22:419.9:510.644
++SETUP   posedge:RE         posedge:RCLK  119.081:154.7:188.132
++SETUP   posedge:WADDR[0]   posedge:WCLK  272.186:353.6:430.015
++SETUP   posedge:WADDR[1]   posedge:WCLK  272.186:353.6:430.015
++SETUP   posedge:WADDR[2]   posedge:WCLK  272.186:353.6:430.015
++SETUP   posedge:WADDR[3]   posedge:WCLK  272.186:353.6:430.015
++SETUP   posedge:WADDR[4]   posedge:WCLK  272.186:353.6:430.015
++SETUP   posedge:WADDR[5]   posedge:WCLK  272.186:353.6:430.015
++SETUP   posedge:WADDR[6]   posedge:WCLK  272.186:353.6:430.015
++SETUP   posedge:WADDR[7]   posedge:WCLK  272.186:353.6:430.015
++SETUP   posedge:WADDR[8]   posedge:WCLK  272.186:353.6:430.015
++SETUP   posedge:WADDR[9]   posedge:WCLK  272.186:353.6:430.015
++SETUP   posedge:WADDR[10]  posedge:WCLK  272.186:353.6:430.015
++SETUP   posedge:WCLKE      posedge:WCLK  323.22:419.9:510.644
++SETUP   posedge:WDATA[0]   posedge:WCLK  195.633:254.15:309.074
++SETUP   posedge:WDATA[1]   posedge:WCLK  195.633:254.15:309.074
++SETUP   posedge:WDATA[2]   posedge:WCLK  195.633:254.15:309.074
++SETUP   posedge:WDATA[3]   posedge:WCLK  195.633:254.15:309.074
++SETUP   posedge:WDATA[4]   posedge:WCLK  195.633:254.15:309.074
++SETUP   posedge:WDATA[5]   posedge:WCLK  195.633:254.15:309.074
++SETUP   posedge:WDATA[6]   posedge:WCLK  195.633:254.15:309.074
++SETUP   posedge:WDATA[7]   posedge:WCLK  195.633:254.15:309.074
++SETUP   posedge:WDATA[8]   posedge:WCLK  195.633:254.15:309.074
++SETUP   posedge:WDATA[9]   posedge:WCLK  195.633:254.15:309.074
++SETUP   posedge:WDATA[10]  posedge:WCLK  195.633:254.15:309.074
++SETUP   posedge:WDATA[11]  posedge:WCLK  195.633:254.15:309.074
++SETUP   posedge:WDATA[12]  posedge:WCLK  195.633:254.15:309.074
++SETUP   posedge:WDATA[13]  posedge:WCLK  195.633:254.15:309.074
++SETUP   posedge:WDATA[14]  posedge:WCLK  195.633:254.15:309.074
++SETUP   posedge:WDATA[15]  posedge:WCLK  195.633:254.15:309.074
++SETUP   posedge:WE         posedge:WCLK  161.611:209.95:255.323
++IOPATH  posedge:RCLK       RDATA[0]      2602.782:3381.3:4112.03    2602.782:3381.3:4112.03
++IOPATH  posedge:RCLK       RDATA[1]      2602.782:3381.3:4112.03    2602.782:3381.3:4112.03
++IOPATH  posedge:RCLK       RDATA[2]      2602.782:3381.3:4112.03    2602.782:3381.3:4112.03
++IOPATH  posedge:RCLK       RDATA[3]      2602.782:3381.3:4112.03    2602.782:3381.3:4112.03
++IOPATH  posedge:RCLK       RDATA[4]      2602.782:3381.3:4112.03    2602.782:3381.3:4112.03
++IOPATH  posedge:RCLK       RDATA[5]      2602.782:3381.3:4112.03    2602.782:3381.3:4112.03
++IOPATH  posedge:RCLK       RDATA[6]      2602.782:3381.3:4112.03    2602.782:3381.3:4112.03
++IOPATH  posedge:RCLK       RDATA[7]      2602.782:3381.3:4112.03    2602.782:3381.3:4112.03
++IOPATH  posedge:RCLK       RDATA[8]      2602.782:3381.3:4112.03    2602.782:3381.3:4112.03
++IOPATH  posedge:RCLK       RDATA[9]      2602.782:3381.3:4112.03    2602.782:3381.3:4112.03
++IOPATH  posedge:RCLK       RDATA[10]     2602.782:3381.3:4112.03    2602.782:3381.3:4112.03
++IOPATH  posedge:RCLK       RDATA[11]     2602.782:3381.3:4112.03    2602.782:3381.3:4112.03
++IOPATH  posedge:RCLK       RDATA[12]     2602.782:3381.3:4112.03    2602.782:3381.3:4112.03
++IOPATH  posedge:RCLK       RDATA[13]     2602.782:3381.3:4112.03    2602.782:3381.3:4112.03
++IOPATH  posedge:RCLK       RDATA[14]     2602.782:3381.3:4112.03    2602.782:3381.3:4112.03
++IOPATH  posedge:RCLK       RDATA[15]     2602.782:3381.3:4112.03    2602.782:3381.3:4112.03
++
++CELL Sp12to4
++IOPATH  I  O  518.855:674.05:819.718  544.372:707.2:860.032
++
++CELL Span4Mux_h0
++IOPATH  I  O  178.623:232.05:282.197  170.117:221:268.759
++
++CELL Span4Mux_h1
++IOPATH  I  O  212.645:276.25:335.95  204.139:265.2:322.512
++
++CELL Span4Mux_h2
++IOPATH  I  O  246.669:320.45:389.702  246.669:320.45:389.702
++
++CELL Span4Mux_h3
++IOPATH  I  O  280.692:364.65:443.453  280.692:364.65:443.453
++
++CELL Span4Mux_h4
++IOPATH  I  O  365.75:475.15:577.834  382.762:497.25:604.709
++
++CELL Span4Mux_v0
++IOPATH  I  O  246.669:320.45:389.702  229.657:298.35:362.826
++
++CELL Span4Mux_v1
++IOPATH  I  O  246.669:320.45:389.702  238.163:309.4:376.264
++
++CELL Span4Mux_v2
++IOPATH  I  O  306.21:397.8:483.768  306.21:397.8:483.768
++
++CELL Span4Mux_v3
++IOPATH  I  O  382.762:497.25:604.709  408.279:530.4:645.024
++
++CELL Span4Mux_v4
++IOPATH  I  O  425.291:552.5:671.9  450.808:585.65:712.214
++
++CELL Span12Mux_h0
++IOPATH  I  O  170.117:221:268.759  178.623:232.05:282.197
++
++CELL Span12Mux_h1
++IOPATH  I  O  161.611:209.95:255.323  161.611:209.95:255.323
++
++CELL Span12Mux_h2
++IOPATH  I  O  195.633:254.15:309.074  204.139:265.2:322.512
++
++CELL Span12Mux_h3
++IOPATH  I  O  204.139:265.2:322.512  221.151:287.3:349.388
++
++CELL Span12Mux_h4
++IOPATH  I  O  238.163:309.4:376.264  263.68:342.55:416.579
++
++CELL Span12Mux_h5
++IOPATH  I  O  280.692:364.65:443.453  314.714:408.85:497.206
++
++CELL Span12Mux_h6
++IOPATH  I  O  306.21:397.8:483.768  340.232:442:537.52
++
++CELL Span12Mux_h7
++IOPATH  I  O  348.738:453.05:550.958  391.268:508.3:618.147
++
++CELL Span12Mux_h8
++IOPATH  I  O  416.785:541.45:658.462  467.819:607.75:739.09
++
++CELL Span12Mux_h9
++IOPATH  I  O  476.325:618.8:752.528  527.361:685.1:833.156
++
++CELL Span12Mux_h10
++IOPATH  I  O  518.855:674.05:819.718  569.889:740.35:900.346
++
++CELL Span12Mux_h11
++IOPATH  I  O  569.889:740.35:900.346  637.936:828.75:1007.85
++
++CELL Span12Mux_h12
++IOPATH  I  O  595.407:773.5:940.661  654.948:850.85:1034.726
++
++CELL Span12Mux_v0
++IOPATH  I  O  119.081:154.7:188.132  127.587:165.75:201.57
++
++CELL Span12Mux_v1
++IOPATH  I  O  127.587:165.75:201.57  127.587:165.75:201.57
++
++CELL Span12Mux_v2
++IOPATH  I  O  170.117:221:268.759  187.127:243.1:295.636
++
++CELL Span12Mux_v3
++IOPATH  I  O  178.623:232.05:282.197  204.139:265.2:322.512
++
++CELL Span12Mux_v4
++IOPATH  I  O  221.151:287.3:349.388  255.174:331.5:403.14
++
++CELL Span12Mux_v5
++IOPATH  I  O  289.198:375.7:456.892  323.22:419.9:510.644
++
++CELL Span12Mux_v6
++IOPATH  I  O  314.714:408.85:497.206  348.738:453.05:550.958
++
++CELL Span12Mux_v7
++IOPATH  I  O  340.232:442:537.52  382.762:497.25:604.709
++
++CELL Span12Mux_v8
++IOPATH  I  O  433.796:563.55:685.338  476.325:618.8:752.528
++
++CELL Span12Mux_v9
++IOPATH  I  O  459.313:596.7:725.652  510.349:663:806.28
++
++CELL Span12Mux_v10
++IOPATH  I  O  476.325:618.8:752.528  527.361:685.1:833.156
++
++CELL Span12Mux_v11
++IOPATH  I  O  501.843:651.95:792.841  552.877:718.25:873.47
++
++CELL Span12Mux_v12
++IOPATH  I  O  595.407:773.5:940.661  654.948:850.85:1034.726
++
++CELL SRMux
++IOPATH  I  O  561.383:729.3:886.908  433.796:563.55:685.338
++
+diff --git a/icepack/icepack.cc b/icepack/icepack.cc
+index 53c9cc5..df719a4 100644
+--- a/icepack/icepack.cc
++++ b/icepack/icepack.cc
+@@ -118,6 +118,7 @@ struct FpgaConfig
+ 	vector<uint8_t> initblop;
+ 
+ 	// bitstream i/o
++	bool ice65_mode = false;
+ 	void read_bits(std::istream &ifs);
+ 	void write_bits(std::ostream &ofs) const;
+ 
+@@ -422,7 +423,9 @@ void FpgaConfig::read_bits(std::istream &ifs)
+ 	else if (this->cram_width == 692 && this->cram_height == 176)
+ 		this->device = "u4k";
+ 	else if (this->cram_width == 656 && this->cram_height == 176)
+-		this->device = "lm4k";
++		// iCE65 L04 and iCE40 LM4K share the same CRAM geometry and the
++		// bitstream carries no device ID, so L04 must be requested (-6).
++		this->device = this->ice65_mode ? "l04" : "lm4k";
+ 	else
+ 		error("Failed to detect chip type.\n");
+ 
+@@ -705,7 +708,7 @@ void FpgaConfig::read_ascii(std::istream &ifs, bool nosleep, int freqrange_num)
+ 				this->bram_width = 80;
+ 				this->bram_height = 2 * 128;
+ 			} else
+-			if (this->device == "lm4k") {
++			if (this->device == "lm4k" || this->device == "l04") {
+ 				this->cram_width = 656;
+ 				this->cram_height = 176;
+ 				this->bram_width = 80;
+@@ -1076,7 +1079,7 @@ int FpgaConfig::chip_width() const
+ 	if (this->device == "1k") return 12;
+ 	if (this->device == "5k") return 24;
+ 	if (this->device == "u4k") return 24;
+-	if (this->device == "lm4k") return 24;
++	if (this->device == "lm4k" || this->device == "l04") return 24;
+ 	if (this->device == "8k") return 32;
+ 	panic("Unknown chip type '%s'.\n", this->device.c_str());
+ }
+@@ -1087,7 +1090,7 @@ int FpgaConfig::chip_height() const
+ 	if (this->device == "1k") return 16;
+ 	if (this->device == "5k") return 30;
+ 	if (this->device == "u4k") return 20;
+-	if (this->device == "lm4k") return 20;
++	if (this->device == "lm4k" || this->device == "l04") return 20;
+ 	if (this->device == "8k") return 32;
+ 	panic("Unknown chip type '%s'.\n", this->device.c_str());
+ }
+@@ -1097,7 +1100,7 @@ vector<int> FpgaConfig::chip_cols() const
+ 	if (this->device == "384") return vector<int>({18, 54, 54, 54, 54});
+ 	if (this->device == "1k") return vector<int>({18, 54, 54, 42, 54, 54, 54});
+ 	if (this->device == "u4k") return vector<int>({54, 54, 54, 54, 54, 54, 42, 54, 54, 54, 54, 54, 54});
+-	if (this->device == "lm4k") return vector<int>({18, 54, 54, 54, 54, 54, 42, 54, 54, 54, 54, 54, 54});
++	if (this->device == "lm4k" || this->device == "l04") return vector<int>({18, 54, 54, 54, 54, 54, 42, 54, 54, 54, 54, 54, 54});
+ 	// Its IPConnect or Mutiplier block, five logic, ram, six logic.
+ 	if (this->device == "5k") return vector<int>({54, 54, 54, 54, 54, 54, 42, 54, 54, 54, 54, 54, 54});
+ 	if (this->device == "8k") return vector<int>({18, 54, 54, 54, 54, 54, 54, 54, 42, 54, 54, 54, 54, 54, 54, 54, 54});
+@@ -1141,7 +1144,7 @@ string FpgaConfig::tile_type(int x, int y) const
+ 		return "logic";
+ 	}
+ 
+-	if (this->device == "5k" || this->device == "u4k" || this->device == "lm4k") {
++	if (this->device == "5k" || this->device == "u4k" || this->device == "lm4k" || this->device == "l04") {
+ 		if (x == 6 || x == 19) return y % 2 == 1 ? "ramb" : "ramt";
+ 		return "logic";
+ 	}
+@@ -1374,6 +1377,10 @@ void usage(const char *cmd)
+ 	log("    -n\n");
+ 	log("        skip initializing BRAM\n");
+ 	log("\n");
++	log("    -6\n");
++	log("        unpack mode: treat a 656x176 bitstream as iCE65 L04 instead of\n");
++	log("        iCE40 LM4K (same geometry, no device ID in the bitstream)\n");
++	log("\n");
+ 	exit(1);
+ }
+ 
+@@ -1399,6 +1406,7 @@ int main(int argc, char **argv)
+ 	bool netpbm_fill_tiles = false;
+ 	bool netpbm_checkerboard = false;
+         bool skip_bram_initialization = false;
++	bool ice65_mode = false;
+ 	int netpbm_banknum = -1;
+ 	int checkerboard_m = 1;
+ 	int freqrange_num = 0;
+@@ -1438,6 +1446,8 @@ int main(int argc, char **argv)
+ 					log_level++;
+ 				} else if (arg[i] == 'n') {
+ 					skip_bram_initialization = true;
++				} else if (arg[i] == '6') {
++					ice65_mode = true;
+ 				} else
+ 					usage(argv[0]);
+ 			continue;
+@@ -1476,6 +1486,7 @@ int main(int argc, char **argv)
+ 	FpgaConfig fpga_config;
+         
+         fpga_config.skip_bram_initialization = skip_bram_initialization;
++	fpga_config.ice65_mode = ice65_mode;
+ 
+ 	if (unpack_mode) {
+ 		fpga_config.read_bits(*isp);

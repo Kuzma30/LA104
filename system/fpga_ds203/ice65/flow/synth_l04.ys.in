@@ -1,0 +1,14 @@
+# Yosys flow for iCE65 L04: synth_ice40 with the RAM step replaced
+# (256x16 block RAM only, no PLL/DSP/SPRAM on this device).
+synth_ice40 -top @TOP@ @SYNTH_OPTS@ -run begin:map_ram
+memory_libmap -lib @FLOW@/brams_l04.txt -no-auto-huge
+techmap -map @FLOW@/brams_map_l04.v
+ice40_braminit
+synth_ice40 -top @TOP@ @SYNTH_OPTS@ -run map_ffram:check
+autoname
+hierarchy -check
+stat
+check -noinit
+write_verilog -noattr @OUT@_syn.v
+blackbox =A:whitebox
+write_json @OUT@.json

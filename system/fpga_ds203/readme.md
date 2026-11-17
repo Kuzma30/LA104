@@ -6,6 +6,8 @@
 - `scope/` the same design with the counters, the oscilloscope part is
   not changed (see the regression test)
 - `tb/` testbench (Icarus Verilog): `./run.sh`
+- `ice65/` build for the iCE65L04-VQ100 with the open tools and the
+  experimental iCE65 L04 patches (see below)
 
 ## What was added (`scope/EdgeCnt.v`, `scope/IO_Ctrl.v`)
 
@@ -73,16 +75,17 @@ Version 264 in the status word ("2.64").
    reading while the inputs toggle (20 MHz / 7 MHz) with a slow sampling
    clock, wrap of 32 bits.
 
-Size estimate with yosys / nextpnr for iCE40 (the open tools do not support
-iCE65): original 1120 logic cells, with counters 1625, with the quadrature
+Size estimate with yosys / nextpnr for iCE40 (the unpatched open tools do
+not support iCE65): original 1120 logic cells, with counters 1625, with the quadrature
 decoder 2902 (iCE65L04: 3520), 18 RAM blocks (20), 8 global buffers (8),
 all clocks above 100 MHz. If iCEcube2 runs out of global buffers, the clock
 of SCK (the slowest, serial register writes) can be left on local routing.
 
 ## Building the bitstream
 
-Only **Lattice iCEcube2** builds iCE65 bitstreams (the source states that the
-2011-12 version was used; newer versions with iCE65 support should work):
+The vendor tool for iCE65 bitstreams is **Lattice iCEcube2** (the source
+states that the 2011-12 version was used; newer versions with iCE65 support
+should work). An experimental build with the open tools is in `ice65/`.
 
 1. New project: family iCE65, device iCE65L04, package VQ100.
 2. Design files: all `scope/*.v`, top module `FIFO`, constraints `scope/Time.sdc`.
@@ -94,8 +97,64 @@ Flashing: the FPGA image is in the STM32 flash at 0x0802C000 and is loaded by
 SYS at power up. It is flashed in the DFU mode like the original package
 (`CFG_FPGA.ADR` with `0x0802C000`, then `V261FPGA.BIN`): copy `CFG_FPGA.ADR`,
 then the new image renamed for example to `V264FPGA.BIN`. The original
-`V261FPGA.BIN` can be flashed back the same way.
+`V261FPGA.BIN` can be flashed back the same way
+(`tools/fpga/ds203_8mb_hwV272-V261FPGA`).
+
+The image built with the open tools (`ice65/`) is in
+`tools/fpga/ds203_hw26x_V264FPGA` (`CFG_FPGA.ADR` + `V264FPGA.BIN`).
+The functions are tested on the device with `apps_ds213/64_fpgatest`.
 
 Note: the published source is version 2.5, the image of HW 2.60 is 2.61.
 The changes of 2.61 are not known, the interface used by SYS 1.5x and by
 the LA104 OS is the same.
+
+## iCE65L04-VQ100 with the open tools (`ice65/`)
+
+Experimental: yosys, nextpnr-ice40 and icestorm with the iCE65 L04 patches
+of `ice65/toolchain/` (icestorm 00da9c3, nextpnr 5e2718b; device `l04`,
+`nextpnr-ice40 --l04 --package vq100`, `iceunpack -6`). The device data was
+derived from the vendor-built V2.61 image and the board schematic, without
+iCEcube.
+
+On the device (DS203 HW 2.7, SYS 1.52, LA104 OS): the image is loaded, SYS
+shows the FPGA version 2.64, the oscilloscope shows the signal of Wave Out
+on CH2. The counters and the quadrature decoders: `apps_ds213/64_fpgatest`.
+
+The sources of `scope/` are used unchanged (FIFO of 4096 samples). Two
+files replace or wrap them:
+- `DP_RAM_l04.v` / `RAM4096_L04.v`: the block RAM of the iCE65 is 256 x 16
+  only (bit write mask) and the open flow does not build deeper memories
+  from it. The 4096 x 18 memory is made of 18 blocks used as 4096 x 1, the
+  structure of the vendor-built image.
+- `FIFO_L04.v`: top level, MCI enters its global network from the pad of
+  pin 15 (`SB_GB_IO`).
+
+`./build_l04.sh` writes `build/V264L04.BIN` (seed 3, the image in
+`tools/fpga/ds203_hw26x_V264FPGA`).
+Result: 3122 of 3520 logic cells, 18 of 20 RAM blocks, 45 pins.
+
+`./test_l04.sh` runs the testbench of `tb/` on three levels: the sources
+with the new memory, the netlist after the synthesis, and the netlist
+recovered from the bitstream itself (`iceunpack -6`, `icebox_vlog`). On all
+three the oscilloscope function equals the original V2.5 (273 bus reads) and
+the counter and quadrature tests pass. The wrap of 32 bits is checked on the
+sources only (it forces the counter). The netlists get the same stimulus
+timing as the sources: the test "Z on CH_C latched" depends on the phase of
+the steps to MCI (a step at the moment of Z is captured before or after it).
+
+Limits:
+- **Timing is not verified.** There is no timing data for the iCE65; the
+  `l04` device uses an estimate (iCE40LP8K x 1.3). With it nextpnr reports
+  53 MHz for the sampling clock (72 MHz needed; 47..54 MHz with other
+  seeds), 51 MHz for nRD, 62 MHz for the pin counters. The unchanged
+  original V2.5, which runs at 72 MHz on this chip when built by the vendor
+  tool, gets 51 MHz from the same flow and estimate: the estimate is
+  pessimistic, and this design is not slower than the original by it.
+- **Global buffers**: only the locations confirmed in the vendor image are
+  used: the pad of MCI and three more, taken by CH_C, CH_D and nRD. SDA and
+  SCK and the resets are on local routing (the vendor image has four
+  global networks as well).
+- The pads of the pins not used by the design are not known, the pin file
+  is `Pins_l04.pcf` (the pins of `scope/Pins.pcf`).
+- The check through the recovered netlist uses the same device database
+  as the tools, it does not find errors of the database itself.

@@ -1,0 +1,17 @@
+# Yosys memory_libmap rules for iCE65 L04: the RAM4K block is 256x16 only,
+# with a per-bit write mask (no narrower/deeper modes as on iCE40).
+ram block $__ICE65_RAM4K_ {
+	abits 8;
+	width 16;
+	byte 1;
+	cost 64;
+	init any;
+	port sw "W" {
+		clock anyedge;
+		wrbe_separate;
+	}
+	port sr "R" {
+		clock anyedge;
+		rden;
+	}
+}
