@@ -12,3 +12,7 @@ same way from `../ds203_8mb_hwV272-V261FPGA`.
 
 `V264FPGA.BIN`: 68088 bytes, sha256
 6c3af127cf138bcd4fef94ed0b8e6ac217bcdfff6a3c5182c3a62eb6a46fcc76
+
+Superseded by `../ds203_hw26x_V266FPGA` (2.66: edge counters of CH_A /
+CH_B as well, same registers otherwise). This image was built from commit
+b426d5a of `system/fpga_ds203`.
