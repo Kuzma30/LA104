@@ -75,6 +75,10 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
   wire	  [ 7:0]QCtrl_Link, AThr_Link, AHys_Link, BThr_Link, BHys_Link;
   wire	  [23:0]SGray_Link, LSync_Link;
   wire	  [ 7:0]EGray_Link;
+  // LA104: edge counters of CH_A and CH_B (comparators, in MCI), FPGA 2.66
+  wire	  LevA_Link, LevB_Link;
+  wire	  [31:0]EA_Link, EB_Link;
+  wire	  InitA_Link, InitB_Link;
 
   assign Din_Bus = { Din[17:16], ~Din[15:8], ~Din[7:0] };
 
@@ -143,7 +147,10 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
     .QAR( QAR_Link ), .QAF( QAF_Link ), .QBR( QBR_Link ), .QBF( QBF_Link ),
     .LAR( LAR_Link ), .LAF( LAF_Link ), .LBR( LBR_Link ), .LBF( LBF_Link ),
     .ZGray( ZGray_Link ), .SGray( SGray_Link ), .EGray( EGray_Link ),
-    .LSync( LSync_Link ) );
+    .LSync( LSync_Link ), .LevA( LevA_Link ), .LevB( LevB_Link ) );
+
+  EdgeSync U9( .Mclk( MCI ), .LvA( LevA_Link ), .LvB( LevB_Link ), .Clr( CntClr_Link ),
+    .GrayA( EA_Link ), .GrayB( EB_Link ), .InitA( InitA_Link ), .InitB( InitB_Link ) );
 
   IO_Ctrl U4( 
     .CE( CE ), 
@@ -182,6 +189,7 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
     .D_Rise( DR_Link ),
     .D_Fall( DF_Link ),
     .CntClr( CntClr_Link ),
+    .A_Edges( EA_Link ), .B_Edges( EB_Link ), .InitA( InitA_Link ), .InitB( InitB_Link ),
     .QAR( QAR_Link ), .QAF( QAF_Link ), .QBR( QBR_Link ), .QBF( QBF_Link ),
     .LAR( LAR_Link ), .LAF( LAF_Link ), .LBR( LBR_Link ), .LBF( LBF_Link ),
     .ZGray( ZGray_Link ), .SGray( SGray_Link ), .EGray( EGray_Link ), .LSync( LSync_Link ),

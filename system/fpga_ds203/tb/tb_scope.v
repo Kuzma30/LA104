@@ -99,7 +99,34 @@ module tb_scope;
     reg zdrive = 0;                     // quadrature test: CH_A carries Z
     reg adrive = 0;                     // or CH_A carries A and CH_B carries B
     reg [7:0] zval = 0, aval = 0, bval = 0;
+    // square waves on CH_A / CH_B (edge counters in MCI, FPGA 2.66):
+    // a level change every agen / bgen samples, levels with noise
+    integer agen = 0, bgen = 0, acnt = 0, bcnt = 0;
+    reg sa = 0, sb = 0;
+    integer m_ar = 0, m_af = 0, m_br = 0, m_bf = 0;
+    // (one process with the ADC data below, the order is fixed)
+    task gen_ab;
+      begin
+        if (agen > 0) begin
+            acnt = acnt + 1;
+            if (acnt >= agen) begin
+                acnt = 0; sa = ~sa;
+                if (sa) m_ar = m_ar + 1; else m_af = m_af + 1;
+            end
+            aval = sa ? 8'd200 + ($random & 7) : 8'd40 + ($random & 7);
+        end
+        if (bgen > 0) begin
+            bcnt = bcnt + 1;
+            if (bcnt >= bgen) begin
+                bcnt = 0; sb = ~sb;
+                if (sb) m_br = m_br + 1; else m_bf = m_bf + 1;
+            end
+            bval = sb ? 8'd180 + ($random & 7) : 8'd60 + ($random & 7);
+        end
+      end
+    endtask
     always @(negedge MCI) begin
+        gen_ab;
         phase = phase + 1;
         Din[7:0]  <= adrive ? ~aval : zdrive ? ~zval : ~((phase * 3) & 8'hff);
         Din[15:8] <= adrive ? ~bval : ~(((phase * 5) + 100) & 8'hff);
@@ -266,6 +293,18 @@ module tb_scope;
     endtask
 
     reg [31:0] cr, cf, dr, df, prev;
+    // CH_A / CH_B: edges and the level before the first edge
+    reg [31:0] ea, eb, ar, af, br, bf;
+    reg [15:0] lv;
+    task read_ab;
+        begin
+            read_cnt(8'h40, ea);
+            read_cnt(8'h42, eb);
+            set_param(5, 8'h44); C_D = 1; H_L = 0; #GPIO; bus_read(lv); C_D = 0; #GPIO;
+            ar = (ea + !lv[0]) >> 1; af = ea - ar;
+            br = (eb + !lv[1]) >> 1; bf = eb - br;
+        end
+    endtask
     integer ok, i, e0;
 
     // ---- quadrature encoder on C (A) and D (B), Z on CH_A
@@ -391,7 +430,7 @@ module tb_scope;
         set_param(5, 8'h18); C_D = 1; H_L = 0; #GPIO; bus_read(w); C_D = 0;
         check("id 0xC0D2", w == 16'hC0D2);
         H_L = 0; #GPIO; bus_read(w);
-        check("version 2.64 in status", (w >> 6) == 264);
+        check("version 2.66 in status", (w >> 6) == 266);
 
         // counts since power up equal the model
         read_cnt(8'h10, cr); read_cnt(8'h12, cf); read_cnt(8'h14, dr); read_cnt(8'h16, df);
@@ -584,6 +623,54 @@ module tb_scope;
         $display("     A = D, B = C: MCI %0d, pins %0d", $signed(s_pos - sp0), $signed(q1 - q0));
         check("A = D, B = C reversed", $signed(s_pos - sp0) == -333 && $signed(q1 - q0) == 333);
         set_param(8'h0f, 8'h0e);
+
+        // ---- edge counters of CH_A / CH_B (comparators, in MCI)
+        $display("---- edge counters of CH_A / CH_B");
+        set_param(5, 8'h1A); C_D = 1; H_L = 0; #GPIO; bus_read(w); C_D = 0; #GPIO;
+        check("id 0xC0D6", w == 16'hC0D6);
+        mci_half = 6944;
+        adrive = 1; qmode = 1;
+        set_param(8'h10, 120); set_param(8'h11, 10);
+        set_param(8'h12, 120); set_param(8'h13, 10);
+        // A starts low, B starts high
+        sa = 0; sb = 1; aval = 40; bval = 180; agen = 0; bgen = 0; #1000000;
+        clear(2'b01);
+        m_ar = 0; m_af = 0; m_br = 0; m_bf = 0; acnt = 0; bcnt = 0;
+        // A: a change every sample (36 MHz at 72 MHz), B every 3 samples
+        agen = 1; bgen = 3;
+        ok = 1; prev = 0;
+        for (i = 0; i < 8; i = i + 1) begin
+            read_cnt(8'h40, cr);
+            if (cr < prev || cr - prev > 32'd2000) ok = 0;
+            prev = cr;
+        end
+        check("A/B: reading while counting", ok);
+        agen = 0; bgen = 0; #1000000;
+        read_ab;
+        $display("     A %0d/%0d B %0d/%0d model %0d/%0d %0d/%0d", ar, af, br, bf, m_ar, m_af, m_br, m_bf);
+        check("A/B: fs/2 exact", ar == m_ar && af == m_af && br == m_br && bf == m_bf && m_ar > 1000);
+        // an odd number of edges on both (A ends high, B ends low)
+        sa = ~sa; aval = sa ? 8'd200 : 8'd40; if (sa) m_ar = m_ar + 1; else m_af = m_af + 1;
+        sb = ~sb; bval = sb ? 8'd180 : 8'd60; if (sb) m_br = m_br + 1; else m_bf = m_bf + 1;
+        #1000000;
+        $display("     A %0d/%0d B %0d/%0d model %0d/%0d %0d/%0d", ar, af, br, bf, m_ar, m_af, m_br, m_bf);
+        read_ab;
+        $display("     A %0d/%0d B %0d/%0d model %0d/%0d %0d/%0d", ar, af, br, bf, m_ar, m_af, m_br, m_bf);
+        check("A/B: odd edges, levels", ar == m_ar && af == m_af && br == m_br && bf == m_bf);
+        // noise around the threshold within the hysteresis: no edges
+        for (i = 0; i < 40; i = i + 1) begin
+            aval = (i & 1) ? 8'd127 : 8'd113; bval = (i & 1) ? 8'd113 : 8'd127; #200000;
+        end
+        aval = sa ? 8'd200 : 8'd40; bval = sb ? 8'd180 : 8'd60; #200000;
+        read_ab;
+        check("A/B: noise within hysteresis", ar == m_ar && af == m_af && br == m_br && bf == m_bf);
+        // clear (asynchronous) with a slow sampling clock
+        mci_half = 833333;
+        clear(2'b01);
+        read_cnt(8'h40, cr); read_cnt(8'h42, cf);
+        check("A/B: clear", cr == 0 && cf == 0);
+        mci_half = 6944;
+        adrive = 0; qmode = 0;
 
         // the FIFO still works after the counter accesses
         mci_half = 6944;

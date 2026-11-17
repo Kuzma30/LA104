@@ -93,7 +93,7 @@ endmodule
 
 module QuadSync( Mclk, Din, Ctrl, AThr, AHys, BThr, BHys,
                  QAR, QAF, QBR, QBF, LAR, LAF, LBR, LBF, ZGray,
-                 SGray, EGray, LSync );
+                 SGray, EGray, LSync, LevA, LevB );
 
   input         Mclk;
   input  [17:0] Din;            // 0~7 CH_A, 8~15 CH_B (as written to the FIFO), 16 CH_C, 17 CH_D
@@ -105,6 +105,7 @@ module QuadSync( Mclk, Din, Ctrl, AThr, AHys, BThr, BHys,
   output [23:0] SGray;          // position of this decoder
   output [ 7:0] EGray;          // errors (A and B changed in one sample)
   output [23:0] LSync;          // SGray captured at the last Z
+  output        LevA, LevB;     // comparator levels of CH_A / CH_B (EdgeSync)
 
   reg    [23:0] LAR, LAF, LBR, LBF, LSync;
   reg    [15:0] ZBin, ZGray;
@@ -120,9 +121,11 @@ module QuadSync( Mclk, Din, Ctrl, AThr, AHys, BThr, BHys,
   wire   [ 8:0] BLow  = { 1'b0, Din[15:8] } + { 1'b0, BHys };
 
   wire   [ 3:0] Lv = { D2, C2, LvB, LvA };
-  wire          A = Lv[ Ctrl[1:0] ];
-  wire          B = Lv[ Ctrl[3:2] ];
-  wire          Z = Lv[ Ctrl[5:4] ] ^ Ctrl[7];
+  assign        LevA = LvA;
+  assign        LevB = LvB;
+  // the selected inputs are registered once more (FPGA 2.66): A, B and Z
+  // one sample later together, a shorter path to the counters
+  reg           A, B, Z;
   wire          ZOn = Ctrl[6];
   // (A, B) 00 10 11 01 = phase 0 1 2 3, forward = A leads B
   wire   [ 1:0] NewPhase = A ? ( B ? 2'd2 : 2'd1 ) : ( B ? 2'd3 : 2'd0 );
@@ -134,7 +137,7 @@ module QuadSync( Mclk, Din, Ctrl, AThr, AHys, BThr, BHys,
   initial begin
     LAR = 0; LAF = 0; LBR = 0; LBF = 0; LSync = 0;
     ZBin = 0; ZGray = 0; EBin = 0; EGray = 0; SBin = 0; SGray = 0;
-    LvA = 0; LvB = 0; C1 = 0; C2 = 0; D1 = 0; D2 = 0; Phase = 0; Active = 0;
+    LvA = 0; LvB = 0; A = 0; B = 0; Z = 0; C1 = 0; C2 = 0; D1 = 0; D2 = 0; Phase = 0; Active = 0;
   end
 
   always @( posedge Mclk ) begin
@@ -145,6 +148,9 @@ module QuadSync( Mclk, Din, Ctrl, AThr, AHys, BThr, BHys,
     else if ( BLow <= { 1'b0, BThr } )   LvB <= 0;
     C1 <= Din[16]; C2 <= C1;
     D1 <= Din[17]; D2 <= D1;
+    A <= Lv[ Ctrl[1:0] ];
+    B <= Lv[ Ctrl[3:2] ];
+    Z <= Lv[ Ctrl[5:4] ] ^ Ctrl[7];
 
     // steps
     Phase <= NewPhase;

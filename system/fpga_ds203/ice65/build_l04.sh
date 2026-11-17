@@ -3,13 +3,13 @@
 # nextpnr-ice40 and icestorm with the iCE65 L04 patches (device "l04", see
 # the readme). The sources are ../scope unchanged, plus DP_RAM_l04.v
 # (memory from 256 x 16 blocks) and FIFO_L04.v (clock pad) of this folder.
-# Output: build/V264L04.BIN (68088 bytes, flashed as V261FPGA.BIN).
+# Output: build/V266L04.BIN (68088 bytes, flashed as V261FPGA.BIN).
 #   SEED=n  placement seed          YOSYS / NEXTPNR / ICEPACK  tool names
 set -e
 cd "$(dirname "$0")"
 OUT=build
 mkdir -p $OUT
-SEED=${SEED:-3}
+SEED=${SEED:-15}
 : "${YOSYS:=yosys}" "${NEXTPNR:=nextpnr-ice40}" "${ICEPACK:=icepack}"
 SRC="FIFO_L04.v ../scope/AddrCtrl.v ../scope/Signal.v ../scope/IO_Ctrl.v ../scope/FPGA_V25.v \
      ../scope/EdgeCnt.v ../scope/QuadCnt.v DP_RAM_l04.v RAM4096_L04.v"
@@ -25,6 +25,6 @@ grep -E "(ICESTORM_LC|ICESTORM_RAM|SB_GB|SB_IO): " $OUT/nextpnr.log | grep -v it
 grep -E "Max frequency for clock" $OUT/nextpnr.log | tail -6
 $ICEPACK $OUT/FIFO_L04.asc $OUT/FIFO_L04.pack.bin
 # icepack writes a 4 byte comment header, the vendor image starts with the sync word
-tail -c +5 $OUT/FIFO_L04.pack.bin > $OUT/V264L04.BIN
+tail -c +5 $OUT/FIFO_L04.pack.bin > $OUT/V266L04.BIN
 rm $OUT/FIFO_L04.pack.bin
-ls -l $OUT/V264L04.BIN
+ls -l $OUT/V266L04.BIN

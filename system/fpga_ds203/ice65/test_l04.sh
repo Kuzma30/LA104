@@ -2,7 +2,7 @@
 # Tests of the iCE65L04 build (after build_l04.sh), with the testbench of ../tb:
 #  1. the sources with the memory of 256 x 16 blocks (RTL)
 #  2. the netlist after the synthesis
-#  3. the netlist recovered from the bitstream build/V264L04.BIN
+#  3. the netlist recovered from the bitstream build/V266L04.BIN
 #     (iceunpack -6, icebox_vlog): checks place and route and the bitstream
 # Needs iverilog, the patched icestorm (ICESTORM = its source folder with
 # icepack/ and icebox/) and cells_sim.v of yosys (CS).
@@ -29,7 +29,7 @@ echo "     rtl counters / quadrature: $(grep -c '^OK' $W/rtl_cnt.txt) OK, $(grep
 python3 mk_shim.py syn FIFO_L04 > $W/shim_syn.v
 ./gate_test.sh $W syn syn build/FIFO_L04_syn.v $W/shim_syn.v
 
-$ICESTORM/icepack/iceunpack -6 build/V264L04.BIN $W/rec.asc
+$ICESTORM/icepack/iceunpack -6 build/V266L04.BIN $W/rec.asc
 echo "     bits of the bitstream not in the database: $(python3 $ICESTORM/icebox/icebox_explain.py $W/rec.asc | grep -c '?' || true)"
 python3 $ICESTORM/icebox/icebox_vlog.py -n FIFO_REC -p Pins_l04.pcf -s $W/rec.asc > $W/rec_raw.v 2> /dev/null
 python3 flow/fix_vlog.py $W/rec_raw.v > $W/rec.v

@@ -1,4 +1,4 @@
-# DS203 FPGA (HW 2.6x, iCE65L04) with edge counters and a quadrature decoder (FPGA 2.64)
+# DS203 FPGA (HW 2.6x, iCE65L04) with edge counters and a quadrature decoder (FPGA 2.66)
 
 - `stock_v25/` original FPGA source of e-Design (FPGA CFG Ver 2.5, MIT
   license, from [matthiasbock/dso203](https://github.com/matthiasbock/dso203),
@@ -29,8 +29,36 @@ Reading the low word latches the whole 32 bit value, the high word comes
 from the latch. The values are in Gray code (converted by the MCU), so a
 value read while the input toggles is always the old or the new one.
 
-The status word (H_L = 0, C_D = 0) has the version 264 in bits 15..6,
-SYS `__Get(FPGAVER)` shows "2.64". The other bits are as in the original.
+The status word (H_L = 0, C_D = 0) has the version 266 in bits 15..6,
+SYS `__Get(FPGAVER)` shows "2.66". The other bits are as in the original.
+(2.64: the same without the counters of CH_A / CH_B; 2.65 was a variant
+with a smaller buffer, not part of this line.)
+
+## Edge counters of CH_A / CH_B (FPGA 2.66, `EdgeSync` in `scope/EdgeCnt.v`)
+
+CH_A and CH_B come through the ADC, their edges exist only in the sampling
+clock MCI. The level of a channel is the comparator with hysteresis of the
+quadrature decoder (registers `0x10`..`0x13`, see below; the thresholds are
+shared), an edge is a change of this level between two samples. A signal is
+counted exactly while every level lasts at least one sample, that is up to
+half the sampling rate of the timebase (MCI 36 MHz at 0.5 us/div, 6 MHz at
+5 us/div, 60 Hz at 1 s/div), and while the input stage passes it.
+
+One counter of both edges per channel (the logic cells are short). The
+edges of a comparator alternate, so the rising and falling edges follow from
+the count and the level before the first edge: rising = (edges + !level) / 2,
+falling = edges - rising.
+
+| what | how |
+|------|-----|
+| clear | register `0x0E` bit 0 (with CH_C / CH_D), asynchronous: works without MCI |
+| count | Select `0x40` / `0x41` CH_A edges low / high word, `0x42` / `0x43` CH_B (Gray code, the low word latches the whole value, as `0x10`..`0x17`) |
+| level | Select `0x44`: bit 0 / bit 1 level of CH_A / CH_B before the first edge (changes only while the counter is 0) |
+| ID | Select `0x1A` returns `0xC0D6` |
+
+To fit (3431 of 3520 logic cells), the selected inputs of the MCI decoder
+got one more register: A, B and Z one sample later together, the decoding is
+the same.
 
 ## Quadrature decoder (FPGA 2.64, `scope/QuadCnt.v`)
 
@@ -63,7 +91,7 @@ CH_C and CH_D are digital.
 | MCI decoder | Select `0x38` latches: `0x38` / `0x39` position, `0x3A` errors (8 bit), `0x3B` / `0x3C` position at Z, `0x3D` Z counter |
 | ID | Select `0x19` returns `0xC0D4` |
 
-Version 264 in the status word ("2.64").
+Version 266 in the status word ("2.66").
 
 ## Tests (`tb/run.sh`)
 
@@ -74,6 +102,10 @@ Version 264 in the status word ("2.64").
 2. Counters: ID, version, counts equal to the edges of the stimulus, clear,
    reading while the inputs toggle (20 MHz / 7 MHz) with a slow sampling
    clock, wrap of 32 bits.
+3. Quadrature decoders (pins and MCI, Z, hysteresis, errors).
+4. Counters of CH_A / CH_B: ID, square waves at half the sampling rate
+   (exact), an odd number of edges (rising / falling from the level),
+   noise within the hysteresis (no edges), reading while counting, clear.
 
 Size estimate with yosys / nextpnr for iCE40 (the unpatched open tools do
 not support iCE65): original 1120 logic cells, with counters 1625, with the quadrature
@@ -101,7 +133,8 @@ then the new image renamed for example to `V264FPGA.BIN`. The original
 (`tools/fpga/ds203_8mb_hwV272-V261FPGA`).
 
 The image built with the open tools (`ice65/`) is in
-`tools/fpga/ds203_hw26x_V264FPGA` (`CFG_FPGA.ADR` + `V264FPGA.BIN`).
+`tools/fpga/ds203_hw26x_V266FPGA` (`CFG_FPGA.ADR` + `V266FPGA.BIN`); the
+previous 2.64 in `tools/fpga/ds203_hw26x_V264FPGA`.
 The functions are tested on the device with `apps_ds213/64_fpgatest`.
 
 Note: the published source is version 2.5, the image of HW 2.60 is 2.61.
@@ -118,7 +151,8 @@ iCEcube.
 
 On the device (DS203 HW 2.7, SYS 1.52, LA104 OS): the image is loaded, SYS
 shows the FPGA version 2.64, the oscilloscope shows the signal of Wave Out
-on CH2. The counters and the quadrature decoders: `apps_ds213/64_fpgatest`.
+on CH2, the counters of CH_C are exact up to 6 MHz
+(`apps_ds213/64_fpgatest`). 2.66 is not yet tested on the device.
 
 The sources of `scope/` are used unchanged (FIFO of 4096 samples). Two
 files replace or wrap them:
@@ -129,9 +163,9 @@ files replace or wrap them:
 - `FIFO_L04.v`: top level, MCI enters its global network from the pad of
   pin 15 (`SB_GB_IO`).
 
-`./build_l04.sh` writes `build/V264L04.BIN` (seed 3, the image in
-`tools/fpga/ds203_hw26x_V264FPGA`).
-Result: 3122 of 3520 logic cells, 18 of 20 RAM blocks, 45 pins.
+`./build_l04.sh` writes `build/V266L04.BIN` (seed 15, the image in
+`tools/fpga/ds203_hw26x_V266FPGA`; the best of seeds 1..17 for MCI).
+Result: 3431 of 3520 logic cells (2.64: 3122), 18 of 20 RAM blocks, 45 pins.
 
 `./test_l04.sh` runs the testbench of `tb/` on three levels: the sources
 with the new memory, the netlist after the synthesis, and the netlist
@@ -145,8 +179,9 @@ the steps to MCI (a step at the moment of Z is captured before or after it).
 Limits:
 - **Timing is not verified.** There is no timing data for the iCE65; the
   `l04` device uses an estimate (iCE40LP8K x 1.3). With it nextpnr reports
-  53 MHz for the sampling clock (72 MHz needed; 47..54 MHz with other
-  seeds), 51 MHz for nRD, 62 MHz for the pin counters. The unchanged
+  for 2.66 52 MHz for the sampling clock (72 MHz needed; 43..52 MHz with
+  other seeds), 51 MHz for nRD, 59 MHz for the pin counters (2.64: 53, 51,
+  62 MHz; 2.64 works on the device). The unchanged
   original V2.5, which runs at 72 MHz on this chip when built by the vendor
   tool, gets 51 MHz from the same flow and estimate: the estimate is
   pessimistic, and this design is not slower than the original by it.

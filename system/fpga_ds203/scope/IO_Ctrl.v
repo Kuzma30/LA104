@@ -9,6 +9,7 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
                 Depth, PerCnt, Delay,
                 nPD, Trigg_Mode, Vthreshold, Tthreshold, CtrlReg, 
                 C_Rise, C_Fall, D_Rise, D_Fall, CntClr,
+                A_Edges, B_Edges, InitA, InitB,
                 QAR, QAF, QBR, QBF, LAR, LAF, LBR, LBF, ZGray,
                 SGray, EGray, LSync, QCtrl, AThr, AHys, BThr, BHys, DB );
 
@@ -63,6 +64,18 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
   input     [31:0]D_Rise;
   input     [31:0]D_Fall;
   output    CntClr;
+
+  // LA104: 32 bit edge counters of CH_A and CH_B (EdgeSync, FPGA 2.66):
+  //   the comparator levels of QuadSync (thresholds 0x10..0x13) counted in
+  //   MCI, both edges in one counter, cleared with the others by 0x0E bit0
+  //   Select 0x40/0x41: CH_A edges [15:0]/[31:16], 0x42/0x43 CH_B edges
+  //          (the low word latches the whole value, as 0x10..0x17),
+  //          0x44: bit0 / bit1 level of CH_A / CH_B before the first edge
+  //          (rising = (edges + !level) / 2), 0x1A: ID 0xC0D6
+  input     [31:0]A_Edges;
+  input     [31:0]B_Edges;
+  input     InitA;
+  input     InitB;
 
   // LA104: quadrature decoder (QuadCnt.v, FPGA 2.64), Gray code, the
   //   counters have 24 bits, the errors 8 bits
@@ -126,8 +139,9 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
   reg      [127:0]HoldQ;
   reg       [15:0]HoldZ;
   wire      [15:0]HoldW;
-  // version in the status word (SYS: FPGAVER = status >> 6): "2.64"
-  wire      [ 9:0]Version = 10'd264;
+  // version in the status word (SYS: FPGAVER = status >> 6): "2.66"
+  // (2.65 was a variant with a smaller buffer, not this line)
+  wire      [ 9:0]Version = 10'd266;
 
   initial begin
     CntCtrl = 0;
@@ -144,9 +158,10 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
                  ( Select[2:0] == 3'd6 ) ? HoldQ[111: 96] : HoldQ[127:112];
 
   assign CntClr = CntCtrl[0];
-  assign CntMux = ( Select[2:1] == 2'b00 ) ? C_Rise :
-                  ( Select[2:1] == 2'b01 ) ? C_Fall :
-                  ( Select[2:1] == 2'b10 ) ? D_Rise : D_Fall;
+  assign CntMux = ( Select[6] ) ? ( Select[1] ? B_Edges : A_Edges ) :
+                  ( ( Select[2:1] == 2'b00 ) ? C_Rise :
+                    ( Select[2:1] == 2'b01 ) ? C_Fall :
+                    ( Select[2:1] == 2'b10 ) ? D_Rise : D_Fall );
    
   assign nPD = CtrlReg[0];
         
@@ -162,7 +177,7 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
   end
   
   always @( negedge nRD ) begin
-   if (( Select[7:3] == 5'b00010 )&&( !Select[0] ))
+   if (( Select[7:3] == 5'b00010 || Select[7:2] == 6'b010000 )&&( !Select[0] ))
      Hold <= CntMux;                  // whole 32 bit value with the low word
   end
 
@@ -200,10 +215,14 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
      4'b1100: Data <= D_Edge;
      4'b1101: Data <= D_TL;
      4'b1110: Data <= D_TH;
-     8'h10, 8'h12, 8'h14, 8'h16: Data <= CntMux[15:0];
-     8'h11, 8'h13, 8'h15, 8'h17: Data <= Hold[31:16];
+     8'h10, 8'h12, 8'h14, 8'h16,
+     8'h40, 8'h42: Data <= CntMux[15:0];
+     8'h11, 8'h13, 8'h15, 8'h17,
+     8'h41, 8'h43: Data <= Hold[31:16];
+     8'h44:   Data <= { 14'h0, InitB, InitA };
      8'h18:   Data <= 16'hC0D2;
      8'h19:   Data <= 16'hC0D4;
+     8'h1A:   Data <= 16'hC0D6;
      default: Data <= 0;
    endcase 
   end
