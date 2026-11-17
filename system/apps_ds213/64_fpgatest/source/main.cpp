@@ -3,8 +3,9 @@
 //
 // Pages (Left / Right):
 //   Tests  automatic tests, groups with their own wiring (A-C, A-D, A-A,
-//          A-B: edge counters of one channel, B: quadrature; Up / Down
-//          chooses the group, F1 runs it)
+//          A-B: edge counters of one channel, B: quadrature, T-A, T-B:
+//          triggers of the oscilloscope; Up / Down chooses the group, F1
+//          runs it)
 //   Edges  the eight edge counters live, rates, generator (Up / Down),
 //          F3 clears the counters, F4 measures the thresholds of CH_A/CH_B
 //   Quad   both quadrature decoders live, control presets (Up / Down),
@@ -405,7 +406,7 @@ namespace
 
   void DrawTests()
   {
-    const char* groups[] = {"A-C", "A-D", "A-A", "A-B", "B"};
+    const char* groups[] = {"A-C", "A-D", "A-A", "A-B", "B", "T-A", "T-B"};
     const char chs[] = {'C', 'D', 'A', 'B'};
     Line(0, clrText, "Group %s (Up/Down), F1 runs it", groups[testGroup]);
     if (testGroup < 4)
@@ -413,10 +414,15 @@ namespace
       Line(1, clrDim, "A: edge counters of CH_%c. Wiring:", chs[testGroup]);
       Line(2, clrDim, "   Wave Out -> CH_%c", chs[testGroup]);
     }
-    else
+    else if (testGroup == 4)
     {
       Line(1, clrDim, "B: quadrature. Wave Out -> CH_A, CH_C;");
       Line(2, clrDim, "   Wave Out -10k- CH_B, CH_D, 33n to GND");
+    }
+    else
+    {
+      Line(1, clrDim, "T: triggers on CH_%c, 7 sampling rates.", testGroup == 5 ? 'A' : 'B');
+      Line(2, clrDim, "   Wave Out -> CH_%c", testGroup == 5 ? 'A' : 'B');
     }
     if (!testsRun)
     {
@@ -434,6 +440,201 @@ namespace
     Line(14, failed ? clrFail : clrOk, "passed %d, failed %d", passed, failed);
   }
 
+  // ------------------------------------------------------------ triggers
+  // groups T-A / T-B: Wave Out -> CH_A or CH_B (one connection). The
+  // trigger of the oscilloscope (Signal.v / AddrCtrl.v of the original):
+  // register 0x00 mode (bit 4..3 channel, 2..0 type, 0x20 unconditional;
+  // writing it sets depth 4095, 150 samples before the trigger, delay 1),
+  // 0x01 level, 0x02 / 0x03 time (samples) of the pulse modes. ClrW
+  // (ADC::Restart) starts an acquisition, status bit 5 Start (trigger
+  // found), bit 3 Full. The edges use the level +-12 (hysteresis).
+  enum { StatusReady = 0x04, StatusFull = 0x08, StatusStart = 0x20 };
+
+  struct TTrigCase
+  {
+    uint8_t type;     // mode bits 2..0
+    int tt;           // pulse time: 1 = half the half period, 3 = 1.5 half periods
+    bool fires;       // expected
+    bool rising;      // the signal after the trigger point is high
+    const char* name;
+  };
+
+  // square 50 %: a level lasts H samples
+  const TTrigCase trigCases[12] = {
+    {1, 0, true,  true,  "rise"}, {0, 0, true,  false, "fall"},
+    {3, 0, true,  true,  "hi"},   {2, 0, true,  false, "lo"},
+    {4, 3, true,  true,  "0<T"},  {4, 1, false, true,  "0<t"},
+    {5, 1, true,  true,  "0>t"},  {5, 3, false, true,  "0>T"},
+    {6, 3, true,  false, "1<T"},  {6, 1, false, false, "1<t"},
+    {7, 1, true,  false, "1>t"},  {7, 3, false, false, "1>T"},
+  };
+
+  struct TRate { float timePerDiv; uint32_t fs; const char* name; };
+  // MCI = 72 MHz / (psc + 1) / (arr + 1) of ADC::ConfigureTimebase
+  const TRate trigRates[7] = {
+    {200e-6f, 150000, "150k"}, {10e-6f, 3000000, "3M"}, {5e-6f, 6000000, "6M"},
+    {2e-6f, 14400000, "14M"}, {1e-6f, 24000000, "24M"}, {500e-9f, 36000000, "36M"},
+    {200e-9f, 72000000, "72M"}};
+
+  uint8_t trigBuf[400];      // samples of the trigger channel from the FIFO start
+
+  // one acquisition; true when the FIFO got full (trigger found)
+  bool TrigAcquire(int ch, uint8_t mode, uint8_t level, uint16_t tt, uint32_t fs,
+                   bool bios = false, uint16_t* status = nullptr)
+  {
+    if (bios)
+      ADC::ConfigureTrigger(tt, level * 4, (ADC::ETriggerType)(mode & 7), (ADC::EInput)((mode >> 3) & 3));
+    else
+    {
+      Fpga::SetParam(0x02, tt & 0xff);
+      Fpga::SetParam(0x03, tt >> 8);
+      Fpga::SetParam(0x01, level);
+      Fpga::SetParam(0x00, mode);
+    }
+    ADC::Restart(0);
+    // 4096 samples three times, at least 50 ms
+    uint32_t timeout = 50 + (uint32_t)(3ULL * 4096 * 1000 / fs);
+    uint32_t t0 = SYS::GetTick();
+    uint16_t st = Fpga::Status();
+    while (!(st & StatusFull) && SYS::GetTick() - t0 < timeout)
+      st = Fpga::Status();
+    if (status)
+      *status = st;
+    if (!(st & StatusFull))
+      return false;
+    for (int i = 0; i < (int)COUNT(trigBuf); i++)
+    {
+      ADC::TSample smp;
+      smp.value = ADC::Get();
+      trigBuf[i] = ch == 0 ? smp.CH1 : smp.CH2;
+    }
+    return true;
+  }
+
+  // half period in samples of the captured square (crossings of the level)
+  int TrigHalfPeriod(uint8_t level, int hys)
+  {
+    int first = -1, last = -1, n = 0;
+    bool high = trigBuf[16] > level;
+    for (int i = 17; i < (int)COUNT(trigBuf); i++)
+    {
+      bool h = high ? trigBuf[i] > level - hys : trigBuf[i] > level + hys;
+      if (h != high)
+      {
+        high = h;
+        if (first < 0) first = i; else n++;
+        last = i;
+      }
+    }
+    return n > 0 ? (last - first + n / 2) / n : 0;
+  }
+
+  // the crossing of the level nearest to sample 150 (the trigger point)
+  int TrigPoint(uint8_t level)
+  {
+    for (int d = 0; d < 60; d++)
+      for (int sgn = -1; sgn <= 1; sgn += 2)
+      {
+        int i = 150 + sgn * d;
+        if (i < 1 || i >= (int)COUNT(trigBuf))
+          continue;
+        if ((trigBuf[i - 1] > level) != (trigBuf[i] > level))
+          return i;
+      }
+    return -1;
+  }
+
+  void TestTriggers(int ch)
+  {
+    const char name = ch == 0 ? 'A' : 'B';
+    const uint8_t chMode = ch << 3;
+    Wave::Low();
+    Wave::Square(1000);
+    MeasureThresholds();
+    int lo = ch == 0 ? thresholds.minA : thresholds.minB;
+    int hi = ch == 0 ? thresholds.maxA : thresholds.maxB;
+    uint8_t level = (lo + hi) / 2;
+    bool swing = hi - lo >= 40;     // the trigger needs level +-12
+    Check(swing, "levels %c %d..%d, trigger level %d", name, lo, hi, level);
+    if (!swing)
+    {
+      Result(0, "     Wave Out -> CH_%c? (40 needed)", name);
+      return;
+    }
+
+    // without a signal an edge trigger must not fire
+    Wave::Low();
+    ADC::ConfigureTimebase(10e-6f);
+    SYS::DelayMs(5);
+    uint16_t st;
+    bool fired = TrigAcquire(ch, chMode | 1, level, 0, 3000000, false, &st);
+    Check(!fired, "no signal: no trigger (status %04x)", st & 0x3f);
+
+    for (const TRate& rate : trigRates)
+    {
+      ADC::ConfigureTimebase(rate.timePerDiv);
+      uint32_t freq = Wave::Square(rate.fs / 200);   // a level lasts 100 samples
+      SYS::DelayMs(5);
+
+      // unconditional: the real half period (and sampling rate)
+      int half = 0;
+      if (TrigAcquire(ch, 0x20, level, 0, rate.fs))
+        half = TrigHalfPeriod(level, 12);
+      uint32_t fsReal = (uint32_t)((uint64_t)freq * 2 * half);
+      if (half < 8)
+      {
+        Result(2, "FAIL %s: no square, half %d", rate.name, half);
+        continue;
+      }
+
+      int ok = 0, pos = -1;
+      char bad[40] = "";
+      for (const TTrigCase& c : trigCases)
+      {
+        uint16_t tt = c.tt ? (uint16_t)(half * c.tt / 2) : 0;
+        bool f = TrigAcquire(ch, chMode | c.type, level, tt, rate.fs);
+        bool good = f == c.fires;
+        if (good && f)
+        {
+          // around the trigger point: before low, after high (rising)
+          int p = TrigPoint(level);
+          bool dir = p > 0 && p - half / 4 >= 0 && p + half / 4 < (int)COUNT(trigBuf) &&
+                     (trigBuf[p + half / 4] > level) == c.rising &&
+                     (trigBuf[p - half / 4] > level) != c.rising &&
+                     p >= 150 - half / 4 && p <= 150 + half / 4;
+          good = dir;
+          if (c.type == 1)
+            pos = p;
+        }
+        if (good)
+          ok++;
+        else if (strlen(bad) + strlen(c.name) + 1 < sizeof(bad))
+        {
+          strcat(bad, " ");
+          strcat(bad, c.name);
+        }
+      }
+      Wave::Low();
+      if (ok == (int)COUNT(trigCases))
+        Check(true, "%s: 12/12, fs %u.%uM, at %d", rate.name,
+              fsReal / 1000000, fsReal / 100000 % 10, pos);
+      else
+        Check(false, "%s: %d/12%s", rate.name, ok, bad);
+    }
+
+    // the path of the oscilloscope app: BIOS::ADC::ConfigureTrigger (SYS)
+    ADC::ConfigureTimebase(10e-6f);
+    Wave::Square(15000);
+    SYS::DelayMs(5);
+    fired = TrigAcquire(ch, chMode | 1, level, 0, 3000000, true, &st);
+    int p = fired ? TrigPoint(level) : -1;
+    bool dir = p >= 125 && p <= 175 && trigBuf[p + 25] > level && trigBuf[p - 25] <= level;
+    Check(fired && dir, "BIOS trigger rise 3M: %s at %d",
+          fired ? "fired" : "no", p);
+    Wave::Low();
+    ADC::ConfigureTrigger(0, 0, ADC::ETriggerType::None, ADC::EInput::CH1);
+  }
+
   void RunTests()
   {
     resultCount = 0;
@@ -447,8 +648,10 @@ namespace
       TestEdges(testGroup);
     else if (testGroup < 4)
       TestEdgesAnalog(testGroup - 2);
-    else
+    else if (testGroup == 4)
       TestQuadrature();
+    else
+      TestTriggers(testGroup - 5);
     AdcFast();
     Fpga::SetThresholds(thresholds.thrA, thresholds.hysA, thresholds.thrB, thresholds.hysB);
   }
@@ -572,7 +775,7 @@ namespace
       case EPage::Tests:
         if (key == KEY::Up || key == KEY::Down)
         {
-          testGroup = (testGroup + (key == KEY::Up ? 1 : 4)) % 5;   // A-C, A-D, A-A, A-B, B
+          testGroup = (testGroup + (key == KEY::Up ? 1 : 6)) % 7;   // A-C, A-D, A-A, A-B, B, T-A, T-B
           testsRun = false;
         }
         if (key == KEY::F1)

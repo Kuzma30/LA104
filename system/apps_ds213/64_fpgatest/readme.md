@@ -14,7 +14,7 @@ Keys: Left / Right page, F2 exit.
 
 ## Page Tests
 
-Up / Down chooses the group (A-C, A-D, A-A, A-B, B), F1 runs it. Every
+Up / Down chooses the group (A-C, A-D, A-A, A-B, B, T-A, T-B), F1 runs it. Every
 line is OK, FAIL or info.
 
 Groups A-C and A-D, edge counters of one channel. Wiring: Wave Out -> CH_C
@@ -65,6 +65,32 @@ B is A delayed by ~0.23 ms: at 1 kHz that is a quadrature signal, A leads B.
 - the same with A and B swapped: -4 per period
 - decoder of the pins (A = CH_C, B = CH_D): +4 per period exactly (a slow
   edge on CH_D may bounce, the counters cancel it)
+
+Groups T-A and T-B, triggers of the oscilloscope (the logic of the
+original FPGA, `Signal.v` / `AddrCtrl.v`). Wiring: Wave Out -> CH_A (T-A)
+or Wave Out -> CH_B (T-B), one connection each. The registers are written
+directly: 0x00 mode, 0x01 level, 0x02 / 0x03 pulse time; ClrW starts an
+acquisition, the status word shows Start (bit 5) and Full (bit 3), the
+FIFO is read as the oscilloscope does.
+- levels at 1 V/div, trigger level = middle (the swing must be > 40: the
+  trigger uses the level +-12)
+- no signal: a rising edge trigger does not fire
+- for the sampling rates 150 kHz (200 us/div), 3, 6, 14.4, 24, 36 and
+  72 MHz (200 ns/div), with a square of fs / 200 (a level lasts 100
+  samples):
+  - unconditional acquisition: the real half period, shown as the real
+    sampling rate (`fs 72.0M`)
+  - 12 cases: edge rising / falling, level high / low, the four pulse
+    modes each with a time of 0.5 and 1.5 levels (fires / does not fire);
+    a trigger that fires must have the edge in the right direction at
+    sample ~150 (`at 151`: the position of the rising edge)
+  - FAIL lists the cases that went wrong
+- the same rising trigger at 3 MHz through BIOS::ADC::ConfigureTrigger
+  (the path of the oscilloscope app through SYS)
+
+If the cases fail only at the fast rates, the FPGA does not meet the
+timing there; if the direct registers work and the BIOS line fails, the
+problem is in SYS / the app.
 
 ## Page Edges
 
