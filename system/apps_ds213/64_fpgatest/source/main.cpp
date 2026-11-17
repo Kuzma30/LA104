@@ -1,12 +1,12 @@
-// FPGA 2.64 tester for the DS203: edge counters of CH_C / CH_D and the
+// FPGA 2.66 tester for the DS203: edge counters of CH_A..CH_D and the
 // quadrature decoders, with the signal of Wave Out.
 //
 // Pages (Left / Right):
-//   Tests  automatic tests, groups with their own wiring (A-C, A-D: edge
-//          counters of one channel, B: quadrature; Up / Down chooses the
-//          group, F1 runs it)
-//   Edges  the four edge counters live, rates, generator (Up / Down),
-//          F3 clears the counters
+//   Tests  automatic tests, groups with their own wiring (A-C, A-D, A-A,
+//          A-B: edge counters of one channel, B: quadrature; Up / Down
+//          chooses the group, F1 runs it)
+//   Edges  the eight edge counters live, rates, generator (Up / Down),
+//          F3 clears the counters, F4 measures the thresholds of CH_A/CH_B
 //   Quad   both quadrature decoders live, control presets (Up / Down),
 //          F3 sets the zero of the display, F4 measures the thresholds
 // F2 leaves the application.
@@ -53,7 +53,7 @@ namespace
   {
     const char* names[] = {"Tests", "Edges", "Quad"};
     LCD::Bar(0, 0, LCD::Width, 16, clrTitle);
-    int x = 4 + LCD::Print(4, 1, clrText, clrTitle, "FPGA 2.64 test");   // Print returns the width
+    int x = 4 + LCD::Print(4, 1, clrText, clrTitle, "FPGA 2.66 test");   // Print returns the width
     x += 16;
     for (int i = 0; i < (int)EPage::Total; i++)
     {
@@ -65,6 +65,16 @@ namespace
   }
 
   // ------------------------------------------------------------ ADC / MCI
+  // sampling clock MCI = 72 MHz / timer of the time base: 500 ns/div 36 MHz,
+  // 5 us/div 6 MHz, 10 us/div 3 MHz
+  void Sampling(float timePerDiv)
+  {
+    ADC::Enable(true);
+    ADC::ConfigureTrigger(0, 0, ADC::ETriggerType::None, ADC::EInput::CH1);
+    ADC::ConfigureTimebase(timePerDiv);
+    ADC::Restart(0);
+  }
+
   void AdcFast()
   {
     // sampling clock MCI 3 MHz for the decoder in MCI
@@ -76,7 +86,7 @@ namespace
 
   struct TThresholds
   {
-    bool valid{false};
+    bool valid{false}, validA{false}, validB{false};
     int minA, maxA, minB, maxB;
     uint8_t thrA{128}, hysA{8}, thrB{128}, hysB{8};
   } thresholds;
@@ -107,11 +117,14 @@ namespace
     }
     thresholds.minA = minA; thresholds.maxA = maxA;
     thresholds.minB = minB; thresholds.maxB = maxB;
-    thresholds.valid = (maxA - minA >= 20) && (maxB - minB >= 20);
-    thresholds.thrA = (minA + maxA) / 2;
-    thresholds.hysA = max(2, (maxA - minA) / 8);
-    thresholds.thrB = (minB + maxB) / 2;
-    thresholds.hysB = max(2, (maxB - minB) / 8);
+    thresholds.validA = maxA - minA >= 20;
+    thresholds.validB = maxB - minB >= 20;
+    thresholds.valid = thresholds.validA && thresholds.validB;
+    // a channel without a signal gets a threshold above its range: no edges
+    thresholds.thrA = thresholds.validA ? (minA + maxA) / 2 : 250;
+    thresholds.hysA = thresholds.validA ? max(2, (maxA - minA) / 8) : 4;
+    thresholds.thrB = thresholds.validB ? (minB + maxB) / 2 : 250;
+    thresholds.hysB = thresholds.validB ? max(2, (maxB - minB) / 8) : 4;
     Fpga::SetThresholds(thresholds.thrA, thresholds.hysA, thresholds.thrB, thresholds.hysB);
     AdcFast();
     return thresholds.valid;
@@ -162,9 +175,9 @@ namespace
   void TestIdentity()
   {
     uint16_t status = Fpga::Status();
-    Check((status >> 6) == 264, "version %d (status %04x)", status >> 6, status);
-    uint16_t id1 = Fpga::Read(0x18), id2 = Fpga::Read(0x19);
-    Check(id1 == 0xC0D2 && id2 == 0xC0D4, "ID %04x %04x", id1, id2);
+    Check((status >> 6) == 266, "version %d (status %04x)", status >> 6, status);
+    uint16_t id1 = Fpga::Read(0x18), id2 = Fpga::Read(0x19), id3 = Fpga::Read(0x1A);
+    Check(id1 == 0xC0D2 && id2 == 0xC0D4 && id3 == 0xC0D6, "ID %04x %04x %04x", id1, id2, id3);
   }
 
   // groups A-C / A-D: Wave Out -> CH_C or CH_D (one connection)
@@ -237,6 +250,103 @@ namespace
     Check(bad == 0 && prev - first > 1000, "%c read at 6 MHz: %u bad, step %u", name, bad, maxStep);
   }
 
+  // square bursts of 0.5 s, rising = falling = f * t (0.5 % + 3: the ms tick)
+  void Burst(char name, int r, int f, uint32_t freq, bool info, const char* note = "")
+  {
+    Fpga::ClearEdges();
+    uint32_t real = Wave::Square(freq);
+    uint32_t t0 = SYS::GetTick();
+    SYS::DelayMs(500);
+    uint32_t t1 = SYS::GetTick();
+    Wave::Low();
+    SYS::DelayMs(2);
+    uint32_t up = Fpga::Edges(r), down = Fpga::Edges(f);
+    uint32_t expect = (uint32_t)((uint64_t)real * (t1 - t0) / 1000);
+    uint32_t tol = expect / 200 + 3;
+    bool ok = up == down && Diff(up, expect) <= tol;
+    uint32_t fk = real >= 1000000 ? real / 1000000 : real / 1000;
+    const char* unit = real >= 1000000 ? "M" : "k";
+    if (info)
+      Result(0, "info %c %u%s%s: %u/%u (%u)", name, fk, unit, note, up, down, expect);
+    else
+      Check(ok, "%c %u%s%s: %u/%u (%u)", name, fk, unit, note, up, down, expect);
+  }
+
+  // groups A-A / A-B: Wave Out -> CH_A or CH_B (one connection). The FPGA
+  // counts the edges of the comparator in the sampling clock: exact up to
+  // half the sampling rate, the thresholds come from the ADC levels.
+  void TestEdgesAnalog(int ch)
+  {
+    const char name = ch == 0 ? 'A' : 'B', other = ch == 0 ? 'B' : 'A';
+    const int r = 4 + 2 * ch, f = r + 1, ro = 4 + 2 * (1 - ch);
+    Wave::Low();
+    Wave::Square(1000);
+    MeasureThresholds();           // the other channel gets a threshold above its range
+    Wave::Low();
+    bool levels = ch == 0 ? thresholds.validA : thresholds.validB;
+    if (ch == 0)
+      Check(levels, "levels A %d..%d, thr %d/%d", thresholds.minA, thresholds.maxA, thresholds.thrA, thresholds.hysA);
+    else
+      Check(levels, "levels B %d..%d, thr %d/%d", thresholds.minB, thresholds.maxB, thresholds.thrB, thresholds.hysB);
+    if (!levels)
+    {
+      Result(0, "     Wave Out -> CH_%c?", name);
+      return;
+    }
+
+    Sampling(500e-9f);             // MCI 36 MHz
+    SYS::DelayMs(5);
+    Fpga::ClearEdges();
+    SYS::DelayMs(1);
+    uint32_t c0 = Fpga::Edges(r) + Fpga::Edges(f);
+
+    // exact number of pulses (about 1 MHz, short high level), from a clear
+    const uint32_t n = 100000;
+    Wave::Pulses(n);
+    SYS::DelayMs(2);
+    uint32_t e0 = Fpga::Edges(r), e1 = Fpga::Edges(f);
+    if (e0 == 0 && e1 == 0)
+    {
+      Result(2, "FAIL no edges: Wave Out -> CH_%c?", name);
+      return;
+    }
+    Check(c0 == 0 && e0 == n && e1 == n, "%c clear %u, %u pulses: %u/%u", name, c0, n, e0, e1);
+
+    // sampled at 36 MHz; 6 MHz informs only (analog bandwidth of the input)
+    static const uint32_t freqs[] = {1000000, 3000000};
+    for (uint32_t freq : freqs)
+      Burst(name, r, f, freq, false);
+    Burst(name, r, f, 6000000, true);
+    uint32_t q = Fpga::Edges(ro) + Fpga::Edges(ro + 1);
+    Check(q == 0, "CH_%c without signal: %u edges", other, q);
+
+    // half the sampling rate: MCI 6 MHz, 2 MHz is exact, 4 MHz is above fs/2
+    Sampling(5e-6f);
+    SYS::DelayMs(5);
+    Burst(name, r, f, 2000000, false, " fs6M");
+    Burst(name, r, f, 4000000, true, " fs6M");
+
+    // reading while counting: no jumps
+    Sampling(500e-9f);
+    SYS::DelayMs(5);
+    Fpga::ClearEdges();
+    Wave::Square(1000000);
+    uint32_t first = Fpga::Edges(r);
+    uint32_t prev = first, bad = 0, maxStep = 0;
+    for (int i = 0; i < 2000; i++)
+    {
+      uint32_t v = Fpga::Edges(i & 1 ? f : r);
+      if ((i & 1) == 0)
+      {
+        uint32_t step = v - prev;
+        if (v < prev || step > 10000) bad++;
+        maxStep = max(maxStep, step);
+        prev = v;
+      }
+    }
+    Wave::Low();
+    Check(bad == 0 && prev - first > 100, "%c read at 1 MHz: %u bad, step %u", name, bad, maxStep);
+  }
 
   // group B: Wave Out -> CH_A, CH_C; Wave Out -> 10k -> CH_B, CH_D, 33n to GND
   void TestQuadrature()
@@ -295,12 +405,13 @@ namespace
 
   void DrawTests()
   {
-    const char* groups[] = {"A-C", "A-D", "B"};
+    const char* groups[] = {"A-C", "A-D", "A-A", "A-B", "B"};
+    const char chs[] = {'C', 'D', 'A', 'B'};
     Line(0, clrText, "Group %s (Up/Down), F1 runs it", groups[testGroup]);
-    if (testGroup < 2)
+    if (testGroup < 4)
     {
-      Line(1, clrDim, "A: edge counters of CH_%c. Wiring:", testGroup == 0 ? 'C' : 'D');
-      Line(2, clrDim, "   Wave Out -> CH_%c", testGroup == 0 ? 'C' : 'D');
+      Line(1, clrDim, "A: edge counters of CH_%c. Wiring:", chs[testGroup]);
+      Line(2, clrDim, "   Wave Out -> CH_%c", chs[testGroup]);
     }
     else
     {
@@ -334,9 +445,12 @@ namespace
     TestIdentity();
     if (testGroup < 2)
       TestEdges(testGroup);
+    else if (testGroup < 4)
+      TestEdgesAnalog(testGroup - 2);
     else
       TestQuadrature();
     AdcFast();
+    Fpga::SetThresholds(thresholds.thrA, thresholds.hysA, thresholds.thrB, thresholds.hysB);
   }
 
   // ------------------------------------------------------------ edges page
@@ -357,34 +471,35 @@ namespace
       genReal = Wave::Square(genPresets[genPreset].freq);
   }
 
-  uint32_t lastEdges[4];
+  uint32_t lastEdges[8];
   uint32_t lastTick = 0;
-  uint32_t rates[4];
+  uint32_t rates[8];
 
   void DrawEdges(bool force)
   {
     uint32_t now = SYS::GetTick();
-    uint32_t e[4];
-    for (int i = 0; i < 4; i++) e[i] = Fpga::Edges(i);
+    uint32_t e[8];
+    for (int i = 0; i < 8; i++) e[i] = Fpga::Edges(i);
     if (now - lastTick >= 1000 || force)
     {
       uint32_t dt = now - lastTick;
-      for (int i = 0; i < 4; i++)
+      for (int i = 0; i < 8; i++)
       {
         rates[i] = (force || dt == 0) ? 0 : (uint32_t)((uint64_t)(e[i] - lastEdges[i]) * 1000 / dt);
         lastEdges[i] = e[i];
       }
       lastTick = now;
     }
-    const char* names[] = {"C rising ", "C falling", "D rising ", "D falling"};
-    Line(0, clrText, "Generator (Up/Down): %s", genPresets[genPreset].name);
-    Line(1, clrDim, "Wave Out -> CH_C / CH_D, F3 clears");
+    const char* names[] = {"C rising ", "C falling", "D rising ", "D falling",
+                           "A rising ", "A falling", "B rising ", "B falling"};
+    Line(0, clrText, "Generator (Up/Down): %s  %u Hz", genPresets[genPreset].name, genReal);
+    Line(1, clrDim, "Wave Out -> any CH, F3 clears, F4 thr A/B");
+    Line(2, clrDim, "A/B: 3 MS/s, thr A %d/%d B %d/%d", thresholds.thrA, thresholds.hysA, thresholds.thrB, thresholds.hysB);
     Line(3, clrDim, "counter        count        per second");
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < 8; i++)
       Line(4 + i, clrText, "%s  %10u  %10u", names[i], e[i], rates[i]);
-    Line(9, clrDim, "C rising - falling: %d", (int)(e[0] - e[1]));
-    Line(10, clrDim, "D rising - falling: %d", (int)(e[2] - e[3]));
-    Line(11, clrDim, "generator: %u Hz", genReal);
+    Line(12, clrDim, "rising - falling: C %d  D %d", (int)(e[0] - e[1]), (int)(e[2] - e[3]));
+    Line(13, clrDim, "rising - falling: A %d  B %d", (int)(e[4] - e[5]), (int)(e[6] - e[7]));
   }
 
   // ------------------------------------------------------------ quad page
@@ -457,7 +572,7 @@ namespace
       case EPage::Tests:
         if (key == KEY::Up || key == KEY::Down)
         {
-          testGroup = (testGroup + (key == KEY::Up ? 1 : 2)) % 3;   // A-C, A-D, B
+          testGroup = (testGroup + (key == KEY::Up ? 1 : 4)) % 5;   // A-C, A-D, A-A, A-B, B
           testsRun = false;
         }
         if (key == KEY::F1)
@@ -469,6 +584,13 @@ namespace
         if (key == KEY::Down && genPreset > 0) genPreset--;
         if (key == KEY::Up || key == KEY::Down) SetGenerator();
         if (key == KEY::F3) Fpga::ClearEdges();
+        if (key == KEY::F4)
+        {
+          // levels of the square of Wave Out at 1 kHz, then the generator as it was
+          Wave::Square(1000);
+          MeasureThresholds();
+          SetGenerator();
+        }
         DrawEdges(true);
         break;
       case EPage::Quad:

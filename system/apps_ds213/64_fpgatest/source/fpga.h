@@ -1,5 +1,5 @@
 #pragma once
-// Access to the registers of the DS203 FPGA 2.64 (edge counters, quadrature
+// Access to the registers of the DS203 FPGA 2.66 (edge counters, quadrature
 // decoder), see system/fpga_ds203/readme.md.
 //
 //   write:  Set_Param(addr, value): H_L = 1, serial byte addr, H_L = 0,
@@ -123,9 +123,35 @@ namespace Fpga
     return (v & 0x800000) ? (int32_t)(v | 0xff000000) : (int32_t)v;
   }
 
-  // ---- edge counters (32 bit): 0 C rising, 1 C falling, 2 D rising, 3 D falling
+  // ---- edge counters of CH_A / CH_B (FPGA 2.66): one counter of both edges
+  // per channel, counted in the sampling clock MCI after the comparators
+  // (thresholds 0x10..0x13, shared with the quadrature decoder)
+  inline uint32_t EdgesAnalog(int ch)  // 0 CH_A, 1 CH_B
+  {
+    uint8_t sel = 0x40 + 2 * ch;
+    uint32_t lo = Read(sel);           // latches the whole value
+    uint32_t hi = Read(sel + 1);
+    return Gray2Bin((hi << 16) | lo);
+  }
+
+  // level of the channel before its first edge (changes only while its counter is 0)
+  inline bool InitLevel(int ch)
+  {
+    return (Read(0x44) >> ch) & 1;
+  }
+
+  // ---- edge counters (32 bit): 0 C rising, 1 C falling, 2 D rising, 3 D falling,
+  //      4 A rising, 5 A falling, 6 B rising, 7 B falling
+  // The edges of a comparator alternate: rising = (edges + !level) / 2.
   inline uint32_t Edges(int which)
   {
+    if (which >= 4)
+    {
+      int ch = (which - 4) >> 1;
+      uint32_t e = EdgesAnalog(ch);
+      uint32_t rise = (e >> 1) + ((e & 1) && !InitLevel(ch) ? 1 : 0);
+      return (which & 1) ? e - rise : rise;
+    }
     uint8_t sel = 0x10 + 2 * which;
     uint32_t lo = Read(sel);           // latches the whole value
     uint32_t hi = Read(sel + 1);

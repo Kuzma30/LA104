@@ -1,6 +1,6 @@
-# 64_fpgatest: tester of the DS203 FPGA 2.64
+# 64_fpgatest: tester of the DS203 FPGA 2.66
 
-DS203 only, needs the FPGA image 2.64 (`tools/fpga/ds203_hw26x_V264FPGA`,
+DS203 only, needs the FPGA image 2.66 (`tools/fpga/ds203_hw26x_V266FPGA`,
 sources in `system/fpga_ds203`). Build: `./build_ds203.sh` (needs
 `system/os_library/build/libbios_ds203.so` and `tools/elfstrip/elfstrip`),
 copy `build/64fpgtst.elf` to the device.
@@ -14,12 +14,12 @@ Keys: Left / Right page, F2 exit.
 
 ## Page Tests
 
-Up / Down chooses the group (A-C, A-D, B), F1 runs it. Every line is OK
-or FAIL.
+Up / Down chooses the group (A-C, A-D, A-A, A-B, B), F1 runs it. Every
+line is OK, FAIL or info.
 
 Groups A-C and A-D, edge counters of one channel. Wiring: Wave Out -> CH_C
 (group A-C) or Wave Out -> CH_D (group A-D), one connection each.
-- version 264 in the status word, IDs 0xC0D2 / 0xC0D4
+- version 266 in the status word, IDs 0xC0D2 / 0xC0D4 / 0xC0D6
 - clear: the four counters are 0
 - 100000 pulses of the CPU (~1 MHz): rising and falling exactly 100000
 - square bursts of 0.5 s at 1 kHz, 100 kHz, 1 MHz, 6 MHz, 9 MHz: rising =
@@ -29,6 +29,22 @@ Groups A-C and A-D, edge counters of one channel. Wiring: Wave Out -> CH_C
 - 12 MHz: information only, the output stage of Wave Out does not pass it
   (0 edges on HW 2.7 while 6 MHz is exact)
 - 2000 reads while the counter runs at 6 MHz: it moves, never back, no jump
+
+Groups A-A and A-B, edge counters of CH_A / CH_B (comparators counted in
+the sampling clock). Wiring: Wave Out -> CH_A (group A-A) or Wave Out ->
+CH_B (group A-B), one connection each.
+- version and IDs as above
+- levels of the channel at 1 V/div with a 1 kHz square, threshold =
+  middle, hysteresis = 1/8 of the swing; the other channel gets a threshold
+  above its range
+- sampling 36 MHz (0.5 us/div): clear, then 100000 pulses of the CPU:
+  rising and falling exactly 100000
+- square bursts of 0.5 s at 1 MHz and 3 MHz (exact within 0.5 %), 6 MHz
+  information only (the analog input stage)
+- the other channel: 0 edges
+- sampling 6 MHz (5 us/div): 2 MHz exact; 4 MHz information only, it is
+  above half the sampling rate and is counted wrong (aliasing)
+- 2000 reads while the counter runs at 1 MHz: it moves, never back, no jump
 
 Group B, quadrature. Wiring:
 
@@ -52,8 +68,11 @@ B is A delayed by ~0.23 ms: at 1 kHz that is a quadrature signal, A leads B.
 
 ## Page Edges
 
-The four counters and their rate per second. Up / Down: square on Wave
-Out (off, 1 Hz ... 12 MHz), F3 clears the counters.
+The eight counters (C, D by the pins; A, B by the comparators at the
+sampling rate of the page, 3 MHz: exact up to 1.5 MHz) and their rate per
+second. Up / Down: square on Wave Out (off, 1 Hz ... 12 MHz), F3 clears
+the counters, F4 measures the thresholds of CH_A / CH_B (Wave Out at 1 kHz
+for a moment, connected to the channels to count).
 
 ## Page Quad
 
