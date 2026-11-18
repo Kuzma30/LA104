@@ -42,4 +42,5 @@ public:
 	virtual void OnPaint() override;
 	bool IsRunning();
 	void ToggleRunStop();
+	void AutoSet();
 };

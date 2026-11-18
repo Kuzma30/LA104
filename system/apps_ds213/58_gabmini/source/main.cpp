@@ -26,6 +26,14 @@ int _main(void)
         }
         else if (key == BIOS::KEY::F4)
             key = BIOS::KEY::Enter;
+        // F3: automatic setup while the oscilloscope is shown (the trigger
+        // item keeps F3 for its source)
+        else if (key == BIOS::KEY::F3 && app.m_wndGraph.IsVisible() &&
+            !app.m_wndMenuInput.m_itmTrig.HasFocus())
+        {
+            app.AutoSet();
+            key = BIOS::KEY::None;
+        }
         if (key != BIOS::KEY::None)
             app.WindowMessage(CWnd::WmKey, key);
 		

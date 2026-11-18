@@ -1,5 +1,6 @@
 #include "MainWnd.h"
 #include <Oscilloscope/Core/Roll.h>
+#include "Oscilloscope/Core/AutoSet.h"
 
 CMainWnd* CMainWnd::m_pInstance = nullptr;
 CSettings m_Settings; // TODO:!
@@ -115,6 +116,30 @@ void CMainWnd::ToggleRunStop()
 		m_wndMenuInput.m_itmTrig.Invalidate();
 	if ( m_wndGraph.IsVisible() )
 		m_wndGraph.Invalidate();
+}
+
+// F3: automatic V/div, position, time base and trigger (Oscilloscope/Core/AutoSet)
+void CMainWnd::AutoSet()
+{
+	CRect rc( m_wndGraph.m_rcClient.left + 4, m_wndGraph.m_rcClient.top + 4,
+		m_wndGraph.m_rcClient.left + 4 + 110, m_wndGraph.m_rcClient.top + 4 + 16 );
+	BIOS::LCD::Bar( rc, RGB565(000000) );
+	BIOS::LCD::Print( rc.left + 4, rc.top, RGB565(ffff00), RGBTRANS, "AUTO..." );
+
+	AutoSet::EResult result = AutoSet::Run();
+
+	m_lHoldUntil = 0;
+	m_lLastAcquired = m_lLastRequested = BIOS::SYS::GetTick();
+	m_wndGraph.ClearAverage();
+	m_wndGraph.ClearPersist();
+	// ranges, time base and trigger changed: redraw everything
+	WindowMessage( CWnd::WmPaint );
+
+	if ( result == AutoSet::NoSignal )
+	{
+		BIOS::LCD::Bar( rc, RGB565(000000) );
+		BIOS::LCD::Print( rc.left + 4, rc.top, RGB565(ff4040), RGBTRANS, "AUTO: no signal" );
+	}
 }
 
 /*virtual*/ void CMainWnd::WindowMessage(int nMsg, int nParam)
