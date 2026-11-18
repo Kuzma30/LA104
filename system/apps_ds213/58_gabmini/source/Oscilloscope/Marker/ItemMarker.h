@@ -1,6 +1,8 @@
 #ifndef __MENUITEMMARKER_H__
 #define __MENUITEMMARKER_H__
 
+#include "MarkerUnits.h"
+
 class CItemMarker : public CWndMenuItem
 {
 	CSettings::Marker* m_pMarker;
@@ -60,12 +62,13 @@ public:
 			{ 
 				float fTimeRes = Settings.Runtime.m_fTimeRes / CWndGraph::BlkX;
 				float fValue = fTimeRes * ( m_pMarker->nValue - CSettings::Trigger::Position );
-				
-				x += BIOS::LCD::Printf( x, y, clr, RGBTRANS, "%f", F2D(fValue*1000) );
+				CMarkerUnit unit = MarkerTimeUnit();
+
+				x += MarkerPrint( x, y, clr, fValue * unit.fScale );
 				if (!HasFocus())
 				{
 					x += 2;
-					BIOS::LCD::Print( x, y, clr2, RGBTRANS, "ms");
+					BIOS::LCD::Print( x, y, clr2, RGBTRANS, unit.strUnit );
 				}
 			}
 			if ( m_pMarker->Type == CSettings::Marker::_Voltage )

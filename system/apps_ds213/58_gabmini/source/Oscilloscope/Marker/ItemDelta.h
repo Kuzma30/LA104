@@ -1,6 +1,8 @@
 #ifndef __MENUITEMMARKERDELTA_H__
 #define __MENUITEMMARKERDELTA_H__
 
+#include "MarkerUnits.h"
+
 class CItemMarkerDelta : public CWndMenuItem
 {
 	CSettings::Marker* m_pMarker1;
@@ -53,24 +55,21 @@ public:
 			{ 
 				float fTimeRes = Settings.Runtime.m_fTimeRes / CWndGraph::BlkX;
 				float fValue = fTimeRes * ( m_pMarker2->nValue - m_pMarker1->nValue );
-				x += BIOS::LCD::Printf( x, y, clr, RGBTRANS, "%f", F2D(fValue*1000) );
+				CMarkerUnit unit = MarkerTimeUnit();
+				x += MarkerPrint( x, y, clr, fValue * unit.fScale );
 				x += 2;
-				BIOS::LCD::Print( x, y, RGB565(404040), RGBTRANS, "ms");
+				BIOS::LCD::Print( x, y, RGB565(404040), RGBTRANS, unit.strUnit );
 				x = _x;
 				y += 16;
 				if ( fValue == 0 )
 					BIOS::LCD::Print( x, y, clr, RGBTRANS, "Error");
 				else
 				{
-					if ( fValue < 0 )
-						fValue = -1.0f / fValue;
-					else
-						fValue = 1.0f / fValue;
-					fValue /= 1000.0f; // kHz
-					fValue += 0.0001f; // sprintf rounding 
-					x += BIOS::LCD::Printf( x, y, clr, RGBTRANS, "%f", F2D(fValue) );
+					float fFreq = 1.0f / ( fValue < 0 ? -fValue : fValue );
+					CMarkerUnit funit = MarkerFreqUnit( fFreq );
+					x += MarkerPrint( x, y, clr, fFreq * funit.fScale );
 					x += 2;
-					BIOS::LCD::Print( x, y, RGB565(404040), RGBTRANS, "kHz");
+					BIOS::LCD::Print( x, y, RGB565(404040), RGBTRANS, funit.strUnit );
 				}
 			}
 			if ( m_pMarker1->Type == CSettings::Marker::_Voltage )
