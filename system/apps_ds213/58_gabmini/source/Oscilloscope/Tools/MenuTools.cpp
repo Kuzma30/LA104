@@ -334,6 +334,12 @@ namespace Tools
 		CSettings::Calibrator* arrCal[2] = { &Settings.CH1Calib, &Settings.CH2Calib };
 		CSettings::AnalogChannel arrSaved[2] = { Settings.CH1, Settings.CH2 };
 		CSettings::TimeBase::EResolution savedTime = Settings.Time.Resolution;
+		// the mean needs 3760 samples: whole buffer (Buf:Scr and the history
+		// of Persist / Phosph keep only one screen)
+		CSettings::TimeBase::EBuffer savedBuffer = Settings.Time.Buffer;
+		NATIVEENUM savedPersist = (NATIVEENUM)Settings.Disp.Persist;
+		Settings.Time.Buffer = CSettings::TimeBase::_BufFull;
+		Settings.Disp.Persist = CSettings::Display::_PerNo;
 
 		Settings.Time.Resolution = CSettings::TimeBase::_500us;
 		int nFailCh = -1, nFailRes = 0, nFails = 0;
@@ -444,6 +450,9 @@ namespace Tools
 		Settings.CH1 = arrSaved[0];
 		Settings.CH2 = arrSaved[1];
 		Settings.Time.Resolution = savedTime;
+		Settings.Time.Buffer = savedBuffer;
+		*(NATIVEENUM*)&Settings.Disp.Persist = savedPersist;
+		MainWnd.m_wndGraph.ClearPersist();
 		CCoreOscilloscope::ConfigureAdc();
 		CCoreOscilloscope::ConfigureTrigger();
 		bool bSaved = SaveCalibration();
