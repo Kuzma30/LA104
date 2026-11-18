@@ -315,6 +315,7 @@ void CSettings::Reset()
 	Extra.nMathRes = CSettings::AnalogChannel::_1V;
 	Extra.nFft = 0;
 	Extra.nRef = 0;
+	Extra.arrBeam[0] = Extra.arrBeam[1] = 0;
 
 	Disp.Axes = Display::_TY;
 	Disp.Draw = Display::_Lines;

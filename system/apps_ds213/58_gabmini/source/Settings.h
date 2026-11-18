@@ -439,6 +439,7 @@ public:
 		uint8_t nMathRes;                // V/div of the math trace (AnalogChannel::eResolution)
 		uint8_t nFft;                    // 0 off, 1 CH1, 2 CH2
 		uint8_t nRef;                    // reference trace: 0 off, 1 shown
+		uint8_t arrBeam[2];              // CH1, CH2 trace width - 1 (0..2)
 	} Extra;
 
 public:

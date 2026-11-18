@@ -5,6 +5,43 @@
 #include <Oscilloscope/Tools/Fft.h>
 #include <Oscilloscope/Tools/MenuTools.h>
 
+// beam width of an analog trace (channel list: Beam): the segment of the
+// column is joined with the segments of the previous columns, so steep edges
+// get wider too, and it is widened vertically for flat parts
+struct TBeam
+{
+	int nB[2], nT[2];
+	bool bInit;
+};
+
+static void DrawBeam( ui16* column, TBeam& b, int nBottom, int nTop, int nWidth, ui16 clr )
+{
+	if ( !b.bInit )
+	{
+		b.nB[0] = b.nB[1] = nBottom;
+		b.nT[0] = b.nT[1] = nTop;
+		b.bInit = true;
+	}
+	int nB = nBottom, nT = nTop;
+	for ( int i = 0; i < nWidth - 1 && i < 2; i++ )
+	{
+		nB = min( nB, b.nB[i] );
+		nT = max( nT, b.nT[i] );
+	}
+	if ( nWidth >= 2 )
+		nT++;
+	if ( nWidth >= 3 )
+		nB--;
+	if ( nB < 0 )
+		nB = 0;
+	if ( nT > CWndGraph::DivsY * CWndGraph::BlkY - 1 )
+		nT = CWndGraph::DivsY * CWndGraph::BlkY - 1;
+	for ( int _y = nB; _y <= nT; _y++ )
+		column[_y] = clr;
+	b.nB[1] = b.nB[0]; b.nT[1] = b.nT[0];
+	b.nB[0] = nBottom; b.nT[0] = nTop;
+}
+
 CWndOscGraph::CWndOscGraph()
 {
 	ClearAverage();
@@ -437,6 +474,9 @@ void CWndOscGraph::OnPaintTY()
 	bool bAverage1 = Settings.Disp.Average == CSettings::Display::_AvgCh1;
 	bool bAverage2 = Settings.Disp.Average == CSettings::Display::_AvgCh2;
 	int nPrev1 = -1, nPrev2 = -1, nPrevm = -1, nPrev3 = -1, nPrev4 = -1;
+	TBeam beam1, beam2;
+	beam1.bInit = beam2.bInit = false;
+	int nBeam1 = Settings.Extra.arrBeam[0] + 1, nBeam2 = Settings.Extra.arrBeam[1] + 1;
 
 	int nMarkerT1 = -1, nMarkerT2 = -1, nMarkerY1 = -1, nMarkerY2 = -1;
 	bool bAreaT = false;
@@ -681,34 +721,30 @@ void CWndOscGraph::OnPaintTY()
 		{
 		if ( en2 )
 		{
-			if ( !bLines )
-				column[nSampleY2] = clr2;
-			else
+			int nBottom = nSampleY2, nTop = nSampleY2;
+			if ( bLines )
 			{
 				if ( nPrev2 == -1 )
 					nPrev2 = nSampleY2;
-				int nBottom = min(nSampleY2, nPrev2);
-				int nTop = max(nSampleY2, nPrev2);
-				for ( int _y = nBottom; _y <= nTop; _y++)
-					column[_y] = clr2;
+				nBottom = min(nSampleY2, nPrev2);
+				nTop = max(nSampleY2, nPrev2);
 				nPrev2 = nSampleY2;
 			}
+			DrawBeam( column, beam2, nBottom, nTop, nBeam2, clr2 );
 		}
 
 		if ( en1 )
 		{
-			if ( !bLines )
-				column[nSampleY1] = clr1;
-			else
+			int nBottom = nSampleY1, nTop = nSampleY1;
+			if ( bLines )
 			{
 				if ( nPrev1 == -1 )
 					nPrev1 = nSampleY1;
-				int nBottom = min(nSampleY1, nPrev1);
-				int nTop = max(nSampleY1, nPrev1);
-				for ( int _y = nBottom; _y <= nTop; _y++)
-					column[_y] = clr1;
+				nBottom = min(nSampleY1, nPrev1);
+				nTop = max(nSampleY1, nPrev1);
 				nPrev1 = nSampleY1;
 			}
+			DrawBeam( column, beam1, nBottom, nTop, nBeam1, clr1 );
 		}
 		}
 

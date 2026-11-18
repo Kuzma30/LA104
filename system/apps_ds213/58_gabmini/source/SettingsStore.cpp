@@ -5,7 +5,8 @@
 namespace SettingsStore
 {
     static const char* const FileName = "MINIOSC.CFG";
-    enum { Magic = 0x46434d47, Version = 6 };   // 6: measurements and tools   // "GMCF"
+    enum { Magic = 0x46434d47, Version = 7 };   // "GMCF", 6: without the beam width
+    static int s_nFileVersion = Version;
     enum { SectorSize = BIOS::FAT::SectorSize };
     typedef TSettingsIo<SectorSize> TIo;
 
@@ -144,7 +145,7 @@ namespace SettingsStore
         io.Float(Settings.Pid.fKd, 0, 10.0f);
         io.Float(Settings.Pid.fPeriod, 10.0f, 5000.0f);
 
-        // measurements and tools (version 3)
+        // measurements and tools (version 6)
         for ( int i = 0; i < CSettings::TExtra::MeasSlots; i++ )
         {
             io.Raw(Settings.Extra.arrMeasType[i]);
@@ -157,6 +158,13 @@ namespace SettingsStore
 
         // last opened tab
         io.Int(Settings.Runtime.m_nMenuItem, -1, 63);
+
+        // beam width (version 7)
+        if ( s_nFileVersion >= 7 )
+        {
+            io.Int(Settings.Extra.arrBeam[0], 0, 2);
+            io.Int(Settings.Extra.arrBeam[1], 0, 2);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -242,15 +250,17 @@ namespace SettingsStore
         io.Raw(nVersion);
         io.Raw(nLen);
         io.Raw(nSum);
-        bool bHeader = io.bOk && nMagic == Magic && nVersion == Version;
+        bool bHeader = io.bOk && nMagic == Magic && ( nVersion == Version || nVersion == 6 );
         if ( bHeader )
         {
+            s_nFileVersion = nVersion;
             io.mode = mode;
             io.nSum = 5381;
             io.nLength = 0;
             Exchange(io);
         }
         BIOS::FAT::Close();
+        s_nFileVersion = Version;
         // a value out of range keeps its default, the rest is loaded
         return bHeader && io.bOk && io.nLength == nLen && io.nSum == nSum;
     }

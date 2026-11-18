@@ -11,6 +11,7 @@ public:
 	CProviderEnum	m_proResolution;
 	CProviderEnum	m_proProbe;
 	CProviderNum	m_proPosition;
+	CProviderEnum	m_proBeam;
 	CProviderColor	m_proColour;
 	CProviderRgb	m_proRed, m_proGrn, m_proBlu;
 
@@ -19,6 +20,7 @@ public:
 	CLPItem			m_itmResolution;
 	CLPItem			m_itmProbe;
 	CLPItem			m_itmPosition;
+	CLPItem			m_itmBeam;
 	CLPItem			m_itmColour;
 	CLPItem			m_itmRed, m_itmGrn, m_itmBlu;
 
@@ -26,7 +28,7 @@ public:
 	void Create( CSettings::AnalogChannel* pInfo, CWnd* pParent )
 	{
 		m_pInfo = pInfo;
-		CListBox::Create( pInfo->pszFullName, WsVisible | WsModal, CRect(120, 30, 319, 201), pInfo->u16Color, pParent );
+		CListBox::Create( pInfo->pszFullName, WsVisible | WsModal, CRect(120, 22, 319, 211), pInfo->u16Color, pParent );
 
 
 		m_proEnabled.Create( (const char**)CSettings::AnalogChannel::ppszTextEnabled,
@@ -38,6 +40,9 @@ public:
 		m_proProbe.Create( (const char**)CSettings::AnalogChannel::ppszTextProbe,
 			(NATIVEENUM*)&pInfo->Probe, CSettings::AnalogChannel::_ProbeMax );
 		m_proPosition.Create( (si16*)&pInfo->u16Position, -20, 300 );
+		static const char* const ppszBeam[] = { "1 px", "2 px", "3 px" };
+		m_proBeam.Create( (const char**)ppszBeam,
+			(NATIVEENUM*)&Settings.Extra.arrBeam[ pInfo == &Settings.CH1 ? 0 : 1 ], 2 );
 		m_proColour.Create( &pInfo->u16Color );
 		m_proRed.Create( &pInfo->u16Color, CProviderRgb::Red );
 		m_proGrn.Create( &pInfo->u16Color, CProviderRgb::Green );
@@ -49,6 +54,7 @@ public:
 		m_itmResolution.Create( "Resolution", CWnd::WsVisible, &m_proResolution, this );
 		m_itmProbe.Create( "Probe", CWnd::WsVisible, &m_proProbe, this );
 		m_itmPosition.Create( "V. Position", CWnd::WsVisible, &m_proPosition, this );
+		m_itmBeam.Create( "Beam", CWnd::WsVisible, &m_proBeam, this );
 		m_itmColour.Create( "Colour", CWnd::WsVisible | CWnd::WsNoActivate, &m_proColour, this );
 		m_itmRed.Create(" - Red", CWnd::WsVisible, &m_proRed, this);
 		m_itmGrn.Create(" - Green", CWnd::WsVisible, &m_proGrn, this);
