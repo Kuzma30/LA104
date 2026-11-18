@@ -29,10 +29,12 @@ Keys: F1 run / stop, F2 back, F3 automatic setup (oscilloscope tabs), F4 enter.
     (SCRnnn.BMP, the screen, 16 bit) on the disk of the device
   - Zero cal: zero of CH1 and CH2 for every V/div. Disconnect the probes
     (or short them to ground), F4, F4 again to confirm. For each range the
-    ADC value of 0 V is measured at two positions (DC coupling); the
-    result is stored in MINICAL.CFG and loaded at start. Afterwards the
-    channel markers on the left show the real 0 V and the voltages
-    (cursors, measurements, math, CSV) are relative to it.
+    ADC value of 0 V is measured at three positions (DC coupling, mean of
+    60 ms); the result is stored in MINICAL.CFG and loaded at start, the
+    gains in the file stay. Afterwards the channel markers on the left show
+    the real 0 V and the voltages (cursors, measurements, math, CSV) are
+    relative to it. Zero and gain of every range can be edited by hand
+    with the separate application 65_minical (same file).
 
 F3 automatic setup: V/div and position of CH1 / CH2 (the signal takes 4..6
 divisions in the middle), time base for 2.5..6 periods, rising edge

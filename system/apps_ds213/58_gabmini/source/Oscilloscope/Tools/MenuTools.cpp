@@ -172,7 +172,7 @@ namespace Tools
 
 	// ------------------------------------------------------------ zero calibration
 	static const char* const CalFile = "MINICAL.CFG";
-	enum { CalMagic = 0x41434d47, CalVersion = 2 };   // "GMCA"
+	enum { CalMagic = 0x41434d47, CalVersion = 3 };   // 2: without the gain K   // "GMCA"
 	enum { QinSize = sizeof( CSettings::LinCalibCurve::m_arrCurveQin ),
 		QoutSize = sizeof( CSettings::LinCalibCurve::m_arrCurveQout ),
 		CalPoints = CSettings::LinCalibCurve::eQPoints };
@@ -230,6 +230,7 @@ namespace Tools
 			{
 				memcpy( q, arrCal[c]->CalData[r].m_arrCurveQin, QinSize ); q += QinSize;
 				memcpy( q, arrCal[c]->CalData[r].m_arrCurveQout, QoutSize ); q += QoutSize;
+				memcpy( q, &arrCal[c]->CalData[r].m_arrCurveKout[0], 4 ); q += 4;
 			}
 		uint32_t nSum = 5381;
 		for ( uint8_t* i = p + 12; i < q; i++ )
@@ -251,11 +252,13 @@ namespace Tools
 		bool bRead = BIOS::FAT::Read( p ) == BIOS::FAT::EOk;
 		BIOS::FAT::Close();
 		uint32_t* pHead = (uint32_t*)p;
-		const int nData = 2 * ( CSettings::AnalogChannel::_ResolutionMax + 1 ) * ( QinSize + QoutSize );
+		// version 3: gain K after every curve (MiniCal), version 2: K = 1
+		int nItem = QinSize + QoutSize + ( pHead[1] == 3 ? 4 : 0 );
+		const int nData = 2 * ( CSettings::AnalogChannel::_ResolutionMax + 1 ) * nItem;
 		uint32_t nSum = 5381;
 		for ( uint8_t* i = p + 12; i < p + 12 + nData; i++ )
 			nSum = nSum * 33 + *i;
-		bool bOk = bRead && pHead[0] == CalMagic && pHead[1] == CalVersion && pHead[2] == nSum;
+		bool bOk = bRead && pHead[0] == CalMagic && ( pHead[1] == 2 || pHead[1] == 3 ) && pHead[2] == nSum;
 		if ( bOk )
 		{
 			uint8_t* q = p + 12;
@@ -263,8 +266,18 @@ namespace Tools
 			for ( int c = 0; c < 2; c++ )
 				for ( int r = 0; r <= CSettings::AnalogChannel::_ResolutionMax; r++ )
 				{
-					memcpy( arrCal[c]->CalData[r].m_arrCurveQin, q, QinSize ); q += QinSize;
-					memcpy( arrCal[c]->CalData[r].m_arrCurveQout, q, QoutSize ); q += QoutSize;
+					CSettings::LinCalibCurve& cur = arrCal[c]->CalData[r];
+					memcpy( cur.m_arrCurveQin, q, QinSize ); q += QinSize;
+					memcpy( cur.m_arrCurveQout, q, QoutSize ); q += QoutSize;
+					int32_t k = 2048;
+					if ( nItem > QinSize + QoutSize )
+					{
+						memcpy( &k, q, 4 ); q += 4;
+					}
+					if ( k < 1024 || k > 4096 )
+						k = 2048;
+					for ( int i = 0; i < CSettings::LinCalibCurve::eKPoints; i++ )
+						cur.m_arrCurveKout[i] = k;
 				}
 		}
 		MainWnd.m_wndGraph.ClearAverage();
@@ -381,7 +394,8 @@ namespace Tools
 					if ( arrMean[c][k] < 0 )
 						continue;
 					int16_t p = arrPos[c][k];
-					int32_t q = -arrMean[c][k];     // 0 V: Q + raw * 2048 = 0
+					// 0 V: Q + raw * K = 0, the gain K of the range stays
+					int32_t q = -(int32_t)( (int64_t)arrMean[c][k] * arrCal[c]->CalData[r].m_arrCurveKout[0] / 2048 );
 					int i = n;
 					while ( i > 0 && arrP[i - 1] > p )
 					{
@@ -415,7 +429,7 @@ namespace Tools
 					nFails++;
 					continue;
 				}
-				int32_t nSlope = -2048;      // Qout per position step
+				int32_t nSlope = -arrCal[c]->CalData[r].m_arrCurveKout[0];      // Qout per position step
 				if ( n == 1 && r > 0 )
 				{
 					CSettings::LinCalibCurve& prev = arrCal[c]->CalData[r - 1];
