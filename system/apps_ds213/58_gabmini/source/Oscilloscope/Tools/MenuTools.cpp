@@ -1,6 +1,7 @@
 #include "MenuTools.h"
 #include <MainWnd.h>
 #include <Oscilloscope/Meas/MeasCore.h>
+#include <Oscilloscope/Core/CoreOscilloscope.h>
 
 namespace Tools
 {
@@ -169,6 +170,147 @@ namespace Tools
 		return Finish( w );
 	}
 
+	// ------------------------------------------------------------ zero calibration
+	static const char* const CalFile = "MINICAL.CFG";
+	enum { CalMagic = 0x41434d47, CalVersion = 1 };   // "GMCA"
+	enum { CalPos1 = 40, CalPos2 = 200 };
+
+	// mean ADC value of a channel in 1/2048 (as the calibration Q), -1 when
+	// the samples are clipped
+	static int32_t Mean2048( int ch )
+	{
+		int nBegin = 160, nEnd = Sampler::GetValid();
+		if ( nEnd - nBegin < 100 )
+			return -1;
+		int32_t nSum = 0;
+		for ( int i = nBegin; i < nEnd; i++ )
+		{
+			int v = ( Sampler::GetAt( i ) >> ( ch * 8 ) ) & 0xff;
+			if ( v <= 1 || v >= 254 )
+				return -1;
+			nSum += v;
+		}
+		return (int32_t)( (int64_t)nSum * 2048 / ( nEnd - nBegin ) );
+	}
+
+	static void Capture()
+	{
+		CCoreOscilloscope::ConfigureAdc();
+		BIOS::ADC::ConfigureTrigger( 0, 0, BIOS::ADC::ETriggerType::None, BIOS::ADC::EInput::CH1 );
+		BIOS::SYS::DelayMs( 60 );       // offset DAC and input settle
+		BIOS::ADC::Restart( 0 );
+		uint32_t t0 = BIOS::SYS::GetTick();
+		while ( BIOS::ADC::GetState() != BIOS::ADC::EState::Full && BIOS::SYS::GetTick() - t0 < 200 );
+		Sampler::Copy();
+	}
+
+	static bool SaveCalibration()
+	{
+		uint8_t* p = MainWnd.m_wndGraph.GetScratch();
+		memset( p, 0, BIOS::FAT::SectorSize );
+		uint32_t* pHead = (uint32_t*)p;
+		pHead[0] = CalMagic;
+		pHead[1] = CalVersion;
+		uint8_t* q = p + 12;
+		CSettings::Calibrator* arrCal[2] = { &Settings.CH1Calib, &Settings.CH2Calib };
+		for ( int c = 0; c < 2; c++ )
+			for ( int r = 0; r <= CSettings::AnalogChannel::_ResolutionMax; r++ )
+			{
+				memcpy( q, arrCal[c]->CalData[r].m_arrCurveQin, 4 ); q += 4;
+				memcpy( q, arrCal[c]->CalData[r].m_arrCurveQout, 8 ); q += 8;
+			}
+		uint32_t nSum = 5381;
+		for ( uint8_t* i = p + 12; i < q; i++ )
+			nSum = nSum * 33 + *i;
+		pHead[2] = nSum;
+		bool bOk = BIOS::FAT::Open( CalFile, BIOS::FAT::IoWrite ) == BIOS::FAT::EOk &&
+			BIOS::FAT::Write( p ) == BIOS::FAT::EOk;
+		if ( BIOS::FAT::Close( q - p ) != BIOS::FAT::EOk )
+			bOk = false;
+		MainWnd.m_wndGraph.ClearAverage();
+		return bOk;
+	}
+
+	bool LoadCalibration()
+	{
+		uint8_t* p = MainWnd.m_wndGraph.GetScratch();
+		if ( BIOS::FAT::Open( CalFile, BIOS::FAT::IoRead ) != BIOS::FAT::EOk )
+			return false;
+		bool bRead = BIOS::FAT::Read( p ) == BIOS::FAT::EOk;
+		BIOS::FAT::Close();
+		uint32_t* pHead = (uint32_t*)p;
+		const int nData = 2 * ( CSettings::AnalogChannel::_ResolutionMax + 1 ) * 12;
+		uint32_t nSum = 5381;
+		for ( uint8_t* i = p + 12; i < p + 12 + nData; i++ )
+			nSum = nSum * 33 + *i;
+		bool bOk = bRead && pHead[0] == CalMagic && pHead[1] == CalVersion && pHead[2] == nSum;
+		if ( bOk )
+		{
+			uint8_t* q = p + 12;
+			CSettings::Calibrator* arrCal[2] = { &Settings.CH1Calib, &Settings.CH2Calib };
+			for ( int c = 0; c < 2; c++ )
+				for ( int r = 0; r <= CSettings::AnalogChannel::_ResolutionMax; r++ )
+				{
+					memcpy( arrCal[c]->CalData[r].m_arrCurveQin, q, 4 ); q += 4;
+					memcpy( arrCal[c]->CalData[r].m_arrCurveQout, q, 8 ); q += 8;
+				}
+		}
+		MainWnd.m_wndGraph.ClearAverage();
+		return bOk;
+	}
+
+	bool ZeroCalibrate()
+	{
+		CSettings::AnalogChannel* arrCh[2] = { &Settings.CH1, &Settings.CH2 };
+		CSettings::Calibrator* arrCal[2] = { &Settings.CH1Calib, &Settings.CH2Calib };
+		CSettings::AnalogChannel arrSaved[2] = { Settings.CH1, Settings.CH2 };
+		CSettings::TimeBase::EResolution savedTime = Settings.Time.Resolution;
+
+		// 100 us/div: 4096 samples in 14 ms, the mean of them
+		Settings.Time.Resolution = CSettings::TimeBase::_100us;
+		bool bOk = true;
+		for ( int r = 0; r <= CSettings::AnalogChannel::_ResolutionMax && bOk; r++ )
+		{
+			int32_t arrMean[2][2];
+			for ( int k = 0; k < 2 && bOk; k++ )
+			{
+				for ( int c = 0; c < 2; c++ )
+				{
+					arrCh[c]->Resolution = (CSettings::AnalogChannel::eResolution)r;
+					arrCh[c]->Coupling = CSettings::AnalogChannel::_DC;
+					arrCh[c]->u16Position = k ? CalPos2 : CalPos1;
+				}
+				Capture();
+				for ( int c = 0; c < 2; c++ )
+				{
+					arrMean[c][k] = Mean2048( c );
+					if ( arrMean[c][k] < 0 )
+						bOk = false;
+				}
+			}
+			if ( !bOk )
+				break;
+			// 0 V: Q + raw * K = 0 with K = 2048
+			for ( int c = 0; c < 2; c++ )
+			{
+				CSettings::LinCalibCurve& cur = arrCal[c]->CalData[r];
+				cur.m_arrCurveQin[0] = CalPos1;
+				cur.m_arrCurveQin[1] = CalPos2;
+				cur.m_arrCurveQout[0] = -arrMean[c][0];
+				cur.m_arrCurveQout[1] = -arrMean[c][1];
+			}
+		}
+
+		Settings.CH1 = arrSaved[0];
+		Settings.CH2 = arrSaved[1];
+		Settings.Time.Resolution = savedTime;
+		if ( !bOk )
+			LoadCalibration();          // back to the stored (or default) values
+		CCoreOscilloscope::ConfigureAdc();
+		CCoreOscilloscope::ConfigureTrigger();
+		return bOk && SaveCalibration();
+	}
+
 	void StoreRef()
 	{
 		CSettings::Calibrator::FastCalc fast;
@@ -193,29 +335,36 @@ namespace Tools
 // ---------------------------------------------------------------- item
 static const char* const s_arrMath[] = { "Off", "A+B", "A-B", "B-A", "A*B" };
 static const char* const s_arrFft[] = { "Off", "CH1", "CH2" };
-static const char* const s_arrIds[CItemTools::Count] = { "Math", "Math V/d", "FFT", "Ref", "Save CSV", "Save BMP" };
+static const char* const s_arrIds[CItemTools::Count] = { "Math", "V/d", "FFT", "Ref", "Save CSV", "Save BMP", "Zero cal" };
+// rows of a tool: label above the value, or both on one row
+static const uint8_t s_arrRows[CItemTools::Count] = { 2, 1, 1, 1, 2, 2, 2 };
 
 void CItemTools::Create( CWnd* pParent )
 {
 	m_nSel = 0;
-	m_strInfo[0][0] = m_strInfo[1][0] = 0;
-	CWndMenuItem::Create( NULL, RGB565(b0b0b0), 2 * Count, pParent );
+	m_bArmed = false;
+	m_strInfo[0][0] = m_strInfo[1][0] = m_strInfo[2][0] = 0;
+	int nRows = 0;
+	for ( int i = 0; i < Count; i++ )
+		nRows += s_arrRows[i];
+	CWndMenuItem::Create( NULL, RGB565(b0b0b0), nRows, pParent );
 }
 
 void CItemTools::OnPaint()
 {
 	CWndMenuItem::OnPaint();
 	int x = m_rcClient.left + 12 + MarginLeft - 9;
+	int y = m_rcClient.top;
 	for ( int i = 0; i < Count; i++ )
 	{
-		int y = m_rcClient.top + i * 34;
+		int h = s_arrRows[i] * 17;
 		ui16 clr = RGB565(000000);
 		if ( HasFocus() && i == m_nSel )
 		{
-			BIOS::LCD::Bar( x - 2, y, m_rcClient.right - 3, y + 33, RGB565(000000) );
+			BIOS::LCD::Bar( x - 2, y, m_rcClient.right - 3, y + h - 1, RGB565(000000) );
 			clr = RGB565(ffffff);
 		}
-		BIOS::LCD::Print( x, y, clr, RGBTRANS, s_arrIds[i] );
+		int w = BIOS::LCD::Print( x, y, clr, RGBTRANS, s_arrIds[i] );
 		const char* p = "";
 		switch ( i )
 		{
@@ -223,9 +372,16 @@ void CItemTools::OnPaint()
 			case MathRes: p = CSettings::AnalogChannel::ppszTextResolution[ Settings.Extra.nMathRes ]; break;
 			case Fft: p = s_arrFft[ Settings.Extra.nFft ]; break;
 			case Ref: p = Settings.Extra.nRef ? "On" : "Off"; break;
+			case Zero:
+				p = m_bArmed ? "sure? F4" : m_strInfo[2][0] ? m_strInfo[2] : "F4";
+				break;
 			default: p = m_strInfo[i - Csv][0] ? m_strInfo[i - Csv] : "F4: save"; break;
 		}
-		BIOS::LCD::Print( x + 8, y + 16, clr, RGBTRANS, p );
+		if ( s_arrRows[i] == 2 )
+			BIOS::LCD::Print( x + 8, y + 16, clr, RGBTRANS, p );
+		else
+			BIOS::LCD::Print( x + w + 8, y, clr, RGBTRANS, p );
+		y += h;
 	}
 }
 
@@ -236,6 +392,8 @@ void CItemTools::OnKey( int nKey )
 	CSettings::TExtra& e = Settings.Extra;
 	bool bGraph = false;
 
+	if ( nKey != BIOS::KEY::Enter )
+		m_bArmed = false;
 	if ( nKey == BIOS::KEY::Up && m_nSel > 0 )
 	{
 		m_nSel--;
@@ -281,6 +439,26 @@ void CItemTools::OnKey( int nKey )
 				Tools::StoreRef();
 				e.nRef = 1;
 				bGraph = true;
+			}
+			break;
+		case Zero:
+			if ( bEnter )
+			{
+				if ( !m_bArmed )
+				{
+					m_bArmed = true;
+					Invalidate();
+					return;
+				}
+				m_bArmed = false;
+				strcpy( m_strInfo[2], "running" );
+				Invalidate();
+				WindowMessage( CWnd::WmPaint );
+				strcpy( m_strInfo[2], Tools::ZeroCalibrate() ? "done" : "Error" );
+				Invalidate();
+				MainWnd.m_wndGraph.Invalidate();
+				MainWnd.m_wndLReferences.Invalidate();
+				return;
 			}
 			break;
 		case Csv:

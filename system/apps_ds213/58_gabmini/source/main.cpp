@@ -12,6 +12,8 @@ int _main(void)
 {    
     SettingsStore::Load();
     app.Create();
+    // zero calibration of the channels (Tools: Zero cal)
+    Tools::LoadCalibration();
     app.WindowMessage( CWnd::WmPaint );
 
     BIOS::KEY::EKey key;

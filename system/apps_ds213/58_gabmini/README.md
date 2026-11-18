@@ -27,6 +27,12 @@ Keys: F1 run / stop, F2 back, F3 automatic setup (oscilloscope tabs), F4 enter.
   - Ref: F4 stores the CH1 trace as a gray reference, Left / Right on / off
   - Save CSV (WAVnnn.CSV: sample, CH1 V, CH2 V, CH3, CH4) and Save BMP
     (SCRnnn.BMP, the screen, 16 bit) on the disk of the device
+  - Zero cal: zero of CH1 and CH2 for every V/div. Disconnect the probes
+    (or short them to ground), F4, F4 again to confirm. For each range the
+    ADC value of 0 V is measured at two positions (DC coupling); the
+    result is stored in MINICAL.CFG and loaded at start. Afterwards the
+    channel markers on the left show the real 0 V and the voltages
+    (cursors, measurements, math, CSV) are relative to it.
 
 F3 automatic setup: V/div and position of CH1 / CH2 (the signal takes 4..6
 divisions in the middle), time base for 2.5..6 periods, rising edge
