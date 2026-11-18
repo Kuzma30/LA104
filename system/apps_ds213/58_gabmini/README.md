@@ -4,12 +4,19 @@ Keys: F1 run / stop, F2 back, F3 automatic setup (oscilloscope tabs), F4 enter.
 
 ## Oscilloscope tabs
 
-- **Input**: channels, time base, window, trigger (F3 on the trigger item
-  changes its source).
+- **Input**: channels, time base (up to 1 s/div), window, trigger (F3 on
+  the trigger item changes its source), Buf: Full (4096 samples) or Scr (one
+  screen, frames come much faster at slow time bases). Scan at 50 ms/div
+  and slower runs as a roll display. Norm / Single show TRIG (green) or
+  WAIT (yellow) at the top right of the graph. Channel list (Enter on CH1 /
+  CH2): coupling, V/div, probe, position, Beam (trace width 1..3 px, like
+  the focus of an analog scope), color.
 - **Cursor**: X1 / X2 / Y1 / Y2, dX and dY. Units follow the time base
   (ns, us, ms, s). Y1 / Y2 in mode A follow the signal at X1 / X2.
-- **Disp**: drawing, averaging, persistence, grid.
-- **Decode**: UART, SPI, I2C, CAN, pulses ...
+- **Disp**: T-Y or X-Y (Lissajous), Points / Lines / Fill (the area between
+  the trace and its 0 V level), averaging, Persist No / Yes / Phosph, grid.
+- **Decode**: UART, SPI, I2C, CAN, LIN, 1-Wire, WS2812, NEC, PS/2, pulses,
+  pulse counter, quadrature encoder (FPGA) ...
 - **Meas**: four automatic measurements and statistics.
   Up / Down selects M1..M4 or Stat, Left / Right the type, F4 the source.
   Types: Vpp, Vmax, Vmin, Vavg, Vrms (CH1 / CH2), Freq, Period, Duty,
@@ -41,7 +48,8 @@ F3 automatic setup: V/div and position of CH1 / CH2 (the signal takes 4..6
 divisions in the middle), time base for 2.5..6 periods, rising edge
 trigger in the middle of the larger signal (Auto).
 
-Settings are kept in MINIOSC.CFG (format 3: older files are ignored once).
+Settings are kept in MINIOSC.CFG (format 7; format 6 loads, older files are
+ignored once).
 
 ## Build
 
