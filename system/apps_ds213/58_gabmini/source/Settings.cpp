@@ -305,6 +305,17 @@ void CSettings::Reset()
 	Math.Position = 127;
 	Math.Resolution = CSettings::AnalogChannel::_1V;
 	
+	// measurements: CH1 Vpp, CH1 Freq, CH1 Vrms, CH2 Vpp (CMeasCore::EType)
+	Extra.arrMeasType[0] = 0; Extra.arrMeasSrc[0] = 0;
+	Extra.arrMeasType[1] = 5; Extra.arrMeasSrc[1] = 0;
+	Extra.arrMeasType[2] = 4; Extra.arrMeasSrc[2] = 0;
+	Extra.arrMeasType[3] = 0; Extra.arrMeasSrc[3] = 1;
+	Extra.nStat = 0;
+	Extra.nMath = 0;
+	Extra.nMathRes = CSettings::AnalogChannel::_1V;
+	Extra.nFft = 0;
+	Extra.nRef = 0;
+
 	Disp.Axes = Display::_TY;
 	Disp.Draw = Display::_Lines;
 	Disp.Average = Display::_AvgNo;

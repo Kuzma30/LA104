@@ -20,6 +20,8 @@ public:
 	CWndMenuCursor		m_wndMenuCursor;
 	CWndMenuDisplay		m_wndMenuDisplay;
 	CWndMenuDecode		m_wndMenuDecode;
+	CWndMenuMeas		m_wndMenuMeas;
+	CWndMenuTools		m_wndMenuTools;
 
 	CWndSigGraph		m_wndSignalGraph;
 	CWndMenuGenerator	m_wndMenuGenerator;

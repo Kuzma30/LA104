@@ -6,6 +6,8 @@
 #include "Marker/MenuMarker.h"
 #include "Disp/MenuDisp.h"
 #include "Decode/MenuDecode.h"
+#include "Meas/MenuMeas.h"
+#include "Tools/MenuTools.h"
 
 #include "Controls/LevelRef.h"
 #include "Controls/TimeRef.h"

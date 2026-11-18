@@ -90,6 +90,8 @@ file(GLOB application_oscilloscope_src
     "source/Oscilloscope/Math/*.h"
     "source/Oscilloscope/Meas/*.cpp"
     "source/Oscilloscope/Meas/*.h"
+    "source/Oscilloscope/Tools/*.cpp"
+    "source/Oscilloscope/Tools/*.h"
     "source/Oscilloscope/Meas/Decoders/*.cpp"
     "source/Oscilloscope/Meas/Decoders/*.h"
 )

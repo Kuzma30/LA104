@@ -1,6 +1,7 @@
 #include <library.h>
 #include "MainWnd.h"
 #include "SettingsStore.h"
+#include "Oscilloscope/Meas/MeasCore.h"
 
 CMainWnd app;
 
@@ -44,6 +45,8 @@ int _main(void)
         CorePid::Tick();
         // pulse counter (hardware counter on Wave Out)
         DecodeUi::Tick();
+        // gate of the FPGA edge counters (measurement FreqHW)
+        MeasCore::Tick();
         SettingsStore::Tick();
     }
     DecodeUi::Shutdown();

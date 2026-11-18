@@ -5,7 +5,7 @@
 namespace SettingsStore
 {
     static const char* const FileName = "MINIOSC.CFG";
-    enum { Magic = 0x46434d47, Version = 5 };   // "GMCF"
+    enum { Magic = 0x46434d47, Version = 6 };   // 6: measurements and tools   // "GMCF"
     enum { SectorSize = BIOS::FAT::SectorSize };
     typedef TSettingsIo<SectorSize> TIo;
 
@@ -143,6 +143,17 @@ namespace SettingsStore
         io.Float(Settings.Pid.fKi, 0, 1000.0f);
         io.Float(Settings.Pid.fKd, 0, 10.0f);
         io.Float(Settings.Pid.fPeriod, 10.0f, 5000.0f);
+
+        // measurements and tools (version 3)
+        for ( int i = 0; i < CSettings::TExtra::MeasSlots; i++ )
+        {
+            io.Raw(Settings.Extra.arrMeasType[i]);
+            io.Raw(Settings.Extra.arrMeasSrc[i]);
+        }
+        io.Raw(Settings.Extra.nStat);
+        io.Raw(Settings.Extra.nMath);
+        io.Raw(Settings.Extra.nMathRes);
+        io.Raw(Settings.Extra.nFft);
 
         // last opened tab
         io.Int(Settings.Runtime.m_nMenuItem, -1, 63);

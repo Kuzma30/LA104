@@ -33,4 +33,8 @@ public:
 
 	void			OnPaintTY();
 	void			OnPaintXY();
+
+	// LA104: 600 bytes for the FFT and the file output (the averaging buffer;
+	// call ClearAverage after use)
+	uint8_t*		GetScratch() { return (uint8_t*)m_arrAverageBuf; }
 };

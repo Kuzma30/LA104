@@ -10,6 +10,8 @@
 		{ CBarItem::ISub,	(PSTR)"Cursor", &MainWnd.m_wndMenuCursor},
 		{ CBarItem::ISub,	(PSTR)"Disp", &MainWnd.m_wndMenuDisplay},
 		{ CBarItem::ISub,	(PSTR)"Decode", &MainWnd.m_wndMenuDecode},
+		{ CBarItem::ISub,	(PSTR)"Meas", &MainWnd.m_wndMenuMeas},
+		{ CBarItem::ISub,	(PSTR)"Tools", &MainWnd.m_wndMenuTools},
 		{ CBarItem::IMain,	(PSTR)"Generator", nullptr},
 		{ CBarItem::ISub,	(PSTR)"Wave", &MainWnd.m_wndMenuGenerator},
 		{ CBarItem::ISub,	(PSTR)"Mod", &MainWnd.m_wndMenuGeneratorMod},

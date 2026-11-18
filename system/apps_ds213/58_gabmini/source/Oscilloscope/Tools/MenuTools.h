@@ -1,0 +1,44 @@
+#pragma once
+#include <Framework.h>
+#include <Settings.h>
+
+// LA104: tab Tools
+//   Math     Off, A+B, A-B, B-A, A*B (A = CH1, B = CH2, in volts), Left / Right
+//   Math V/d scale of the math trace (V/div, for A*B V^2/div)
+//   FFT      Off, CH1, CH2: spectrum of 256 samples from the screen start
+//   Ref      Off / On; Enter stores the CH1 trace as the reference
+//   CSV      Enter saves the samples to WAVnnn.CSV
+//   BMP      Enter saves the screen to SCRnnn.BMP
+
+// one menu item with all six tools (RAM: one window instead of six);
+// Up / Down move between the tools inside it
+class CItemTools : public CWndMenuItem
+{
+public:
+	enum { Math, MathRes, Fft, Ref, Csv, Bmp, Count };
+	int m_nSel;
+	char m_strInfo[2][14];   // result of the last save (CSV, BMP)
+	void Create( CWnd* pParent );
+	virtual void OnPaint() override;
+	virtual void OnKey( int nKey ) override;
+};
+
+class CWndMenuTools : public CWnd
+{
+public:
+	CItemTools m_itmTools;
+
+	virtual void Create( CWnd* pParent, int dwFlags );
+	virtual void OnMessage( CWnd* pSender, int code, uintptr_t data ) override;
+};
+
+namespace Tools
+{
+	enum { RefWidth = 300 };
+	// y of the reference trace (pixels) for every second column, 0xff none
+	extern uint8_t arrRef[RefWidth / 2];
+
+	bool SaveCsv( char* pName );        // pName gets the file name
+	bool SaveBmp( char* pName );
+	void StoreRef();
+}

@@ -2,6 +2,8 @@
 #include <MainWnd.h>
 #include "Phosphor.h"
 #include <Oscilloscope/Core/CoreOscilloscope.h>
+#include <Oscilloscope/Tools/Fft.h>
+#include <Oscilloscope/Tools/MenuTools.h>
 
 CWndOscGraph::CWndOscGraph()
 {
@@ -180,6 +182,9 @@ ui16 CWndOscGraph::_Interpolate( ui16 clrA, ui16 clrB )
 
 /*virtual*/ void CWndOscGraph::OnPaint()
 {
+	if ( Settings.Extra.nFft )
+		Fft::Paint( this, Settings.Extra.nFft, GetScratch() );
+	else
 	if ( Settings.Disp.Axes == CSettings::Display::_TY )
 		OnPaintTY();
 	else
@@ -456,6 +461,22 @@ void CWndOscGraph::OnPaintTY()
 	}
 
 	ui16 clrm = Settings.Math.uiColor;
+
+	// LA104: math trace (Tools), A = CH1, B = CH2 in volts, scale Extra.nMathRes
+	int nMath = Settings.Extra.nMath;
+	float fA1 = 0, fB1 = 0, fA2 = 0, fB2 = 0, fMathK = 0;
+	if ( nMath )
+	{
+		float fP1 = CSettings::AnalogChannel::pfValueProbe[ Settings.CH1.Probe ];
+		float fP2 = CSettings::AnalogChannel::pfValueProbe[ Settings.CH2.Probe ];
+		fA1 = Ch1fast.Q * Ch1fast.fMultiplier / 65536.0f * fP1;
+		fB1 = Ch1fast.K * Ch1fast.fMultiplier / 65536.0f * fP1;
+		fA2 = Ch2fast.Q * Ch2fast.fMultiplier / 65536.0f * fP2;
+		fB2 = Ch2fast.K * Ch2fast.fMultiplier / 65536.0f * fP2;
+		// volts -> pixels (25 per division)
+		fMathK = BlkY / CSettings::AnalogChannel::pfValueResolution[ Settings.Extra.nMathRes ];
+	}
+	bool bRef = Settings.Extra.nRef != 0;
 	int nIndex = Settings.Time.Shift;
 	bool bDecode = DecodeUi::BeginFrame( nIndex, nMax );
 
@@ -604,6 +625,36 @@ void CWndOscGraph::OnPaintTY()
 				nPrev4 = nSampleY4;
 			}
 		}
+		if ( bRef && x < Tools::RefWidth && Tools::arrRef[x >> 1] != 0xff )
+		{
+			// stored for every second column: the gap is filled by a line
+			int nA = Tools::arrRef[x >> 1];
+			int nB = ( x & 1 ) && ( x >> 1 ) + 1 < Tools::RefWidth / 2 && Tools::arrRef[( x >> 1 ) + 1] != 0xff ?
+				Tools::arrRef[( x >> 1 ) + 1] : nA;
+			for ( int _y = min( nA, nB ); _y <= max( nA, nB ); _y++ )
+				column[_y] = RGB565(a0a0a0);
+		}
+
+		if ( nMath && Sample.value != BIOS::ADC::NoData )
+		{
+			float v1 = fA1 + fB1 * Sample.CH1, v2 = fA2 + fB2 * Sample.CH2, m;
+			switch ( nMath )
+			{
+				case 1: m = v1 + v2; break;
+				case 2: m = v1 - v2; break;
+				case 3: m = v2 - v1; break;
+				default: m = v1 * v2; break;
+			}
+			int nY = DivsY * BlkY / 2 + (int)( m * fMathK );
+			CUtils::Clamp<int>( nY, 0, DivsY * BlkY - 1 );
+			if ( nPrevm == -1 )
+				nPrevm = nY;
+			int nBottom = min( nY, nPrevm ), nTop = max( nY, nPrevm );
+			for ( int _y = nBottom; _y <= nTop; _y++ )
+				column[_y] = clrm;
+			nPrevm = nY;
+		}
+
 		if ( bHist )
 		{
 			_PhosphorColumn( column, x, bLines, bGraded, bHistEn1, bHistEn2, clr1, clr2 );

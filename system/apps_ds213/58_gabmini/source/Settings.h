@@ -428,6 +428,19 @@ public:
 	Generator Gen;
 	PidRegulator Pid;
 
+	// LA104: automatic measurements (tab Meas) and tools (tab Tools)
+	struct TExtra
+	{
+		enum { MeasSlots = 4 };
+		uint8_t arrMeasType[MeasSlots];  // CMeasCore::EType
+		uint8_t arrMeasSrc[MeasSlots];   // 0 CH1, 1 CH2, 2 CH3, 3 CH4
+		uint8_t nStat;                   // statistics: 0 off, 1 on
+		uint8_t nMath;                   // 0 off, 1 A+B, 2 A-B, 3 B-A, 4 A*B
+		uint8_t nMathRes;                // V/div of the math trace (AnalogChannel::eResolution)
+		uint8_t nFft;                    // 0 off, 1 CH1, 2 CH2
+		uint8_t nRef;                    // reference trace: 0 off, 1 shown
+	} Extra;
+
 public:
 
 	#include "Framework/Calibration.h"
