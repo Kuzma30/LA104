@@ -38,14 +38,12 @@ void CItemMeas::Create( CWnd* pParent )
 // background of a row as CWndMenuItem / the selection bar paint it
 ui16 CItemMeas::RowBackground( bool bSelected )
 {
-	if ( !HasFocus() )
-		return CDesignPalette::gray;
-	return bSelected ? RGB565(000000) : RGB565(ffffff);
+	return HasFocus() && bSelected ? RGB565(000000) : CDesignPalette::gray;
 }
 
 void CItemMeas::OnPaint()
 {
-	CWndMenuItem::OnPaint();
+	PaintGrayPanel( this, HasFocus() ? RGB565(ffffff) : RGB565(b0b0b0) );
 	int x0 = m_rcClient.left + 12 + MarginLeft - 9;
 
 	for ( int i = 0; i < Slots; i++ )

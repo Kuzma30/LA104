@@ -9,6 +9,17 @@
 //   Left / Right  type of the measurement; on Stat: on / off
 //   Enter (F4)    source of the measurement (CH1..CH4); on Stat: reset
 
+// LA104: Meas and Tools are one menu item over the whole panel; the focused
+// look of CWndMenuItem (white inside) turned the whole panel white. The panel
+// stays gray, the left tab is white while focused, the row has a black bar.
+inline void PaintGrayPanel( CWnd* pWnd, ui16 clrTab )
+{
+	CDesign::MenuItemClearDisabled( pWnd->m_rcClient );
+	CRect rc( pWnd->m_rcClient );
+	rc.left += CWndMenuItem::MarginLeft;
+	CDesign::MenuItemDisabled( rc, clrTab );
+}
+
 class CItemMeas : public CWndMenuItem
 {
 public:
