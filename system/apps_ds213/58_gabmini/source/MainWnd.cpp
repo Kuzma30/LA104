@@ -159,6 +159,14 @@ void CMainWnd::AutoSet()
 		if ( m_wndMenuInput.m_itmBuffer.IsVisible() )
 			m_wndMenuInput.m_itmBuffer.Invalidate();
 	}
+	// trigger state label (Norm / Single), twice a second
+	static long s_lTrigPaint = 0;
+	if ( nMsg == WmTick && m_wndGraph.IsVisible() && BIOS::SYS::GetTick() - s_lTrigPaint > 500 )
+	{
+		s_lTrigPaint = BIOS::SYS::GetTick();
+		m_wndGraph.PaintTrigState();
+	}
+
 
 	if ( nMsg == WmTick && !DecodeUi::Hold() && CCoreOscilloscope::Rolling() )
 	{

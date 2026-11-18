@@ -196,7 +196,26 @@ ui16 CWndOscGraph::_Interpolate( ui16 clrA, ui16 clrB )
 		int x = m_rcClient.right - 4*8 - 4, y = m_rcClient.top + 2;
 		BIOS::LCD::Bar( x - 2, y, x + 4*8 + 2, y + 14, RGB565(c00000) );
 		BIOS::LCD::Print( x, y, RGB565(ffffff), RGBTRANS, "STOP" );
-	}
+	} else
+		PaintTrigState();
+}
+
+extern long m_lLastAcquired;
+
+void CWndOscGraph::PaintTrigState()
+{
+	bool bNorm = Settings.Trig.Sync == CSettings::Trigger::_Norm ||
+		Settings.Trig.Sync == CSettings::Trigger::_Single;
+	if ( !bNorm || Settings.Trig.State == CSettings::Trigger::_Stop || CWnd::GetOverlay().IsValid() ||
+		Settings.Extra.nFft || Settings.Disp.Axes != CSettings::Display::_TY )
+		return;
+	// no trigger for longer than one buffer (+ 0.3 s): the level or the edge
+	// does not match the signal (the FPGA needs the level +-12 counts inside it)
+	float fBufferMs = CCoreOscilloscope::BufferLength() * 1000.0f * Settings.Runtime.m_fTimeRes / BlkX;
+	bool bWait = BIOS::SYS::GetTick() - m_lLastAcquired > (long)fBufferMs + 300;
+	int x = m_rcClient.right - 4*8 - 4, y = m_rcClient.top + 2;
+	BIOS::LCD::Bar( x - 2, y, x + 4*8 + 2, y + 14, bWait ? RGB565(c0a000) : RGB565(00a000) );
+	BIOS::LCD::Print( x, y, RGB565(ffffff), RGBTRANS, bWait ? "WAIT" : "TRIG" );
 }
 
 // X-Y (Lissajous figures): CH1 horizontal and CH2 vertical (Y-X swapped) in

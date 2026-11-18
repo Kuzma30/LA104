@@ -32,6 +32,8 @@ public:
 	void			ClearPersist();
 
 	void			OnPaintTY();
+	// LA104: "WAIT" / "TRIG" in Norm and Single (Trigger::State Run or Wait)
+	void			PaintTrigState();
 	void			OnPaintXY();
 
 	// LA104: 600 bytes for the FFT and the file output (the averaging buffer;
