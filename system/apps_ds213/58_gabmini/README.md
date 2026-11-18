@@ -45,5 +45,11 @@ Settings are kept in MINIOSC.CFG (format 3: older files are ignored once).
 ## Build
 
 `./build_ds203.sh` (or `build_ds213.sh`), needs `arm-none-eabi-gcc` and
-`system/os_library/build/libbios_ds203.so`. Limits on the DS203: ROM 100 KB,
-RAM 0x6200 bytes (see `source/app_ds203.lds`).
+`system/os_library/build/libbios_ds203.so`. Memory on the DS203
+(`source/app_ds203.lds`), needs the STM32F103VE (512 KB flash, 64 KB RAM) of
+HW 2.6x / 2.7x:
+- code at 0x08040000, 160 KB, above the factory data at 0x0802C000..0x0803FFFF
+  (FPGA bitstream, calibration; the loader refuses to write there)
+- RAM 0x20004400, 0x6200 bytes, the stack of the OS below it
+- the sample buffer (12 KB) in the section `.bss_hi` at 0x2000C000, RAM the OS
+  does not use (it ends at 0x2000B800); the loader zeroes it like `.bss`
