@@ -79,7 +79,9 @@ public:
 				else
 					Settings.CH2Calib.Prepare( &Settings.CH2, fastCalc );
 
-				float fValue = Settings.CH1Calib.Voltage( fastCalc, (float)m_pMarker->nValue );
+				CSettings::Calibrator& cal = m_pMarker->Source == CSettings::Marker::_CH1 ?
+					Settings.CH1Calib : Settings.CH2Calib;
+				float fValue = cal.Voltage( fastCalc, (float)m_pMarker->nValue );
 				x += BIOS::LCD::Printf( x, y, clr, RGBTRANS, "%f", F2D(fValue) );
 				if (!HasFocus())
 				{
