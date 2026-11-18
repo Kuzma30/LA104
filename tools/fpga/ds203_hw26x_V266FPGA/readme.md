@@ -14,3 +14,6 @@ same way from `../ds203_8mb_hwV272-V261FPGA`, the previous version from
 
 `V266FPGA.BIN`: 68088 bytes, sha256
 2145eeeae39a8da29317a12961b67dbf91136acfee8ec4eca249b58d1032abb7
+
+Superseded by `../ds203_hw26x_V267FPGA`: in 2.66 the trigger fails at the
+fast time bases (sampling 36 / 72 MHz).
