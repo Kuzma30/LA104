@@ -172,15 +172,24 @@ namespace Tools
 
 	// ------------------------------------------------------------ zero calibration
 	static const char* const CalFile = "MINICAL.CFG";
-	enum { CalMagic = 0x41434d47, CalVersion = 1 };   // "GMCA"
-	enum { CalPos1 = 40, CalPos2 = 200, CalStep = 32, CalTries = 5, CalMinGap = 24 };
+	enum { CalMagic = 0x41434d47, CalVersion = 2 };   // "GMCA"
+	enum { QinSize = sizeof( CSettings::LinCalibCurve::m_arrCurveQin ),
+		QoutSize = sizeof( CSettings::LinCalibCurve::m_arrCurveQout ),
+		CalPoints = CSettings::LinCalibCurve::eQPoints };
+	static const int16_t arrCalPos[CalPoints] = { 40, 128, 216 };
+	enum { CalStep = 24, CalTries = 5, CalMinGap = 16 };
+	// 500 us/div = 60 kS/s: 3600 samples are 60 ms, whole periods of 50 Hz
+	// and of 60 Hz, so mains hum on the input does not move the mean
+	enum { CalBegin = 160, CalSamples = 3600 };
 	enum { MeanLow = -1, MeanHigh = -2, MeanNone = -3 };
 
 	// mean ADC value of a channel in 1/2048 (as the calibration Q);
 	// MeanLow / MeanHigh when samples touch the bottom / top of the ADC
 	static int32_t Mean2048( int ch )
 	{
-		int nBegin = 160, nEnd = Sampler::GetValid();
+		int nBegin = CalBegin, nEnd = Sampler::GetValid();
+		if ( nEnd > CalBegin + CalSamples )
+			nEnd = CalBegin + CalSamples;
 		if ( nEnd - nBegin < 100 )
 			return MeanNone;
 		int32_t nSum = 0;
@@ -193,7 +202,7 @@ namespace Tools
 				return MeanHigh;
 			nSum += v;
 		}
-		return (int32_t)( (int64_t)nSum * 2048 / ( nEnd - nBegin ) );
+		return (int32_t)( ( (int64_t)nSum * 2048 + ( nEnd - nBegin ) / 2 ) / ( nEnd - nBegin ) );
 	}
 
 	static void Capture( int nSettleMs )
@@ -203,7 +212,7 @@ namespace Tools
 		BIOS::SYS::DelayMs( nSettleMs );    // range switch, offset DAC and input settle
 		BIOS::ADC::Restart( 0 );
 		uint32_t t0 = BIOS::SYS::GetTick();
-		while ( BIOS::ADC::GetState() != BIOS::ADC::EState::Full && BIOS::SYS::GetTick() - t0 < 200 );
+		while ( BIOS::ADC::GetState() != BIOS::ADC::EState::Full && BIOS::SYS::GetTick() - t0 < 300 );
 		Sampler::Copy();
 	}
 
@@ -219,8 +228,8 @@ namespace Tools
 		for ( int c = 0; c < 2; c++ )
 			for ( int r = 0; r <= CSettings::AnalogChannel::_ResolutionMax; r++ )
 			{
-				memcpy( q, arrCal[c]->CalData[r].m_arrCurveQin, 4 ); q += 4;
-				memcpy( q, arrCal[c]->CalData[r].m_arrCurveQout, 8 ); q += 8;
+				memcpy( q, arrCal[c]->CalData[r].m_arrCurveQin, QinSize ); q += QinSize;
+				memcpy( q, arrCal[c]->CalData[r].m_arrCurveQout, QoutSize ); q += QoutSize;
 			}
 		uint32_t nSum = 5381;
 		for ( uint8_t* i = p + 12; i < q; i++ )
@@ -242,7 +251,7 @@ namespace Tools
 		bool bRead = BIOS::FAT::Read( p ) == BIOS::FAT::EOk;
 		BIOS::FAT::Close();
 		uint32_t* pHead = (uint32_t*)p;
-		const int nData = 2 * ( CSettings::AnalogChannel::_ResolutionMax + 1 ) * 12;
+		const int nData = 2 * ( CSettings::AnalogChannel::_ResolutionMax + 1 ) * ( QinSize + QoutSize );
 		uint32_t nSum = 5381;
 		for ( uint8_t* i = p + 12; i < p + 12 + nData; i++ )
 			nSum = nSum * 33 + *i;
@@ -254,18 +263,58 @@ namespace Tools
 			for ( int c = 0; c < 2; c++ )
 				for ( int r = 0; r <= CSettings::AnalogChannel::_ResolutionMax; r++ )
 				{
-					memcpy( arrCal[c]->CalData[r].m_arrCurveQin, q, 4 ); q += 4;
-					memcpy( arrCal[c]->CalData[r].m_arrCurveQout, q, 8 ); q += 8;
+					memcpy( arrCal[c]->CalData[r].m_arrCurveQin, q, QinSize ); q += QinSize;
+					memcpy( arrCal[c]->CalData[r].m_arrCurveQout, q, QoutSize ); q += QoutSize;
 				}
 		}
 		MainWnd.m_wndGraph.ClearAverage();
 		return bOk;
 	}
 
+	// line through the points (p, q) of a channel, CalPoints of them
+	static void SetCurve( CSettings::LinCalibCurve& cur, const int16_t* pPos, const int32_t* pQ, int n, int32_t nSlope )
+	{
+		int16_t p0, p1;
+		int32_t q0, q1;
+		if ( n >= 2 )
+		{
+			p0 = pPos[0]; q0 = pQ[0];
+			p1 = pPos[n - 1]; q1 = pQ[n - 1];
+		} else
+		{
+			// one point: slope given (per position step)
+			p0 = pPos[0]; q0 = pQ[0];
+			p1 = p0 < 128 ? p0 + 128 : p0 - 128;
+			q1 = q0 + nSlope * ( p1 - p0 );
+			if ( p1 < p0 )
+			{
+				int16_t p = p0; p0 = p1; p1 = p;
+				int32_t q = q0; q0 = q1; q1 = q;
+			}
+		}
+		if ( n == CalPoints )
+		{
+			for ( int i = 0; i < CalPoints; i++ )
+			{
+				cur.m_arrCurveQin[i] = pPos[i];
+				cur.m_arrCurveQout[i] = pQ[i];
+			}
+			return;
+		}
+		// fewer points: a straight line, the middle point on it
+		for ( int i = 0; i < CalPoints; i++ )
+		{
+			int16_t p = p0 + ( p1 - p0 ) * i / ( CalPoints - 1 );
+			cur.m_arrCurveQin[i] = p;
+			cur.m_arrCurveQout[i] = q0 + (int32_t)( (int64_t)( q1 - q0 ) * ( p - p0 ) / ( p1 - p0 ) );
+		}
+	}
+
 	// The zero of every V/div range of both channels is measured with DC
-	// coupling at two positions. A point whose samples clip is measured
-	// again at a position moved towards the middle. A range that cannot be
-	// measured keeps its previous calibration; the others are stored.
+	// coupling at three positions; the curve goes through them. A point
+	// whose samples clip is measured again at a position moved towards the
+	// middle. A range that cannot be measured keeps its previous
+	// calibration; the others are stored.
 	bool ZeroCalibrate( char* strResult )
 	{
 		CSettings::AnalogChannel* arrCh[2] = { &Settings.CH1, &Settings.CH2 };
@@ -273,15 +322,20 @@ namespace Tools
 		CSettings::AnalogChannel arrSaved[2] = { Settings.CH1, Settings.CH2 };
 		CSettings::TimeBase::EResolution savedTime = Settings.Time.Resolution;
 
-		// 100 us/div: 4096 samples in 14 ms, the mean of them
-		Settings.Time.Resolution = CSettings::TimeBase::_100us;
+		Settings.Time.Resolution = CSettings::TimeBase::_500us;
 		int nFailCh = -1, nFailRes = 0, nFails = 0;
 		for ( int r = 0; r <= CSettings::AnalogChannel::_ResolutionMax; r++ )
 		{
-			int16_t arrPos[2][2] = { { CalPos1, CalPos2 }, { CalPos1, CalPos2 } };
-			int32_t arrMean[2][2] = { { -1, -1 }, { -1, -1 } };
+			int16_t arrPos[2][CalPoints];
+			int32_t arrMean[2][CalPoints];
+			for ( int c = 0; c < 2; c++ )
+				for ( int k = 0; k < CalPoints; k++ )
+				{
+					arrPos[c][k] = arrCalPos[k];
+					arrMean[c][k] = MeanNone;
+				}
 			bool bFirst = true;
-			for ( int k = 0; k < 2; k++ )
+			for ( int k = 0; k < CalPoints; k++ )
 				for ( int t = 0; t < CalTries; t++ )
 				{
 					for ( int c = 0; c < 2; c++ )
@@ -290,7 +344,7 @@ namespace Tools
 						arrCh[c]->Coupling = CSettings::AnalogChannel::_DC;
 						arrCh[c]->u16Position = arrPos[c][k];
 					}
-					Capture( bFirst ? 200 : 80 );
+					Capture( bFirst ? 250 : 100 );
 					bFirst = false;
 					bool bAll = true;
 					for ( int c = 0; c < 2; c++ )
@@ -318,42 +372,39 @@ namespace Tools
 
 			for ( int c = 0; c < 2; c++ )
 			{
-				CSettings::LinCalibCurve& cur = arrCal[c]->CalData[r];
-				bool b1 = arrMean[c][0] >= 0, b2 = arrMean[c][1] >= 0;
-				int nGap = arrPos[c][1] - arrPos[c][0];
-				if ( b1 && b2 && ( nGap >= CalMinGap || nGap <= -CalMinGap ) )
+				// good points, ascending positions, not too close together
+				int16_t arrP[CalPoints];
+				int32_t arrQ[CalPoints];
+				int n = 0;
+				for ( int k = 0; k < CalPoints; k++ )
 				{
-					// 0 V: Q + raw * K = 0 with K = 2048
-					cur.m_arrCurveQin[0] = arrPos[c][0];
-					cur.m_arrCurveQin[1] = arrPos[c][1];
-					cur.m_arrCurveQout[0] = -arrMean[c][0];
-					cur.m_arrCurveQout[1] = -arrMean[c][1];
-					if ( nGap < 0 )
-					{
-						// keep the input points ascending for the interpolator
-						int16_t p = cur.m_arrCurveQin[0]; cur.m_arrCurveQin[0] = cur.m_arrCurveQin[1]; cur.m_arrCurveQin[1] = p;
-						int32_t q = cur.m_arrCurveQout[0]; cur.m_arrCurveQout[0] = cur.m_arrCurveQout[1]; cur.m_arrCurveQout[1] = q;
-					}
-				} else if ( b1 || b2 )
-				{
-					// one point only: the slope of the previous range (or 1:1)
-					int k = b1 ? 0 : 1;
-					int32_t nSlope = -2048;      // Qout per position step
-					if ( r > 0 )
-					{
-						CSettings::LinCalibCurve& prev = arrCal[c]->CalData[r - 1];
-						int nIn = prev.m_arrCurveQin[1] - prev.m_arrCurveQin[0];
-						if ( nIn != 0 )
-							nSlope = ( prev.m_arrCurveQout[1] - prev.m_arrCurveQout[0] ) / nIn;
-					}
+					if ( arrMean[c][k] < 0 )
+						continue;
 					int16_t p = arrPos[c][k];
-					int16_t p2 = p < 128 ? p + 128 : p - 128;
-					int32_t q = -arrMean[c][k], q2 = q + nSlope * ( p2 - p );
-					cur.m_arrCurveQin[0] = p < p2 ? p : p2;
-					cur.m_arrCurveQin[1] = p < p2 ? p2 : p;
-					cur.m_arrCurveQout[0] = p < p2 ? q : q2;
-					cur.m_arrCurveQout[1] = p < p2 ? q2 : q;
-				} else
+					int32_t q = -arrMean[c][k];     // 0 V: Q + raw * 2048 = 0
+					int i = n;
+					while ( i > 0 && arrP[i - 1] > p )
+					{
+						arrP[i] = arrP[i - 1];
+						arrQ[i] = arrQ[i - 1];
+						i--;
+					}
+					arrP[i] = p;
+					arrQ[i] = q;
+					n++;
+				}
+				for ( int i = 1; i < n; )
+					if ( arrP[i] - arrP[i - 1] < CalMinGap )
+					{
+						for ( int j = i; j < n - 1; j++ )
+						{
+							arrP[j] = arrP[j + 1];
+							arrQ[j] = arrQ[j + 1];
+						}
+						n--;
+					} else
+						i++;
+				if ( n == 0 )
 				{
 					// nothing measured: the previous calibration stays
 					if ( nFailCh < 0 )
@@ -362,7 +413,17 @@ namespace Tools
 						nFailRes = r;
 					}
 					nFails++;
+					continue;
 				}
+				int32_t nSlope = -2048;      // Qout per position step
+				if ( n == 1 && r > 0 )
+				{
+					CSettings::LinCalibCurve& prev = arrCal[c]->CalData[r - 1];
+					int nIn = prev.m_arrCurveQin[CalPoints - 1] - prev.m_arrCurveQin[0];
+					if ( nIn != 0 )
+						nSlope = ( prev.m_arrCurveQout[CalPoints - 1] - prev.m_arrCurveQout[0] ) / nIn;
+				}
+				SetCurve( arrCal[c]->CalData[r], arrP, arrQ, n, nSlope );
 			}
 		}
 

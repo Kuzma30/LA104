@@ -355,16 +355,22 @@ void CSettings::ResetCalibration()
  105 -> 0
  238 -> 255
 */
+	// zero position as a line through two points, the middle one between them
 #if defined(DS213)
-	const static si16 defaultQin[] = {105, 238};
+	#define _Q0 105
+	#define _Q2 238
 #elif defined(DS203)
-	const static si16 defaultQin[] = {-24, 249};
+	#define _Q0 -24
+	#define _Q2 249
 #else
-	const static si16 defaultQin[] = {0, 256};
+	#define _Q0 0
+	#define _Q2 256
 #error Unknown platform
 #endif
-
-	const static si32 defaultQout[] = {0, -(256<<11)};
+	const static si16 defaultQin[] = {_Q0, (_Q0+_Q2)/2, _Q2};
+	const static si32 defaultQout[] = {0, -(si32)(((_Q0+_Q2)/2-_Q0)*(256<<11)/(_Q2-_Q0)), -(256<<11)};
+	#undef _Q0
+	#undef _Q2
 	const static si16 defaultKin[] = {0, 0, 0, 0, 0, 256};
 	const static si32 defaultKout[] = {1<<11, 1<<11, 1<<11, 1<<11, 1<<11, 1<<11};
 /*

@@ -74,7 +74,7 @@
 	{	
 		public:
 		enum {
-			eQPoints = 2,
+			eQPoints = 3,
 			eKPoints = 6
 		};
 
@@ -108,6 +108,17 @@
 		typedef CalibrationCurve<si16, si32, int, int, int, LinCalibCurve::eKPoints> InterpolatorK;
 		typedef CalibrationCurve<si16, si32, int, int, int, LinCalibCurve::eQPoints> InterpolatorQ;
 
+		// a / b rounded to the nearest integer, also for a negative a
+		static int RoundDiv( int a, int b )
+		{
+			if ( b <= 0 )
+				return 0;
+			int n = a + b / 2, q = n / b;
+			if ( n % b != 0 && n < 0 )
+				q--;
+			return q;
+		}
+
 		struct FastCalc 
 		{
 			float fMultiplier;
@@ -125,7 +136,7 @@
 
 			fast.K = InterpolatorK::Get( pCurCurve.m_arrCurveKin, pCurCurve.m_arrCurveKout, nVert );
 			fast.Q = InterpolatorQ::Get( pCurCurve.m_arrCurveQin, pCurCurve.m_arrCurveQout, nVert );
-			fast.Zero = fast.Q / fast.K;
+			fast.Zero = RoundDiv( fast.Q, fast.K );
 			fast.fMultiplier = arrMultipliers[pSource->Resolution];
 		}
 
@@ -143,7 +154,7 @@
 
 			fast.K = InterpolatorK::Get( pCurCurve.m_arrCurveKin, pCurCurve.m_arrCurveKout, nVert );
 			fast.Q = InterpolatorQ::Get( pCurCurve.m_arrCurveQin, pCurCurve.m_arrCurveQout, nVert );
-			fast.Zero = fast.Q / fast.K;
+			fast.Zero = RoundDiv( fast.Q, fast.K );
 			fast.fMultiplier = arrMultipliers[nRes];
 		}
 
@@ -151,7 +162,9 @@
 		{
 			//return -fast.Zero + ( ((fast.Q + nAdc * fast.K)*5) >> (16-5) ); // *32/200mV 5=1/200mV
 			// K, Q by mali byt v rozmere pixelov (0..255) reprezentujuce vysku od 0..8divov a nie vo voltoch!
-			return -fast.Zero + ( (fast.Q + nAdc * fast.K) >> 11 );
+			// rounded the same way as Zero: with K = 2048 the trace is the
+			// raw sample and the zero mark the nearest pixel to 0 V
+			return -fast.Zero + ( (fast.Q + nAdc * fast.K + 1024) >> 11 );
 		}
 
 		float Voltage(FastCalc& fast, float fAdc)
