@@ -173,31 +173,34 @@ namespace Tools
 	// ------------------------------------------------------------ zero calibration
 	static const char* const CalFile = "MINICAL.CFG";
 	enum { CalMagic = 0x41434d47, CalVersion = 1 };   // "GMCA"
-	enum { CalPos1 = 40, CalPos2 = 200 };
+	enum { CalPos1 = 40, CalPos2 = 200, CalStep = 32, CalTries = 5, CalMinGap = 24 };
+	enum { MeanLow = -1, MeanHigh = -2, MeanNone = -3 };
 
-	// mean ADC value of a channel in 1/2048 (as the calibration Q), -1 when
-	// the samples are clipped
+	// mean ADC value of a channel in 1/2048 (as the calibration Q);
+	// MeanLow / MeanHigh when samples touch the bottom / top of the ADC
 	static int32_t Mean2048( int ch )
 	{
 		int nBegin = 160, nEnd = Sampler::GetValid();
 		if ( nEnd - nBegin < 100 )
-			return -1;
+			return MeanNone;
 		int32_t nSum = 0;
 		for ( int i = nBegin; i < nEnd; i++ )
 		{
 			int v = ( Sampler::GetAt( i ) >> ( ch * 8 ) ) & 0xff;
-			if ( v <= 1 || v >= 254 )
-				return -1;
+			if ( v <= 1 )
+				return MeanLow;
+			if ( v >= 254 )
+				return MeanHigh;
 			nSum += v;
 		}
 		return (int32_t)( (int64_t)nSum * 2048 / ( nEnd - nBegin ) );
 	}
 
-	static void Capture()
+	static void Capture( int nSettleMs )
 	{
 		CCoreOscilloscope::ConfigureAdc();
 		BIOS::ADC::ConfigureTrigger( 0, 0, BIOS::ADC::ETriggerType::None, BIOS::ADC::EInput::CH1 );
-		BIOS::SYS::DelayMs( 60 );       // offset DAC and input settle
+		BIOS::SYS::DelayMs( nSettleMs );    // range switch, offset DAC and input settle
 		BIOS::ADC::Restart( 0 );
 		uint32_t t0 = BIOS::SYS::GetTick();
 		while ( BIOS::ADC::GetState() != BIOS::ADC::EState::Full && BIOS::SYS::GetTick() - t0 < 200 );
@@ -259,7 +262,11 @@ namespace Tools
 		return bOk;
 	}
 
-	bool ZeroCalibrate()
+	// The zero of every V/div range of both channels is measured with DC
+	// coupling at two positions. A point whose samples clip is measured
+	// again at a position moved towards the middle. A range that cannot be
+	// measured keeps its previous calibration; the others are stored.
+	bool ZeroCalibrate( char* strResult )
 	{
 		CSettings::AnalogChannel* arrCh[2] = { &Settings.CH1, &Settings.CH2 };
 		CSettings::Calibrator* arrCal[2] = { &Settings.CH1Calib, &Settings.CH2Calib };
@@ -268,47 +275,114 @@ namespace Tools
 
 		// 100 us/div: 4096 samples in 14 ms, the mean of them
 		Settings.Time.Resolution = CSettings::TimeBase::_100us;
-		bool bOk = true;
-		for ( int r = 0; r <= CSettings::AnalogChannel::_ResolutionMax && bOk; r++ )
+		int nFailCh = -1, nFailRes = 0, nFails = 0;
+		for ( int r = 0; r <= CSettings::AnalogChannel::_ResolutionMax; r++ )
 		{
-			int32_t arrMean[2][2];
-			for ( int k = 0; k < 2 && bOk; k++ )
-			{
-				for ( int c = 0; c < 2; c++ )
+			int16_t arrPos[2][2] = { { CalPos1, CalPos2 }, { CalPos1, CalPos2 } };
+			int32_t arrMean[2][2] = { { -1, -1 }, { -1, -1 } };
+			bool bFirst = true;
+			for ( int k = 0; k < 2; k++ )
+				for ( int t = 0; t < CalTries; t++ )
 				{
-					arrCh[c]->Resolution = (CSettings::AnalogChannel::eResolution)r;
-					arrCh[c]->Coupling = CSettings::AnalogChannel::_DC;
-					arrCh[c]->u16Position = k ? CalPos2 : CalPos1;
+					for ( int c = 0; c < 2; c++ )
+					{
+						arrCh[c]->Resolution = (CSettings::AnalogChannel::eResolution)r;
+						arrCh[c]->Coupling = CSettings::AnalogChannel::_DC;
+						arrCh[c]->u16Position = arrPos[c][k];
+					}
+					Capture( bFirst ? 200 : 80 );
+					bFirst = false;
+					bool bAll = true;
+					for ( int c = 0; c < 2; c++ )
+					{
+						if ( arrMean[c][k] >= 0 )
+							continue;
+						int32_t m = Mean2048( c );
+						if ( m >= 0 )
+						{
+							arrMean[c][k] = m;
+							continue;
+						}
+						bAll = false;
+						// zero below the ADC range: up, above it: down
+						if ( m == MeanLow )
+							arrPos[c][k] += CalStep;
+						else if ( m == MeanHigh )
+							arrPos[c][k] -= CalStep;
+						if ( arrPos[c][k] < 0 ) arrPos[c][k] = 0;
+						if ( arrPos[c][k] > 255 ) arrPos[c][k] = 255;
+					}
+					if ( bAll )
+						break;
 				}
-				Capture();
-				for ( int c = 0; c < 2; c++ )
-				{
-					arrMean[c][k] = Mean2048( c );
-					if ( arrMean[c][k] < 0 )
-						bOk = false;
-				}
-			}
-			if ( !bOk )
-				break;
-			// 0 V: Q + raw * K = 0 with K = 2048
+
 			for ( int c = 0; c < 2; c++ )
 			{
 				CSettings::LinCalibCurve& cur = arrCal[c]->CalData[r];
-				cur.m_arrCurveQin[0] = CalPos1;
-				cur.m_arrCurveQin[1] = CalPos2;
-				cur.m_arrCurveQout[0] = -arrMean[c][0];
-				cur.m_arrCurveQout[1] = -arrMean[c][1];
+				bool b1 = arrMean[c][0] >= 0, b2 = arrMean[c][1] >= 0;
+				int nGap = arrPos[c][1] - arrPos[c][0];
+				if ( b1 && b2 && ( nGap >= CalMinGap || nGap <= -CalMinGap ) )
+				{
+					// 0 V: Q + raw * K = 0 with K = 2048
+					cur.m_arrCurveQin[0] = arrPos[c][0];
+					cur.m_arrCurveQin[1] = arrPos[c][1];
+					cur.m_arrCurveQout[0] = -arrMean[c][0];
+					cur.m_arrCurveQout[1] = -arrMean[c][1];
+					if ( nGap < 0 )
+					{
+						// keep the input points ascending for the interpolator
+						int16_t p = cur.m_arrCurveQin[0]; cur.m_arrCurveQin[0] = cur.m_arrCurveQin[1]; cur.m_arrCurveQin[1] = p;
+						int32_t q = cur.m_arrCurveQout[0]; cur.m_arrCurveQout[0] = cur.m_arrCurveQout[1]; cur.m_arrCurveQout[1] = q;
+					}
+				} else if ( b1 || b2 )
+				{
+					// one point only: the slope of the previous range (or 1:1)
+					int k = b1 ? 0 : 1;
+					int32_t nSlope = -2048;      // Qout per position step
+					if ( r > 0 )
+					{
+						CSettings::LinCalibCurve& prev = arrCal[c]->CalData[r - 1];
+						int nIn = prev.m_arrCurveQin[1] - prev.m_arrCurveQin[0];
+						if ( nIn != 0 )
+							nSlope = ( prev.m_arrCurveQout[1] - prev.m_arrCurveQout[0] ) / nIn;
+					}
+					int16_t p = arrPos[c][k];
+					int16_t p2 = p < 128 ? p + 128 : p - 128;
+					int32_t q = -arrMean[c][k], q2 = q + nSlope * ( p2 - p );
+					cur.m_arrCurveQin[0] = p < p2 ? p : p2;
+					cur.m_arrCurveQin[1] = p < p2 ? p2 : p;
+					cur.m_arrCurveQout[0] = p < p2 ? q : q2;
+					cur.m_arrCurveQout[1] = p < p2 ? q2 : q;
+				} else
+				{
+					// nothing measured: the previous calibration stays
+					if ( nFailCh < 0 )
+					{
+						nFailCh = c;
+						nFailRes = r;
+					}
+					nFails++;
+				}
 			}
 		}
 
 		Settings.CH1 = arrSaved[0];
 		Settings.CH2 = arrSaved[1];
 		Settings.Time.Resolution = savedTime;
-		if ( !bOk )
-			LoadCalibration();          // back to the stored (or default) values
 		CCoreOscilloscope::ConfigureAdc();
 		CCoreOscilloscope::ConfigureTrigger();
-		return bOk && SaveCalibration();
+		bool bSaved = SaveCalibration();
+		if ( !bSaved )
+			strcpy( strResult, "Error: file" );
+		else if ( nFails )
+		{
+			strcpy( strResult, nFailCh ? "Err CH2 " : "Err CH1 " );
+			strcat( strResult, CSettings::AnalogChannel::ppszTextResolution[ nFailRes ] );
+			if ( nFails > 1 )
+				strcat( strResult, "+" );
+		} else
+			strcpy( strResult, "done" );
+		return bSaved && !nFails;
 	}
 
 	void StoreRef()
@@ -454,7 +528,7 @@ void CItemTools::OnKey( int nKey )
 				strcpy( m_strInfo[2], "running" );
 				Invalidate();
 				WindowMessage( CWnd::WmPaint );
-				strcpy( m_strInfo[2], Tools::ZeroCalibrate() ? "done" : "Error" );
+				Tools::ZeroCalibrate( m_strInfo[2] );
 				Invalidate();
 				MainWnd.m_wndGraph.Invalidate();
 				MainWnd.m_wndLReferences.Invalidate();

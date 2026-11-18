@@ -47,6 +47,6 @@ namespace Tools
 
 	// zero of CH1 / CH2 for every V/div: the ADC value of 0 V at two
 	// positions gives the offset curve (Calibrator Q); K is kept
-	bool ZeroCalibrate();
+	bool ZeroCalibrate( char* strResult );   // strResult: 14 chars
 	bool LoadCalibration();             // at start, false: defaults kept
 }
