@@ -83,8 +83,15 @@ void CItemMeas::PaintValue( int i )
 		strcpy( str, "--" );
 	// text with its background, then the rest of the row: no flicker
 	int x = x0 + 4 + BIOS::LCD::Print( x0 + 4, y, clr, clrBack, str );
+	ClearRest( x, y, 16, clrBack );
+}
+
+// background from x to the right edge; nothing when the text reached it
+// (a bar with right < left is drawn as a huge one and hangs the device)
+void CItemMeas::ClearRest( int x, int y, int h, ui16 clr )
+{
 	if ( x < m_rcClient.right - 4 )
-		BIOS::LCD::Bar( x, y, m_rcClient.right - 4, y + 16, clrBack );
+		BIOS::LCD::Bar( x, y, m_rcClient.right - 4, y + h, clr );
 }
 
 void CItemMeas::PaintStat()
@@ -101,14 +108,15 @@ void CItemMeas::PaintStat()
 	if ( !Settings.Extra.nStat )
 	{
 		x = x0 + BIOS::LCD::Print( x0, y, clr, clrBack, "Stat: Off" );
-		BIOS::LCD::Bar( x, y, m_rcClient.right - 4, y + 16 * 4, clrBack );
+		ClearRest( x, y, 16 * 4, clrBack );
 		BIOS::LCD::Bar( x0, y + 16, x, y + 16 * 4, clrBack );
 		return;
 	}
 	int s = m_nStatSlot;
-	x = x0 + BIOS::LCD::Printf( x0, y, clr, clrBack, "Stat M%d ", s + 1 );
-	x += BIOS::LCD::Printf( x, y, clr2, clrBack, "%d", m_arrCount[s] );
-	BIOS::LCD::Bar( x, y, m_rcClient.right - 4, y + 16, clrBack );
+	// 9 characters fit to the row: "M4 n=" and at most 4 digits
+	x = x0 + BIOS::LCD::Printf( x0, y, clr, clrBack, "M%d n=", s + 1 );
+	x += BIOS::LCD::Printf( x, y, clr2, clrBack, "%d", min( m_arrCount[s], 9999 ) );
+	ClearRest( x, y, 16, clrBack );
 	static const char* const arrLabel[3] = { "<", ">", "~" };
 	float arrV[3] = { m_arrMin[s], m_arrMax[s], m_arrCount[s] ? m_arrSum[s] / m_arrCount[s] : 0 };
 	int nType = Settings.Extra.arrMeasType[s];
@@ -123,7 +131,7 @@ void CItemMeas::PaintStat()
 			x += BIOS::LCD::Print( x, _y, clr, clrBack, " " );
 			x += BIOS::LCD::Print( x, _y, clr, clrBack, str );
 		}
-		BIOS::LCD::Bar( x, _y, m_rcClient.right - 4, _y + 16, clrBack );
+		ClearRest( x, _y, 16, clrBack );
 	}
 }
 

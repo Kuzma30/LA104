@@ -433,14 +433,13 @@ namespace Tools
 		CCoreOscilloscope::ConfigureAdc();
 		CCoreOscilloscope::ConfigureTrigger();
 		bool bSaved = SaveCalibration();
+		// at most 8 characters fit to the row
 		if ( !bSaved )
-			strcpy( strResult, "Error: file" );
+			strcpy( strResult, "Err file" );
 		else if ( nFails )
 		{
-			strcpy( strResult, nFailCh ? "Err CH2 " : "Err CH1 " );
+			strcpy( strResult, nFailCh ? "Err2 " : "Err1 " );
 			strcat( strResult, CSettings::AnalogChannel::ppszTextResolution[ nFailRes ] );
-			if ( nFails > 1 )
-				strcat( strResult, "+" );
 		} else
 			strcpy( strResult, "done" );
 		return bSaved && !nFails;

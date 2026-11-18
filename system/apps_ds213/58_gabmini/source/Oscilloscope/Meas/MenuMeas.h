@@ -33,6 +33,7 @@ private:
 	ui16 RowBackground( bool bSelected );
 	void PaintValue( int nSlot );   // only the value row, over the old one
 	void PaintStat();
+	void ClearRest( int x, int y, int h, ui16 clr );
 };
 
 class CWndMenuMeas : public CWnd
