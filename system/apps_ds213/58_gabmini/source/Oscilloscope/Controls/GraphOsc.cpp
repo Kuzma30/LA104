@@ -512,8 +512,14 @@ void CWndOscGraph::OnPaintTY()
 		nY4High = (nY4High*(DivsY*BlkY))>>8;
 	}
 
+	int nZeroY1 = 0, nZeroY2 = 0;
 	if ( bFill )
 	{
+		int nZero1 = Settings.CH1Calib.GetZero( Ch1fast ), nZero2 = Settings.CH2Calib.GetZero( Ch2fast );
+		CUtils::Clamp<int>( nZero1, 0, 255 );
+		CUtils::Clamp<int>( nZero2, 0, 255 );
+		nZeroY1 = ( nZero1 * ( DivsY * BlkY ) ) >> 8;
+		nZeroY2 = ( nZero2 * ( DivsY * BlkY ) ) >> 8;
 		clrShade1 = _Interpolate( clr1, 0x0101 );
 		clrShade2 = _Interpolate( clr2, 0x0101 );
 		clrShade12 = _Interpolate( _Interpolate(clr2, 0x0101), clr1 );
@@ -624,34 +630,23 @@ void CWndOscGraph::OnPaintTY()
 
 		if ( bFill && !bHist )
 		{
-			if ( en1 && en2 )
-			{
-				if ( nSampleY1 > nSampleY2 )
-				{
-					int _y;
-					for ( _y = 0; _y < nSampleY2; _y++ )
-						column[_y] = clrShade12;
-					for (; _y < nSampleY1; _y++ )
-						column[_y] = clrShade1;
-				} else
-				{
-					int _y;
-					for (_y = 0; _y < nSampleY1; _y++)
-						column[_y] = clrShade12;
-					for (; _y < nSampleY2; _y++ )
-						column[_y] = clrShade2;
-				}
-			} else
+			// area between the trace and its 0 V level, mixed where both overlap
+			int nB1 = 1, nT1 = 0, nB2 = 1, nT2 = 0;
 			if ( en1 )
 			{
-				for ( int _y = 0; _y < nSampleY1; _y++ )
-					column[_y] = clrShade1;
-			} else
+				nB1 = min( nSampleY1, nZeroY1 );
+				nT1 = max( nSampleY1, nZeroY1 );
+			}
 			if ( en2 )
 			{
-				for ( int _y = 0; _y < nSampleY2; _y++ )
-					column[_y] = clrShade2;
+				nB2 = min( nSampleY2, nZeroY2 );
+				nT2 = max( nSampleY2, nZeroY2 );
 			}
+			for ( int _y = nB2; _y <= nT2; _y++ )
+				column[_y] = ( _y >= nB1 && _y <= nT1 ) ? clrShade12 : clrShade2;
+			for ( int _y = nB1; _y <= nT1; _y++ )
+				if ( _y < nB2 || _y > nT2 )
+					column[_y] = clrShade1;
 		}
 
 		if ( en3 )
