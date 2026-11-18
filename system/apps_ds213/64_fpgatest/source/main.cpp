@@ -1,4 +1,4 @@
-// FPGA 2.66 tester for the DS203: edge counters of CH_A..CH_D and the
+// FPGA 2.67 tester for the DS203: edge counters of CH_A..CH_D and the
 // quadrature decoders, with the signal of Wave Out.
 //
 // Pages (Left / Right):
@@ -54,7 +54,7 @@ namespace
   {
     const char* names[] = {"Tests", "Edges", "Quad"};
     LCD::Bar(0, 0, LCD::Width, 16, clrTitle);
-    int x = 4 + LCD::Print(4, 1, clrText, clrTitle, "FPGA 2.66 test");   // Print returns the width
+    int x = 4 + LCD::Print(4, 1, clrText, clrTitle, "FPGA 2.67 test");   // Print returns the width
     x += 16;
     for (int i = 0; i < (int)EPage::Total; i++)
     {
@@ -176,7 +176,7 @@ namespace
   void TestIdentity()
   {
     uint16_t status = Fpga::Status();
-    Check((status >> 6) == 266, "version %d (status %04x)", status >> 6, status);
+    Check((status >> 6) == 267, "version %d (status %04x)", status >> 6, status);
     uint16_t id1 = Fpga::Read(0x18), id2 = Fpga::Read(0x19), id3 = Fpga::Read(0x1A);
     Check(id1 == 0xC0D2 && id2 == 0xC0D4 && id3 == 0xC0D6, "ID %04x %04x %04x", id1, id2, id3);
   }
@@ -555,9 +555,9 @@ namespace
     int hi = ch == 0 ? thresholds.maxA : thresholds.maxB;
     uint8_t level = (lo + hi) / 2;
     bool swing = hi - lo >= 40;     // the trigger needs level +-12
-    Check(swing, "levels %c %d..%d, trigger level %d", name, lo, hi, level);
     if (!swing)
     {
+      Check(false, "levels %c %d..%d, trigger level %d", name, lo, hi, level);
       Result(0, "     Wave Out -> CH_%c? (40 needed)", name);
       return;
     }
@@ -568,7 +568,8 @@ namespace
     SYS::DelayMs(5);
     uint16_t st;
     bool fired = TrigAcquire(ch, chMode | 1, level, 0, 3000000, false, &st);
-    Check(!fired, "no signal: no trigger (status %04x)", st & 0x3f);
+    Check(!fired, "%c %d..%d, level %d, quiet: %s", name, lo, hi, level,
+          fired ? "fired" : "no trig");
 
     for (const TRate& rate : trigRates)
     {

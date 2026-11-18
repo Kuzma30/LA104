@@ -1,5 +1,5 @@
 #https://developer.arm.com/open-source/gnu-toolchain/gnu-rm/downloads
-# FPGA 2.66 tester, DS203 only (needs the FPGA image of system/fpga_ds203)
+# FPGA 2.67 tester, DS203 only (needs the FPGA image of system/fpga_ds203)
 
 mkdir -p build
 cd build

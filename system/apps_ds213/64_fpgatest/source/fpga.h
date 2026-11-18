@@ -1,5 +1,5 @@
 #pragma once
-// Access to the registers of the DS203 FPGA 2.66 (edge counters, quadrature
+// Access to the registers of the DS203 FPGA 2.67 (edge counters, quadrature
 // decoder), see system/fpga_ds203/readme.md.
 //
 //   write:  Set_Param(addr, value): H_L = 1, serial byte addr, H_L = 0,

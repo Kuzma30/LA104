@@ -1,6 +1,6 @@
-# 64_fpgatest: tester of the DS203 FPGA 2.66
+# 64_fpgatest: tester of the DS203 FPGA 2.67
 
-DS203 only, needs the FPGA image 2.66 (`tools/fpga/ds203_hw26x_V266FPGA`,
+DS203 only, needs the FPGA image 2.67 (`tools/fpga/ds203_hw26x_V267FPGA`,
 sources in `system/fpga_ds203`). Build: `./build_ds203.sh` (needs
 `system/os_library/build/libbios_ds203.so` and `tools/elfstrip/elfstrip`),
 copy `build/64fpgtst.elf` to the device.
@@ -19,7 +19,7 @@ line is OK, FAIL or info.
 
 Groups A-C and A-D, edge counters of one channel. Wiring: Wave Out -> CH_C
 (group A-C) or Wave Out -> CH_D (group A-D), one connection each.
-- version 266 in the status word, IDs 0xC0D2 / 0xC0D4 / 0xC0D6
+- version 267 in the status word, IDs 0xC0D2 / 0xC0D4 / 0xC0D6
 - clear: the four counters are 0
 - 100000 pulses of the CPU (~1 MHz): rising and falling exactly 100000
 - square bursts of 0.5 s at 1 kHz, 100 kHz, 1 MHz, 6 MHz, 9 MHz: rising =
