@@ -139,9 +139,9 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
   reg      [127:0]HoldQ;
   reg       [15:0]HoldZ;
   wire      [15:0]HoldW;
-  // version in the status word (SYS: FPGAVER = status >> 6): "2.66"
+  // version in the status word (SYS: FPGAVER = status >> 6): "2.67"
   // (2.65 was a variant with a smaller buffer, not this line)
-  wire      [ 9:0]Version = 10'd266;
+  wire      [ 9:0]Version = 10'd267;
 
   initial begin
     CntCtrl = 0;

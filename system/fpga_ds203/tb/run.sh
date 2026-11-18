@@ -1,12 +1,13 @@
 #!/bin/bash
 # Regression of the FPGA with counters against the original e-Design V2.5:
-# the same stimulus must give the same bus reads, then the counter tests.
+# the same stimulus must give the same bus reads (the original gets the
+# input register of 2.67 in front of it), then the counter tests.
 set -e
 cd "$(dirname "$0")"
 OUT=${TMPDIR:-/tmp}/fpga_ds203_tb
 mkdir -p $OUT
 
-iverilog -g2005 -o $OUT/stock tb_scope.v ../stock_v25/*.v
+iverilog -g2005 -DSTOCK_DIN_REG -o $OUT/stock tb_scope.v ../stock_v25/*.v
 iverilog -g2005 -o $OUT/scope tb_scope.v ../scope/*.v
 iverilog -g2005 -DCOUNTERS -o $OUT/counters tb_scope.v ../scope/*.v
 

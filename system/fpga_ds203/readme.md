@@ -1,4 +1,4 @@
-# DS203 FPGA (HW 2.6x, iCE65L04) with edge counters and a quadrature decoder (FPGA 2.66)
+# DS203 FPGA (HW 2.6x, iCE65L04) with edge counters and a quadrature decoder (FPGA 2.67)
 
 - `stock_v25/` original FPGA source of e-Design (FPGA CFG Ver 2.5, MIT
   license, from [matthiasbock/dso203](https://github.com/matthiasbock/dso203),
@@ -29,10 +29,30 @@ Reading the low word latches the whole 32 bit value, the high word comes
 from the latch. The values are in Gray code (converted by the MCU), so a
 value read while the input toggles is always the old or the new one.
 
-The status word (H_L = 0, C_D = 0) has the version 266 in bits 15..6,
-SYS `__Get(FPGAVER)` shows "2.66". The other bits are as in the original.
-(2.64: the same without the counters of CH_A / CH_B; 2.65 was a variant
-with a smaller buffer, not part of this line.)
+The status word (H_L = 0, C_D = 0) has the version 267 in bits 15..6,
+SYS `__Get(FPGAVER)` shows "2.67". The other bits are as in the original.
+(2.64: without the counters of CH_A / CH_B; 2.65 was a variant with a
+smaller buffer, not part of this line; 2.66: the trigger fails at 36 / 72
+MHz sampling, see below.)
+
+## Input registers (FPGA 2.67)
+
+The ADC data and CH_C / CH_D go through two registers in MCI before
+anything uses them (`FPGA_V25.v`): the first one (`Din_Raw`) is placed next
+to its pad on the iCE65L04 (`BEL` attributes, `ICE65_L04`), so every bit
+has the same short path from the pin; the comparisons with the trigger
+level (`Signal.v`) and with the thresholds of the decoder (`QuadSync`) are
+made from it and registered; the second register (`Din_Bus`) feeds the
+FIFO, the trigger logic and the decoder. All of them see the samples two
+MCI later together, so the data in the FIFO and the trigger point are the
+same as with the original (the testbench compares with the original with
+two registers in front of it).
+
+Why: nextpnr does not time the paths from input pins (no input delays).
+In 2.66 the path from the ADC pins through the comparators of the trigger
+to its flags was about 30 ns (estimate) and placed anywhere; on the
+device the trigger failed at 36 and 72 MHz sampling (tester groups T-A /
+T-B: the original V2.61 passes all, 2.66 failed level and pulse modes).
 
 ## Edge counters of CH_A / CH_B (FPGA 2.66, `EdgeSync` in `scope/EdgeCnt.v`)
 
@@ -91,7 +111,7 @@ CH_C and CH_D are digital.
 | MCI decoder | Select `0x38` latches: `0x38` / `0x39` position, `0x3A` errors (8 bit), `0x3B` / `0x3C` position at Z, `0x3D` Z counter |
 | ID | Select `0x19` returns `0xC0D4` |
 
-Version 266 in the status word ("2.66").
+Version 267 in the status word ("2.67").
 
 ## Tests (`tb/run.sh`)
 
@@ -133,8 +153,8 @@ then the new image renamed for example to `V264FPGA.BIN`. The original
 (`tools/fpga/ds203_8mb_hwV272-V261FPGA`).
 
 The image built with the open tools (`ice65/`) is in
-`tools/fpga/ds203_hw26x_V266FPGA` (`CFG_FPGA.ADR` + `V266FPGA.BIN`); the
-previous 2.64 in `tools/fpga/ds203_hw26x_V264FPGA`.
+`tools/fpga/ds203_hw26x_V267FPGA` (`CFG_FPGA.ADR` + `V267FPGA.BIN`); the
+previous versions in `tools/fpga/ds203_hw26x_V264FPGA` and `..._V266FPGA`.
 The functions are tested on the device with `apps_ds213/64_fpgatest`.
 
 Note: the published source is version 2.5, the image of HW 2.60 is 2.61.
@@ -152,7 +172,8 @@ iCEcube.
 On the device (DS203 HW 2.7, SYS 1.52, LA104 OS): the image is loaded, SYS
 shows the FPGA version 2.64, the oscilloscope shows the signal of Wave Out
 on CH2, the counters of CH_C are exact up to 6 MHz
-(`apps_ds213/64_fpgatest`). 2.66 is not yet tested on the device.
+(`apps_ds213/64_fpgatest`). 2.66 on the device: the trigger fails at
+36 / 72 MHz sampling (fixed in 2.67, not yet tested on the device).
 
 The sources of `scope/` are used unchanged (FIFO of 4096 samples). Two
 files replace or wrap them:
@@ -163,9 +184,9 @@ files replace or wrap them:
 - `FIFO_L04.v`: top level, MCI enters its global network from the pad of
   pin 15 (`SB_GB_IO`).
 
-`./build_l04.sh` writes `build/V266L04.BIN` (seed 15, the image in
-`tools/fpga/ds203_hw26x_V266FPGA`; the best of seeds 1..17 for MCI).
-Result: 3431 of 3520 logic cells (2.64: 3122), 18 of 20 RAM blocks, 45 pins.
+`./build_l04.sh` writes `build/V267L04.BIN` (seed 4, the image in
+`tools/fpga/ds203_hw26x_V267FPGA`; the best of seeds 1..10 for MCI).
+Result: 3450 of 3520 logic cells (2.64: 3122), 18 of 20 RAM blocks, 45 pins.
 
 `./test_l04.sh` runs the testbench of `tb/` on three levels: the sources
 with the new memory, the netlist after the synthesis, and the netlist
@@ -179,9 +200,11 @@ the steps to MCI (a step at the moment of Z is captured before or after it).
 Limits:
 - **Timing is not verified.** There is no timing data for the iCE65; the
   `l04` device uses an estimate (iCE40LP8K x 1.3). With it nextpnr reports
-  for 2.66 52 MHz for the sampling clock (72 MHz needed; 43..52 MHz with
-  other seeds), 51 MHz for nRD, 59 MHz for the pin counters (2.64: 53, 51,
-  62 MHz; 2.64 works on the device). The unchanged
+  for 2.67 48 MHz for the sampling clock (72 MHz needed; 43..48 MHz with
+  other seeds), 50 MHz for nRD, 58 MHz for the pin counters; the paths
+  from the input pins are short now (2.66: 52 MHz, but 30 ns from the ADC
+  pins, not counted by nextpnr). Paths from input pins are not timed by
+  nextpnr at all: keep them register-to-pin short as in 2.67. The unchanged
   original V2.5, which runs at 72 MHz on this chip when built by the vendor
   tool, gets 51 MHz from the same flow and estimate: the estimate is
   pessimistic, and this design is not slower than the original by it.

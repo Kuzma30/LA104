@@ -3,7 +3,7 @@
  Version   : FPGA CFG Ver 2.x                                     Author : bure
 *******************************************************************************/
 
-module Signal( Reset, Mclk, Trigg_Mode, Vthreshold, Tthreshold, Din, 
+module Signal( Reset, Mclk, Trigg_Mode, Vthreshold, Tthreshold, Din, DinP,
                Sampled, CtrlReg,
                Start, ClkA, ClkB, 
                A_Edge, A_TL, A_TH, B_Edge, B_TL, B_TH, 
@@ -15,6 +15,7 @@ module Signal( Reset, Mclk, Trigg_Mode, Vthreshold, Tthreshold, Din,
   input   [ 7:0]Vthreshold;   // Trigger voltage threshold 
   input   [15:0]Tthreshold;   // Trigger time threshold 
   input   [17:0]Din;          // 0~7:CH_A, 8~15:CH_B, 16:CH_C, 17:CH_D
+  input   [17:0]DinP;         // LA104: Din one sample before (Din = DinP delayed)
   input   Sampled;
   input   [ 7:0]CtrlReg;      // bit0=nPD, bit1=Mode, 
 
@@ -93,6 +94,20 @@ module Signal( Reset, Mclk, Trigg_Mode, Vthreshold, Tthreshold, Din,
   assign  Delta_V2 = Vthreshold - 12;
   assign  Delta_V3 = Vthreshold + 1;
   assign  Delta_V4 = Vthreshold - 1;
+
+  // LA104 (FPGA 2.67): the comparisons of CH_A / CH_B with the levels are
+  // made one sample before, from DinP, and registered: the same results
+  // for Din, the path from the comparators to the flags is cut in two.
+  reg     A_Gt1, A_Lt2, A_Gt3, A_Lt4, A_GtV, A_LtV;
+  reg     B_Gt1, B_Lt2, B_Gt3, B_Lt4, B_GtV, B_LtV;
+  always @( posedge Mclk ) begin
+    A_Gt1 <= DinP[ 7:0] > Delta_V1;   B_Gt1 <= DinP[15:8] > Delta_V1;
+    A_Lt2 <= DinP[ 7:0] < Delta_V2;   B_Lt2 <= DinP[15:8] < Delta_V2;
+    A_Gt3 <= DinP[ 7:0] > Delta_V3;   B_Gt3 <= DinP[15:8] > Delta_V3;
+    A_Lt4 <= DinP[ 7:0] < Delta_V4;   B_Lt4 <= DinP[15:8] < Delta_V4;
+    A_GtV <= DinP[ 7:0] > Vthreshold; B_GtV <= DinP[15:8] > Vthreshold;
+    A_LtV <= DinP[ 7:0] < Vthreshold; B_LtV <= DinP[15:8] < Vthreshold;
+  end
   
   always @( posedge Mclk or posedge Reset ) begin
 
@@ -128,9 +143,9 @@ module Signal( Reset, Mclk, Trigg_Mode, Vthreshold, Tthreshold, Din,
       D_TH     <= 0;
     end else begin
       // For CH_A Trigger
-      if ( Din[ 7:0] > Delta_V3 )  A_Status <= 1;
-      if ( Din[ 7:0] < Delta_V4 )  A_Status <= 0;
-      if (( Din[ 7:0] > Delta_V1 )&&( ~A_Flag )) begin
+      if ( A_Gt3 )  A_Status <= 1;
+      if ( A_Lt4 )  A_Status <= 0;
+      if (( A_Gt1 )&&( ~A_Flag )) begin
         if ( A_Cnt < Tthreshold )  A_Dt_L <= Sampled; 
         else                       A_Ut_L <= Sampled; 
         A_Flag <= 1;
@@ -138,7 +153,7 @@ module Signal( Reset, Mclk, Trigg_Mode, Vthreshold, Tthreshold, Din,
         A_Edge <= A_Edge + 1;
         A_TL   <= A_TL + A_Cnt;
       end else
-      if (( Din[ 7:0] < Delta_V2 )&&(  A_Flag )) begin
+      if (( A_Lt2 )&&(  A_Flag )) begin
         if ( A_Cnt < Tthreshold )  A_Dt_H <= Sampled; 
         else                       A_Ut_H <= Sampled; 
         A_Flag <= 0;
@@ -148,9 +163,9 @@ module Signal( Reset, Mclk, Trigg_Mode, Vthreshold, Tthreshold, Din,
       end  else  A_Cnt <= A_Cnt + 1; 
       
       // For CH_B Trigger
-      if ( Din[15:8] > Delta_V3 )  B_Status <= 1;
-      if ( Din[15:8] < Delta_V4 )  B_Status <= 0;
-      if (( Din[15:8] > Delta_V1 )&&( ~B_Flag )) begin
+      if ( B_Gt3 )  B_Status <= 1;
+      if ( B_Lt4 )  B_Status <= 0;
+      if (( B_Gt1 )&&( ~B_Flag )) begin
         if ( B_Cnt < Tthreshold )  B_Dt_L <= Sampled;
         else                       B_Ut_L <= Sampled;
         B_Flag <= 1;
@@ -158,7 +173,7 @@ module Signal( Reset, Mclk, Trigg_Mode, Vthreshold, Tthreshold, Din,
         B_Edge <= B_Edge + 1;
         B_TL   <= B_TL + B_Cnt;
       end else
-      if (( Din[15:8] < Delta_V2 )&&(  B_Flag )) begin
+      if (( B_Lt2 )&&(  B_Flag )) begin
         if ( B_Cnt < Tthreshold )  B_Dt_H <= Sampled;
         else                       B_Ut_H <= Sampled;
         B_Flag <= 0;
@@ -201,19 +216,19 @@ module Signal( Reset, Mclk, Trigg_Mode, Vthreshold, Tthreshold, Din,
     
       case( Trigg_Mode )
         // For CH_A Trigger
-        8'h00: if (( Din[ 7:0] < Vthreshold )&&(  A_Flag ))   Start <= Sampled; // Negedge
-        8'h01: if (( Din[ 7:0] > Vthreshold )&&( ~A_Flag ))   Start <= Sampled; // Posedge
-        8'h02: if (( Din[ 7:0] < Vthreshold )&&(  A_Status )) Start <= Sampled; // L Level
-        8'h03: if (( Din[ 7:0] > Vthreshold )&&( ~A_Status )) Start <= Sampled; // H Level
+        8'h00: if (( A_LtV )&&(  A_Flag ))   Start <= Sampled; // Negedge
+        8'h01: if (( A_GtV )&&( ~A_Flag ))   Start <= Sampled; // Posedge
+        8'h02: if (( A_LtV )&&(  A_Status )) Start <= Sampled; // L Level
+        8'h03: if (( A_GtV )&&( ~A_Status )) Start <= Sampled; // H Level
         8'h04: Start <= A_Dt_L; // Pusle 0 < ConfigDt
         8'h05: Start <= A_Ut_L; // Pusle 0 > ConfigDt
         8'h06: Start <= A_Dt_H; // Pusle 1 < ConfigDt
         8'h07: Start <= A_Ut_H; // Pusle 1 > ConfigDt
         // For CH_B Trigger
-        8'h08: if (( Din[15:8] < Vthreshold )&&(  B_Flag ))   Start <= Sampled; // Negedge
-        8'h09: if (( Din[15:8] > Vthreshold )&&( ~B_Flag ))   Start <= Sampled; // Posedge
-        8'h0A: if (( Din[15:8] < Vthreshold )&&(  B_Status )) Start <= Sampled; // L Level
-        8'h0B: if (( Din[15:8] > Vthreshold )&&( ~B_Status )) Start <= Sampled; // H Level
+        8'h08: if (( B_LtV )&&(  B_Flag ))   Start <= Sampled; // Negedge
+        8'h09: if (( B_GtV )&&( ~B_Flag ))   Start <= Sampled; // Posedge
+        8'h0A: if (( B_LtV )&&(  B_Status )) Start <= Sampled; // L Level
+        8'h0B: if (( B_GtV )&&( ~B_Status )) Start <= Sampled; // H Level
         8'h0C: Start <= B_Dt_L; // Pusle 0 < ConfigDt
         8'h0D: Start <= B_Ut_L; // Pusle 0 > ConfigDt
         8'h0E: Start <= B_Dt_H; // Pusle 1 < ConfigDt

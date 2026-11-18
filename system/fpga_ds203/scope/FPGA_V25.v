@@ -80,7 +80,47 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
   wire	  [31:0]EA_Link, EB_Link;
   wire	  InitA_Link, InitB_Link;
 
-  assign Din_Bus = { Din[17:16], ~Din[15:8], ~Din[7:0] };
+  // LA104 (FPGA 2.67): the inputs are registered twice in MCI. Without it
+  // the paths from the pins (comparators of the trigger, RAM data, decoder)
+  // are not timed by nextpnr (no input delays) and were up to 30 ns long:
+  // triggers failed at 36 and 72 MHz on the device. The first register
+  // (Din_Raw, the pins as they are) is placed next to the pads on the
+  // iCE65L04 (same short path for every bit); it feeds the comparators of
+  // the trigger and of the decoder (registered compare results), the second
+  // (Din_Bus) everything else, so all users see the samples two MCI later
+  // together. The oscilloscope is the same.
+  wire    [17:0]Din_Raw;
+`ifdef ICE65_L04
+  // pads: Din[0..15] top edge (y 21), Din[16..17] left edge (x 0, y 2)
+  (* BEL = "X23/Y20/lc0" *) SB_DFF Din_FF0  ( .C( MCI ), .D( Din[0] ), .Q( Din_Raw[0] ) );
+  (* BEL = "X23/Y20/lc1" *) SB_DFF Din_FF1  ( .C( MCI ), .D( Din[1] ), .Q( Din_Raw[1] ) );
+  (* BEL = "X24/Y20/lc0" *) SB_DFF Din_FF2  ( .C( MCI ), .D( Din[2] ), .Q( Din_Raw[2] ) );
+  (* BEL = "X18/Y20/lc0" *) SB_DFF Din_FF3  ( .C( MCI ), .D( Din[3] ), .Q( Din_Raw[3] ) );
+  (* BEL = "X20/Y20/lc0" *) SB_DFF Din_FF4  ( .C( MCI ), .D( Din[4] ), .Q( Din_Raw[4] ) );
+  (* BEL = "X21/Y20/lc0" *) SB_DFF Din_FF5  ( .C( MCI ), .D( Din[5] ), .Q( Din_Raw[5] ) );
+  (* BEL = "X20/Y20/lc1" *) SB_DFF Din_FF6  ( .C( MCI ), .D( Din[6] ), .Q( Din_Raw[6] ) );
+  (* BEL = "X21/Y20/lc1" *) SB_DFF Din_FF7  ( .C( MCI ), .D( Din[7] ), .Q( Din_Raw[7] ) );
+  (* BEL = "X12/Y20/lc0" *) SB_DFF Din_FF8  ( .C( MCI ), .D( Din[8] ), .Q( Din_Raw[8] ) );
+  (* BEL = "X7/Y20/lc0" *) SB_DFF Din_FF9  ( .C( MCI ), .D( Din[9] ), .Q( Din_Raw[9] ) );
+  (* BEL = "X7/Y20/lc1" *) SB_DFF Din_FF10 ( .C( MCI ), .D( Din[10] ), .Q( Din_Raw[10] ) );
+  (* BEL = "X5/Y20/lc0" *) SB_DFF Din_FF11 ( .C( MCI ), .D( Din[11] ), .Q( Din_Raw[11] ) );
+  (* BEL = "X5/Y20/lc1" *) SB_DFF Din_FF12 ( .C( MCI ), .D( Din[12] ), .Q( Din_Raw[12] ) );
+  (* BEL = "X4/Y20/lc0" *) SB_DFF Din_FF13 ( .C( MCI ), .D( Din[13] ), .Q( Din_Raw[13] ) );
+  (* BEL = "X4/Y20/lc1" *) SB_DFF Din_FF14 ( .C( MCI ), .D( Din[14] ), .Q( Din_Raw[14] ) );
+  (* BEL = "X3/Y20/lc0" *) SB_DFF Din_FF15 ( .C( MCI ), .D( Din[15] ), .Q( Din_Raw[15] ) );
+  (* BEL = "X1/Y2/lc0" *) SB_DFF Din_FF16 ( .C( MCI ), .D( Din[16] ), .Q( Din_Raw[16] ) );
+  (* BEL = "X1/Y2/lc1" *) SB_DFF Din_FF17 ( .C( MCI ), .D( Din[17] ), .Q( Din_Raw[17] ) );
+`else
+  reg     [17:0]Din_RawR;
+  initial Din_RawR = 0;
+  always @( posedge MCI ) Din_RawR <= Din;
+  assign  Din_Raw = Din_RawR;
+`endif
+  wire    [17:0]Din_Pre = { Din_Raw[17:16], ~Din_Raw[15:8], ~Din_Raw[7:0] };
+  reg     [17:0]Din_Reg;
+  initial Din_Reg = 0;
+  always @( posedge MCI ) Din_Reg <= Din_Pre;
+  assign Din_Bus = Din_Reg;
 
   AddrCtrl	U1(
     .ClrW( ClrW ),
@@ -116,6 +156,7 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
     .Vthreshold( Vt_Link ), 
     .Tthreshold( Tt_Link ), 
     .Din( Din_Bus ),
+    .DinP( Din_Pre ),
     .Sampled(Sampled_Link),
     .CtrlReg( Ctrl_Link ),
     .Start( Start_Link ),
@@ -141,7 +182,7 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
   QuadCnt U7( .A( Din[16] ), .B( Din[17] ),
     .GrayAR( QAR_Link ), .GrayAF( QAF_Link ), .GrayBR( QBR_Link ), .GrayBF( QBF_Link ) );
 
-  QuadSync U8( .Mclk( MCI ), .Din( Din_Bus ),
+  QuadSync U8( .Mclk( MCI ), .Din( Din_Bus ), .DinP( Din_Pre ),
     .Ctrl( QCtrl_Link ), .AThr( AThr_Link ), .AHys( AHys_Link ),
     .BThr( BThr_Link ), .BHys( BHys_Link ),
     .QAR( QAR_Link ), .QAF( QAF_Link ), .QBR( QBR_Link ), .QBF( QBF_Link ),

@@ -91,12 +91,13 @@ endmodule
        sample value as in the FIFO)
 *******************************************************************************/
 
-module QuadSync( Mclk, Din, Ctrl, AThr, AHys, BThr, BHys,
+module QuadSync( Mclk, Din, DinP, Ctrl, AThr, AHys, BThr, BHys,
                  QAR, QAF, QBR, QBF, LAR, LAF, LBR, LBF, ZGray,
                  SGray, EGray, LSync, LevA, LevB );
 
   input         Mclk;
   input  [17:0] Din;            // 0~7 CH_A, 8~15 CH_B (as written to the FIFO), 16 CH_C, 17 CH_D
+  input  [17:0] DinP;           // Din one sample before (FPGA 2.67)
   input  [ 7:0] Ctrl;
   input  [ 7:0] AThr, AHys, BThr, BHys;
   input  [23:0] QAR, QAF, QBR, QBF;
@@ -116,9 +117,13 @@ module QuadSync( Mclk, Din, Ctrl, AThr, AHys, BThr, BHys,
   reg           Active;
 
   wire   [ 8:0] AHigh = { 1'b0, AThr } + { 1'b0, AHys };
-  wire   [ 8:0] ALow  = { 1'b0, Din[7:0] } + { 1'b0, AHys };
+  // FPGA 2.67: compared one sample before (DinP) and registered, the
+  // levels follow from the registered results as before from Din
+  wire   [ 8:0] ALow  = { 1'b0, DinP[7:0] } + { 1'b0, AHys };
   wire   [ 8:0] BHigh = { 1'b0, BThr } + { 1'b0, BHys };
-  wire   [ 8:0] BLow  = { 1'b0, Din[15:8] } + { 1'b0, BHys };
+  wire   [ 8:0] BLow  = { 1'b0, DinP[15:8] } + { 1'b0, BHys };
+  reg           AHi, ALo, BHi, BLo;
+  initial begin AHi = 0; ALo = 0; BHi = 0; BLo = 0; end
 
   wire   [ 3:0] Lv = { D2, C2, LvB, LvA };
   assign        LevA = LvA;
@@ -142,10 +147,14 @@ module QuadSync( Mclk, Din, Ctrl, AThr, AHys, BThr, BHys,
 
   always @( posedge Mclk ) begin
     // levels of the four inputs
-    if ( { 1'b0, Din[7:0] } >= AHigh )   LvA <= 1;
-    else if ( ALow <= { 1'b0, AThr } )   LvA <= 0;
-    if ( { 1'b0, Din[15:8] } >= BHigh )  LvB <= 1;
-    else if ( BLow <= { 1'b0, BThr } )   LvB <= 0;
+    AHi <= { 1'b0, DinP[7:0] } >= AHigh;
+    ALo <= ALow <= { 1'b0, AThr };
+    BHi <= { 1'b0, DinP[15:8] } >= BHigh;
+    BLo <= BLow <= { 1'b0, BThr };
+    if ( AHi )        LvA <= 1;
+    else if ( ALo )   LvA <= 0;
+    if ( BHi )        LvB <= 1;
+    else if ( BLo )   LvB <= 0;
     C1 <= Din[16]; C2 <= C1;
     D1 <= Din[17]; D2 <= D1;
     A <= Lv[ Ctrl[1:0] ];

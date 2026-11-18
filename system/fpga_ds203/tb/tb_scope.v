@@ -14,8 +14,17 @@ module tb_scope;
     wire nPD, CKA, CKB;
     wire [15:0] DB;
 
+`ifdef STOCK_DIN_REG
+    // the original with the input registers of FPGA 2.67 in front of it
+    // (two registers; they start with 0 after the inversion)
+    reg [17:0] DinP = 18'h00000, DinR = 18'h0ffff;
+    always @(posedge MCI) begin DinP <= Din; DinR <= DinP; end
+    FIFO dut( .ClrW(ClrW), .MCI(MCI), .nRD(nRD), .CE(CE), .H_L(H_L), .C_D(C_D),
+        .SCK(SCK), .SDA(SDA), .Din(DinR), .nPD(nPD), .CKA(CKA), .CKB(CKB), .DB(DB) );
+`else
     FIFO dut( .ClrW(ClrW), .MCI(MCI), .nRD(nRD), .CE(CE), .H_L(H_L), .C_D(C_D),
         .SCK(SCK), .SDA(SDA), .Din(Din), .nPD(nPD), .CKA(CKA), .CKB(CKB), .DB(DB) );
+`endif
 
     // iCE65 flip-flops and RAM are 0 after the configuration, the original
     // design relies on it (Wptr, flags and counters have no reset)
@@ -404,7 +413,9 @@ module tb_scope;
         status;
         // regression: triggers on all channels, a few modes
         acquire(8'h20, 8'd100, 16'd10, 40);   // unconditional
-        half_c = 500000; half_d = 1300000;
+        // (no edges of C and D at the same instant: in a zero-delay gate
+        // netlist the order of such events is arbitrary)
+        half_c = 500000; half_d = 1300001;
         acquire(8'h01, 8'd128, 16'd10, 40);   // CH_A rising
         acquire(8'h09, 8'd60,  16'd10, 40);   // CH_B rising
         acquire(8'h11, 8'd0,   16'd10, 40);   // CH_C rising
@@ -430,7 +441,7 @@ module tb_scope;
         set_param(5, 8'h18); C_D = 1; H_L = 0; #GPIO; bus_read(w); C_D = 0;
         check("id 0xC0D2", w == 16'hC0D2);
         H_L = 0; #GPIO; bus_read(w);
-        check("version 2.66 in status", (w >> 6) == 266);
+        check("version 2.67 in status", (w >> 6) == 267);
 
         // counts since power up equal the model
         read_cnt(8'h10, cr); read_cnt(8'h12, cf); read_cnt(8'h14, dr); read_cnt(8'h16, df);
@@ -482,7 +493,7 @@ module tb_scope;
         mci_half = 6944;
         // start from A = B = 0, the counters already hold the edges of the
         // tests above: positions are compared as differences
-        Din[16] = 0; Din[17] = 0; #1000000;
+        Din[16] = 0; #1000; Din[17] = 0; #999000;
         qpos = 0;
         read_quad(8'h20, q0, zc);
         qmove(1000);
