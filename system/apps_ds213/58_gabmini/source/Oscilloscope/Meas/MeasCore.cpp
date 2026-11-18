@@ -370,9 +370,23 @@ namespace MeasCore
 	}
 
 	// ------------------------------------------------------------ measure
+	static bool SourceEnabled( int nSource )
+	{
+		switch ( nSource )
+		{
+			case CH1: return Settings.CH1.Enabled == CSettings::AnalogChannel::_YES;
+			case CH2: return Settings.CH2.Enabled == CSettings::AnalogChannel::_YES;
+			case CH3: return Settings.CH3.Enabled == CSettings::DigitalChannel::_YES;
+			default:  return Settings.CH4.Enabled == CSettings::DigitalChannel::_YES;
+		}
+	}
+
 	bool Measure( int nType, int nSource, float& fValue )
 	{
-		if ( !Allowed( nType, nSource ) )
+		if ( !Allowed( nType, nSource ) || !SourceEnabled( nSource ) )
+			return false;
+		// delay / phase need the other analog channel too
+		if ( ( nType == Delay || nType == Phase ) && !SourceEnabled( nSource == CH1 ? CH2 : CH1 ) )
 			return false;
 		float fs = SampleRate();
 

@@ -29,64 +29,101 @@ void CItemMeas::Create( CWnd* pParent )
 		Settings.Extra.nStat = 0;
 	m_nSel = 0;
 	m_nStatSlot = 0;
+	m_nLastPaint = 0;
 	ResetStat( -1 );
 	// 4 measurements of 2 rows, statistics of 4 rows
 	CWndMenuItem::Create( NULL, RGB565(b0b0b0), 2 * Slots + 4, pParent );
+}
+
+// background of a row as CWndMenuItem / the selection bar paint it
+ui16 CItemMeas::RowBackground( bool bSelected )
+{
+	if ( !HasFocus() )
+		return CDesignPalette::gray;
+	return bSelected ? RGB565(000000) : RGB565(ffffff);
 }
 
 void CItemMeas::OnPaint()
 {
 	CWndMenuItem::OnPaint();
 	int x0 = m_rcClient.left + 12 + MarginLeft - 9;
-	char str[16];
 
 	for ( int i = 0; i < Slots; i++ )
 	{
 		int y = m_rcClient.top + i * 34;
 		int nType = Settings.Extra.arrMeasType[i];
 		int nSource = Settings.Extra.arrMeasSrc[i];
-		ui16 clr = RGB565(000000);
-		if ( HasFocus() && m_nSel == i )
-		{
+		bool bSel = HasFocus() && m_nSel == i;
+		if ( bSel )
 			BIOS::LCD::Bar( x0 - 2, y, m_rcClient.right - 3, y + 33, RGB565(000000) );
-			clr = RGB565(ffffff);
-		}
 		int x = x0;
 		x += BIOS::LCD::Print( x, y, SourceColor( nSource ), RGBTRANS, MeasCore::SourceName( nSource ) );
-		BIOS::LCD::Print( x + 4, y, clr, RGBTRANS, MeasCore::Name( nType ) );
-		if ( m_arrValid[i] )
-			MeasCore::Format( nType, m_arrValue[i], str );
-		else
-			strcpy( str, "--" );
-		BIOS::LCD::Print( x0 + 4, y + 16, clr, RGBTRANS, str );
+		BIOS::LCD::Print( x + 4, y, bSel ? RGB565(ffffff) : RGB565(000000), RGBTRANS, MeasCore::Name( nType ) );
+		PaintValue( i );
 	}
-
-	// statistics
-	int y = m_rcClient.top + Slots * 34;
-	ui16 clr = RGB565(000000), clr2 = RGB565(404040);
 	if ( HasFocus() && m_nSel == StatRow )
 	{
+		int y = m_rcClient.top + Slots * 34;
 		BIOS::LCD::Bar( x0 - 2, y, m_rcClient.right - 3, y + 16 * 4 + 3, RGB565(000000) );
-		clr = clr2 = RGB565(ffffff);
 	}
+	PaintStat();
+}
+
+void CItemMeas::PaintValue( int i )
+{
+	int x0 = m_rcClient.left + 12 + MarginLeft - 9;
+	int y = m_rcClient.top + i * 34 + 16;
+	bool bSel = HasFocus() && m_nSel == i;
+	ui16 clrBack = RowBackground( bSel );
+	ui16 clr = bSel ? RGB565(ffffff) : RGB565(000000);
+	char str[16];
+	if ( m_arrValid[i] )
+		MeasCore::Format( Settings.Extra.arrMeasType[i], m_arrValue[i], str );
+	else
+		strcpy( str, "--" );
+	// text with its background, then the rest of the row: no flicker
+	int x = x0 + 4 + BIOS::LCD::Print( x0 + 4, y, clr, clrBack, str );
+	if ( x < m_rcClient.right - 4 )
+		BIOS::LCD::Bar( x, y, m_rcClient.right - 4, y + 16, clrBack );
+}
+
+void CItemMeas::PaintStat()
+{
+	int x0 = m_rcClient.left + 12 + MarginLeft - 9;
+	int y = m_rcClient.top + Slots * 34;
+	bool bSel = HasFocus() && m_nSel == StatRow;
+	ui16 clrBack = RowBackground( bSel );
+	ui16 clr = bSel ? RGB565(ffffff) : RGB565(000000);
+	ui16 clr2 = bSel ? RGB565(ffffff) : RGB565(404040);
+	char str[16];
+	int x;
+
 	if ( !Settings.Extra.nStat )
 	{
-		BIOS::LCD::Print( x0, y, clr, RGBTRANS, "Stat: Off" );
+		x = x0 + BIOS::LCD::Print( x0, y, clr, clrBack, "Stat: Off" );
+		BIOS::LCD::Bar( x, y, m_rcClient.right - 4, y + 16 * 4, clrBack );
+		BIOS::LCD::Bar( x0, y + 16, x, y + 16 * 4, clrBack );
 		return;
 	}
 	int s = m_nStatSlot;
-	int x = x0 + BIOS::LCD::Printf( x0, y, clr, RGBTRANS, "Stat M%d", s + 1 );
-	BIOS::LCD::Printf( x + 4, y, clr2, RGBTRANS, "%d", m_arrCount[s] );
-	if ( m_arrCount[s] == 0 )
-		return;
+	x = x0 + BIOS::LCD::Printf( x0, y, clr, clrBack, "Stat M%d ", s + 1 );
+	x += BIOS::LCD::Printf( x, y, clr2, clrBack, "%d", m_arrCount[s] );
+	BIOS::LCD::Bar( x, y, m_rcClient.right - 4, y + 16, clrBack );
 	static const char* const arrLabel[3] = { "<", ">", "~" };
-	float arrV[3] = { m_arrMin[s], m_arrMax[s], m_arrSum[s] / m_arrCount[s] };
+	float arrV[3] = { m_arrMin[s], m_arrMax[s], m_arrCount[s] ? m_arrSum[s] / m_arrCount[s] : 0 };
 	int nType = Settings.Extra.arrMeasType[s];
 	for ( int i = 0; i < 3; i++ )
 	{
-		MeasCore::Format( nType, arrV[i], str );
-		int _x = x0 + BIOS::LCD::Print( x0, y + 16 * ( i + 1 ), clr2, RGBTRANS, arrLabel[i] );
-		BIOS::LCD::Print( _x + 2, y + 16 * ( i + 1 ), clr, RGBTRANS, str );
+		int _y = y + 16 * ( i + 1 );
+		x = x0;
+		if ( m_arrCount[s] )
+		{
+			MeasCore::Format( nType, arrV[i], str );
+			x += BIOS::LCD::Print( x, _y, clr2, clrBack, arrLabel[i] );
+			x += BIOS::LCD::Print( x, _y, clr, clrBack, " " );
+			x += BIOS::LCD::Print( x, _y, clr, clrBack, str );
+		}
+		BIOS::LCD::Bar( x, _y, m_rcClient.right - 4, _y + 16, clrBack );
 	}
 }
 
@@ -160,8 +197,14 @@ void CItemMeas::ResetStat( int nSlot )
 		}
 }
 
-void CItemMeas::Update()
+void CItemMeas::Update( bool bForce )
 {
+	// at most 4 times a second (the roll mode sends 10 frames a second)
+	uint32_t nNow = BIOS::SYS::GetTick();
+	if ( !bForce && nNow - m_nLastPaint < 250 )
+		return;
+	m_nLastPaint = nNow;
+
 	for ( int i = 0; i < Slots; i++ )
 	{
 		float f = 0;
@@ -175,7 +218,17 @@ void CItemMeas::Update()
 			m_arrCount[i]++;
 		}
 	}
-	Invalidate();
+	if ( !IsVisible() )
+		return;
+	if ( bForce )
+	{
+		Invalidate();
+		return;
+	}
+	// only the values: the labels and the frame stay
+	for ( int i = 0; i < Slots; i++ )
+		PaintValue( i );
+	PaintStat();
 }
 
 // ---------------------------------------------------------------- menu
@@ -206,7 +259,7 @@ void CItemMeas::Update()
 	// new waveform
 	if ( pSender == NULL && code == WmBroadcast && data == ToWord('d', 'g') && IsVisible() )
 	{
-		m_itmMeas.Update();
+		m_itmMeas.Update( false );
 		return;
 	}
 }

@@ -25,8 +25,14 @@ public:
 	virtual void OnPaint() override;
 	virtual void OnKey( int nKey ) override;
 
-	void Update();
+	void Update( bool bForce = true );
 	void ResetStat( int nSlot );   // -1: all
+
+private:
+	uint32_t m_nLastPaint;
+	ui16 RowBackground( bool bSelected );
+	void PaintValue( int nSlot );   // only the value row, over the old one
+	void PaintStat();
 };
 
 class CWndMenuMeas : public CWnd
