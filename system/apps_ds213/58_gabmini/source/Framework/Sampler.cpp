@@ -3,6 +3,11 @@
 
 namespace Sampler
 {
+	// DS203: in the RAM above the OS (app_ds203.lds, .bss_hi), 12 KB less in
+	// the region of the application
+#if defined(DS203)
+	__attribute__((section(".bss_hi")))
+#endif
 	static uint8_t memory[Samples * BytesPerSample];
 	static int nValid = 0;
 	static uint32_t nSequence = 0;

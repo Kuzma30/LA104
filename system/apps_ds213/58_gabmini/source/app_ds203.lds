@@ -12,6 +12,10 @@ MEMORY
      loader itself goes down to ~0x2000A900 while zeroing .bss. The region
      ends at 0x2000A600 to keep >= 1.5 KB for the stack. */
   ram (rwx) : ORIGIN = 0x20004400, LENGTH = 0x6200
+  /* The STM32F103VE has 64 KB RAM, the OS uses it up to 0x2000B800 (stack
+     top 0x2000B700): 0x2000C000..0x2000FFFF is free. The loader zeroes every
+     section named .bss* (Execute.cpp), elfstrip keeps them. */
+  ramhi (rwx) : ORIGIN = 0x2000C000, LENGTH = 16K
 }
 
 /*
@@ -36,6 +40,10 @@ SECTIONS
       *(.data*)        /* Data memory */
       *(.dynamic)
     } >ram
+
+.bss_hi (NOLOAD) : {
+    *(.bss_hi*)
+    } >ramhi
 
   .bss : {
     *(.bss*)         /* Zero-filled run time allocate data memory */
