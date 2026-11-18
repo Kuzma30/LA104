@@ -48,10 +48,19 @@ namespace Ui
 
     void Progress(int nDone, int nTotal)
     {
+        // the last page of WriteFlash passes more than the image size; a bar
+        // with right <= left trips the assertion of LCD::Bar in the OS,
+        // which halts the device (it stopped at 100 % after a flash write)
+        if ( nDone > nTotal )
+            nDone = nTotal;
+        if ( nDone < 0 )
+            nDone = 0;
         int x0 = 8, x1 = Width - 8;
         int x = x0 + (int)((int64_t)(x1 - x0) * nDone / (nTotal ? nTotal : 1));
-        BIOS::LCD::Bar(x0, s_y + 2, x, s_y + 10, clrOk);
-        BIOS::LCD::Bar(x, s_y + 2, x1, s_y + 10, RGB565(404040));
+        if ( x > x0 )
+            BIOS::LCD::Bar(x0, s_y + 2, x, s_y + 10, clrOk);
+        if ( x < x1 )
+            BIOS::LCD::Bar(x, s_y + 2, x1, s_y + 10, RGB565(404040));
     }
 
     void ProgressEnd()

@@ -36,4 +36,7 @@ iCE bitstream.
 - A test image that drives the data bus at the wrong time can disturb the
   display (the LCD shares the bus); power off restores the boot image.
 
-Build: `./build_ds203.sh` -> `build/fpgaload.elf`. Not tested on hardware.
+Build: `./build_ds203.sh` -> `build/fpgaload.elf`. Tested on a DS203 (V2.7
+board): test load, backup and the flash write. Up to the fix of the
+progress bar the application stopped at 100 % after the flash write (the
+image was already written and verified; it ran after a power cycle).
