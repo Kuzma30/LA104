@@ -16,7 +16,9 @@ void CMainWnd::Create()
 	mWndToolBar.Create(this);
 	m_wndGraph.Create( this, WsHidden | WsNoActivate );
 
-	m_wndMenuInput.Create( this, WsVisible );
+	// hidden as the other tabs: the tab opened last time is shown below
+	// ('g','i'); a visible Input stayed under it (its Trig item below Tools)
+	m_wndMenuInput.Create( this, WsHidden );
 	m_wndMenuCursor.Create( this, WsHidden );
 	m_wndMenuDisplay.Create( this, WsHidden );
 	m_wndMenuDecode.Create( this, WsHidden );
