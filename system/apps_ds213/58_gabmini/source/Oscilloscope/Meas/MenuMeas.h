@@ -11,7 +11,7 @@
 
 // LA104: Meas and Tools are one menu item over the whole panel; the focused
 // look of CWndMenuItem (white inside) turned the whole panel white. The panel
-// stays gray, the left tab is white while focused, the row has a black bar.
+// stays gray; the focus is the black bar of the selected row.
 inline void PaintGrayPanel( CWnd* pWnd, ui16 clrTab )
 {
 	CDesign::MenuItemClearDisabled( pWnd->m_rcClient );

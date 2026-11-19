@@ -43,7 +43,7 @@ ui16 CItemMeas::RowBackground( bool bSelected )
 
 void CItemMeas::OnPaint()
 {
-	PaintGrayPanel( this, HasFocus() ? RGB565(ffffff) : RGB565(b0b0b0) );
+	PaintGrayPanel( this, RGB565(b0b0b0) );
 	int x0 = m_rcClient.left + 12 + MarginLeft - 9;
 
 	for ( int i = 0; i < Slots; i++ )

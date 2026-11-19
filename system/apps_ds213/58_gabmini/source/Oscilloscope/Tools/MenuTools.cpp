@@ -509,7 +509,7 @@ void CItemTools::Create( CWnd* pParent )
 
 void CItemTools::OnPaint()
 {
-	PaintGrayPanel( this, HasFocus() ? RGB565(ffffff) : RGB565(b0b0b0) );
+	PaintGrayPanel( this, RGB565(b0b0b0) );
 	int x = m_rcClient.left + 12 + MarginLeft - 9;
 	int y = m_rcClient.top;
 	for ( int i = 0; i < Count; i++ )
