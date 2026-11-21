@@ -14,6 +14,12 @@ namespace Fft
 #endif
 	static int16_t s_arrData[NMax];
 
+	// result of the last Paint, for the cursors
+	static bool s_bValid = false;
+	static int s_nN = NMin;
+	static float s_fFs = 1.0f;
+	enum { Harmonics = 9 };                     // H2 .. H9
+
 	// sin(2 pi a / 1024) in Q15, a = 0..256 (quarter wave)
 	static const int16_t s_arrSin[257] = {
 		0, 201, 402, 603, 804, 1005, 1206, 1407, 1608, 1809, 2009, 2210, 2410, 2611, 2811, 3012, 3212, 3412,
@@ -73,6 +79,46 @@ namespace Fft
 		float m = (float)v / (float)( 1u << e );
 		float l2 = e + ( -0.34484843f * m + 2.02466578f ) * m - 0.67487759f;
 		return (int)( l2 * 60.206f );
+	}
+
+	// 2^f without libm (about 1e-4)
+	static float Pow2( float f )
+	{
+		int i = (int)f;
+		if ( f < i ) i--;
+		float r = f - i;
+		float p = 1.0f + r * ( 0.6951786f + r * ( 0.2261808f + r * 0.0780463f ) );
+		for ( ; i > 0; i-- ) p *= 2.0f;
+		for ( ; i < 0; i++ ) p *= 0.5f;
+		return p;
+	}
+
+	// amplitude ratio of dB*10
+	static float FromDbX10( float fDbX10 )
+	{
+		return Pow2( fDbX10 * ( 0.1f / 20.0f * 3.3219281f ) );
+	}
+
+	static float SqrtF( float v )
+	{
+		if ( v <= 0 )
+			return 0;
+		float r = v > 1 ? v : 1;
+		for ( int i = 0; i < 20; i++ )
+			r = 0.5f * ( r + v / r );
+		return r;
+	}
+
+	static uint16_t ColumnMag( const uint16_t* pMag, int x, int nBins, int W )
+	{
+		int k0 = x * nBins / W, k1 = ( x + 1 ) * nBins / W;
+		if ( k1 <= k0 )
+			k1 = k0 + 1;
+		uint16_t nMag = 0;
+		for ( int k = k0 > 0 ? k0 : 1; k < k1 && k < nBins; k++ )
+			if ( pMag[2*k] > nMag )
+				nMag = pMag[2*k];
+		return nMag;
 	}
 
 	// in place radix 2 FFT of m complex Q15 values, scaled by 1/m
@@ -153,6 +199,149 @@ namespace Fft
 		fDbX10 = b - 0.25f * ( a - c ) * d;
 	}
 
+	// text on a dark box, readable over the bars
+	static int Label( int x, int y, ui16 clr, const char* str )
+	{
+		int w = strlen( str ) * 8;
+		BIOS::LCD::Bar( x - 1, y, x + w + 1, y + 14, RGB565(000000) );
+		BIOS::LCD::Print( x, y, clr, RGBTRANS, str );
+		return w;
+	}
+
+	static void FormatDb( char* str, float fDbX10, const char* suffix )
+	{
+		int n = (int)( fDbX10 < 0 ? fDbX10 - 5 : fDbX10 + 5 ) / 10;
+		sprintf( str, "%d%s", n, suffix );
+	}
+
+	// H2..H9 of the fundamental (the peak): number above the bar, list with
+	// the level relative to the fundamental (dBc) and the THD on the right
+	static void PaintHarmonics( CWndOscGraph* pGraph, const uint16_t* pMag, int nBins, int N,
+		float fs, float fBin1, float fDbX10_1, int nRefX10 )
+	{
+		const int W = CWndGraph::DivsX * CWndGraph::BlkX;
+		const int H = CWndGraph::DivsY * CWndGraph::BlkY;
+		const CRect& rc = pGraph->m_rcClient;
+		// a fundamental: above -60 dB, not in the lowest bins
+		if ( fBin1 < 2.0f || fDbX10_1 - nRefX10 < -600 )
+			return;
+		char str[20];
+		int xList = rc.right - 10 * 8 - 4, yList = rc.top + 20;
+		float fSum = 0;
+		int nShown = 0;
+		for ( int h = 2; h <= Harmonics; h++ )
+		{
+			float fT = fBin1 * h;
+			int kT = (int)( fT + 0.5f );
+			if ( kT + 2 >= nBins )
+				break;
+			// the highest bin within +-2 bins of h * f1
+			int k = kT;
+			for ( int i = kT - 2; i <= kT + 2; i++ )
+				if ( pMag[2*i] > pMag[2*k] )
+					k = i;
+			float fBin, fDbX10;
+			Interpolate( pMag, k, nBins, fBin, fDbX10 );
+			float fDbc = fDbX10 - fDbX10_1;
+			float fA = FromDbX10( fDbc );
+			fSum += fA * fA;
+			// number above the bar of the harmonic
+			int x = rc.left + (int)( fBin * W / nBins );
+			int hBar = (int)( ( ( fDbX10 - nRefX10 ) / 10 + Range ) * H / Range );
+			if ( hBar > H - 30 ) hBar = H - 30;
+			if ( hBar < 0 ) hBar = 0;
+			sprintf( str, "%d", h );
+			BIOS::LCD::Print( x - 3, rc.bottom - hBar - 30, RGB565(ffff00), RGBTRANS, str );
+			// list
+			sprintf( str, "H%d ", h );
+			int xx = xList + Label( xList, yList, RGB565(ffff00), str );
+			FormatDb( str, fDbc, "dBc" );
+			Label( xx, yList, RGB565(ffffff), str );
+			yList += 14;
+			nShown++;
+		}
+		if ( !nShown )
+			return;
+		// THD = sqrt(sum A_h^2) / A_1
+		float fThd = SqrtF( fSum ) * 100.0f;
+		if ( fThd >= 10.0f )
+			sprintf( str, "THD %d%%", (int)( fThd + 0.5f ) );
+		else
+		{
+			int n = (int)( fThd * 100 + 0.5f );
+			sprintf( str, "THD %d.%02d%%", n / 100, n % 100 );
+		}
+		Label( xList, yList + 2, RGB565(40ff40), str );
+	}
+
+	// readout of the cursors X1 / X2 at the bottom, the difference below
+	static void PaintCursors( CWndOscGraph* pGraph, int nRefX10 )
+	{
+		const CRect& rc = pGraph->m_rcClient;
+		CSettings::Marker* arrCur[2] = { &Settings.MarkT1, &Settings.MarkT2 };
+		int y = rc.bottom - 48;
+		float arrDb[2], arrHz[2];
+		bool arrOk[2];
+		for ( int c = 0; c < 2; c++ )
+		{
+			int x = CursorColumn( arrCur[c]->nValue );
+			arrOk[c] = arrCur[c]->Mode != CSettings::Marker::_Off && ColumnDb( x, arrDb[c] );
+			arrHz[c] = ColumnHz( x );
+		}
+		char str[24], str2[16];
+		int x = rc.left + 4;
+		for ( int c = 0; c < 2; c++ )
+		{
+			if ( !arrOk[c] )
+				continue;
+			MeasCore::FormatSI( arrHz[c], "Hz", str2 );
+			sprintf( str, "%s ", str2 );
+			x += Label( x, y, arrCur[c]->u16Color, str );
+			FormatDb( str, arrDb[c] * 10, "dB" );
+			x += Label( x, y, arrCur[c]->u16Color, str ) + 8;
+		}
+		if ( arrOk[0] && arrOk[1] )
+		{
+			float fDf = arrHz[1] - arrHz[0];
+			MeasCore::FormatSI( fDf < 0 ? -fDf : fDf, "Hz", str2 );
+			sprintf( str, "d %s ", str2 );
+			x = rc.left + 4;
+			y += 14;
+			x += Label( x, y, RGB565(ffffff), str );
+			FormatDb( str, ( arrDb[1] - arrDb[0] ) * 10, "dB" );
+			Label( x, y, RGB565(ffffff), str );
+		}
+	}
+
+	bool Shown()
+	{
+		return Settings.Extra.nFft && s_bValid;
+	}
+
+	int CursorColumn( int nSample )
+	{
+		return nSample - Settings.Time.Shift;
+	}
+
+	float ColumnHz( int x )
+	{
+		const int W = CWndGraph::DivsX * CWndGraph::BlkX;
+		// middle of the bins of the column
+		return ( x + 0.5f ) * s_fFs / 2 / W;
+	}
+
+	bool ColumnDb( int x, float& fDb )
+	{
+		const int W = CWndGraph::DivsX * CWndGraph::BlkX;
+		if ( !Shown() || x < 0 || x >= W )
+			return false;
+		uint16_t nMag = ColumnMag( (const uint16_t*)s_arrData, x, s_nN / 2, W );
+		if ( !nMag )
+			return false;
+		fDb = ( DbX10( nMag ) - DbX10( 4064 ) ) / 10.0f;
+		return true;
+	}
+
 	void Paint( CWndOscGraph* pGraph, int nSource, uint8_t* /*pScratch*/ )
 	{
 		const int W = CWndGraph::DivsX * CWndGraph::BlkX;
@@ -201,16 +390,21 @@ namespace Fft
 		ui16 column[H];
 		uint16_t* pMag = (uint16_t*)p;
 		const CRect& rc = pGraph->m_rcClient;
+		s_bValid = bValid;
+		s_nN = N;
+		s_fFs = MeasCore::SampleRate();
+		CSettings::Marker* arrCur[2] = { &Settings.MarkT1, &Settings.MarkT2 };
+		int arrCurX[2];
+		ui16 arrCurClr[2];
+		for ( int c = 0; c < 2; c++ )
+		{
+			arrCurX[c] = arrCur[c]->Mode == CSettings::Marker::_Off ? -1 : CursorColumn( arrCur[c]->nValue );
+			arrCurClr[c] = arrCur[c]->u16Color;
+		}
 		for ( int x = 0; x < W; x++ )
 		{
 			// the highest bin of the column (more bins than columns at N = 1024)
-			int k0 = x * nBins / W, k1 = ( x + 1 ) * nBins / W;
-			if ( k1 <= k0 )
-				k1 = k0 + 1;
-			uint16_t nMag = 0;
-			for ( int k = k0 > 0 ? k0 : 1; k < k1; k++ )
-				if ( pMag[2*k] > nMag )
-					nMag = pMag[2*k];
+			uint16_t nMag = bValid ? ColumnMag( pMag, x, nBins, W ) : 0;
 			for ( int y = 0; y < H; y++ )
 				column[y] = 0x0101;
 			// grid: every 10 dB, and the divisions
@@ -227,6 +421,14 @@ namespace Fft
 				for ( int y = 0; y < h; y++ )
 					column[y] = clrBar;
 			}
+			// cursors X1 / X2: dashed lines over the bars
+			for ( int c = 0; c < 2; c++ )
+				if ( arrCurX[c] == x )
+					for ( int y = 0; y < H; y += 3 )
+					{
+						column[y] = arrCurClr[c];
+						if ( y + 1 < H ) column[y + 1] = arrCurClr[c];
+					}
 			BIOS::LCD::BufferBegin( CRect( rc.left + x, rc.top, rc.left + x + 1, rc.top + H ) );
 			BIOS::LCD::BufferWrite( column, H );
 			BIOS::LCD::BufferEnd();
@@ -254,6 +456,9 @@ namespace Fft
 		MeasCore::FormatSI( fs / N, "Hz", str );
 		x += 8 + BIOS::LCD::Print( x + 8, y, RGB565(808080), RGBTRANS, "bin " );
 		BIOS::LCD::Print( x, y, RGB565(808080), RGBTRANS, str );
+		PaintHarmonics( pGraph, pMag, nBins, N, fs, fBin, fDbX10, nRefX10 );
+		PaintCursors( pGraph, nRefX10 );
+
 		MeasCore::FormatSI( fs / 2, "Hz", str );
 		int w = strlen( str ) * 8;
 		BIOS::LCD::Print( rc.right - w - 4, rc.bottom - 16, RGB565(b0b0b0), RGBTRANS, str );

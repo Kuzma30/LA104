@@ -2,6 +2,7 @@
 #define __MENUITEMMARKER_H__
 
 #include "MarkerUnits.h"
+#include <Oscilloscope/Tools/Fft.h>
 
 class CItemMarker : public CWndMenuItem
 {
@@ -58,6 +59,18 @@ public:
 			x += BIOS::LCD::Print( x, y, clr, RGBTRANS, CUtils::itoa(m_pMarker->nValue) );
 		else
 		{
+			if ( m_pMarker->Type == CSettings::Marker::_Time && Fft::Shown() )
+			{
+				// FFT: the cursor is a frequency line
+				float fHz = Fft::ColumnHz( Fft::CursorColumn( m_pMarker->nValue ) );
+				CMarkerUnit unit = MarkerFreqUnit( fHz );
+				x += MarkerPrint( x, y, clr, fHz * unit.fScale );
+				if (!HasFocus())
+				{
+					x += 2;
+					BIOS::LCD::Print( x, y, clr2, RGBTRANS, unit.strUnit );
+				}
+			} else
 			if ( m_pMarker->Type == CSettings::Marker::_Time )
 			{ 
 				float fTimeRes = Settings.Runtime.m_fTimeRes / CWndGraph::BlkX;

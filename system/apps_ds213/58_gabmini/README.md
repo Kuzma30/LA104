@@ -31,7 +31,11 @@ Keys: F1 run / stop, F2 back, F3 automatic setup (oscilloscope tabs), F4 enter.
   - FFT: spectrum of CH1 or CH2 (1024 samples from the screen start, 256
     with Buf:Scr; Hann window, bins to fs/2, 10 dB grid, 0 dB = full scale
     sine), peak frequency and level interpolated between the bins, the bin
-    width ("bin") shown
+    width ("bin") shown. Harmonics H2..H9 of the peak: numbers above their
+    bars, list with the level relative to the fundamental (dBc) and the THD
+    (floor about 0.2 %, quantization of the 8 bit ADC). Cursors X1 / X2 of
+    the Cursor tab are frequency lines: frequency and level of each, the
+    difference (Hz, dB) on the graph and in the Cursor tab
   - Ref: F4 stores the CH1 trace as a gray reference, Left / Right on / off
   - Save CSV (WAVnnn.CSV: sample, CH1 V, CH2 V, CH3, CH4) and Save BMP
     (SCRnnn.BMP, the screen, 16 bit) on the disk of the device

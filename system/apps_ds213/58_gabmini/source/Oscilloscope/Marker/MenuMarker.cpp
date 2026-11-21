@@ -68,6 +68,13 @@ CWndMenuCursor::CWndMenuCursor()
 	// new waveform acquired, update the Y values 	
 	if ( pSender == NULL && code == WmBroadcast && data == ToWord('d', 'g') )
 	{
+		// FFT: the level difference of the cursors changes with every frame
+		if ( Settings.Extra.nFft )
+		{
+			m_itmX1.Invalidate();
+			m_itmX2.Invalidate();
+			m_itmDeltaX.Invalidate();
+		}
 		if ( Settings.MarkY1.Mode == CSettings::Marker::_Auto )
 			m_itmY1.Invalidate();
 		if ( Settings.MarkY2.Mode == CSettings::Marker::_Auto )

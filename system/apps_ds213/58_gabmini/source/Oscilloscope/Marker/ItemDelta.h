@@ -51,6 +51,27 @@ public:
 		}
 		else
 		{
+			if ( m_pMarker1->Type == CSettings::Marker::_Time && Fft::Shown() )
+			{
+				// FFT: frequency difference and level difference X2 - X1
+				int x1 = Fft::CursorColumn( m_pMarker1->nValue ), x2 = Fft::CursorColumn( m_pMarker2->nValue );
+				float fDf = Fft::ColumnHz( x2 ) - Fft::ColumnHz( x1 );
+				if ( fDf < 0 ) fDf = -fDf;
+				CMarkerUnit funit = MarkerFreqUnit( fDf > 0 ? fDf : 1.0f );
+				x += MarkerPrint( x, y, clr, fDf * funit.fScale );
+				x += 2;
+				BIOS::LCD::Print( x, y, RGB565(404040), RGBTRANS, funit.strUnit );
+				x = _x;
+				y += 16;
+				float fDb1, fDb2;
+				if ( Fft::ColumnDb( x1, fDb1 ) && Fft::ColumnDb( x2, fDb2 ) )
+				{
+					x += MarkerPrint( x, y, clr, fDb2 - fDb1 );
+					x += 2;
+					BIOS::LCD::Print( x, y, RGB565(404040), RGBTRANS, "dB" );
+				} else
+					BIOS::LCD::Print( x, y, RGB565(808080), RGBTRANS, "--" );
+			} else
 			if ( m_pMarker1->Type == CSettings::Marker::_Time )
 			{ 
 				float fTimeRes = Settings.Runtime.m_fTimeRes / CWndGraph::BlkX;
