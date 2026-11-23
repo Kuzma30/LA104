@@ -14,6 +14,11 @@ Keys: F1 run / stop, F2 back, F3 automatic setup (oscilloscope tabs), F4 enter.
   TRIG (green) or WAIT (yellow) at the top right of the graph. Channel list (Enter on CH1 /
   CH2): coupling, V/div, probe, position, Beam (trace width 1..3 px, like
   the focus of an analog scope), color.
+- **V/div and position while stopped**: a new V/div or position of CH1 /
+  CH2 shows the stored samples at that V/div and position (the ADC values
+  are converted with the calibration of both settings): the trace grows,
+  shrinks and moves as it would with a new capture; values outside the
+  range stored by the capture stay at its limits.
 - **Time base while stopped** (F1 stop, Single): a new time base shows
   the stored samples at that time base (horizontal zoom around the trigger
   position): faster stretches them (CH1 / CH2 interpolated), slower

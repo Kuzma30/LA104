@@ -133,6 +133,8 @@ CWndMenuInput::CWndMenuInput()
 		// update
 		CWnd::GetTopModal().m_pPrevFocus->Invalidate();
 		CCoreOscilloscope::ConfigureAdc();
+		// stopped: the stored samples at the new V/div / position
+		MainWnd.WindowMessage( CWnd::WmBroadcast, ToWord('d', 'g') );
 	}
 	if ( code == ToWord('u', 'p') && pSender->m_pParent == &m_wndListDInput )
 	{

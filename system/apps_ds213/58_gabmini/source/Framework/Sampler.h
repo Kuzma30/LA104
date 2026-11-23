@@ -32,6 +32,9 @@ namespace Sampler
 	// on the raw buffer (GetBuffer, GetValidRaw) at CaptureRes(); their
 	// positions are converted with PhysToVirt / VirtToPhys.
 	bool Scaled();
+	// the same for a new V/div or position of CH1 / CH2: GetAt converts the
+	// stored ADC values to the current V/div and position
+	bool VScaled();
 	int CaptureRes();
 	int GetValidRaw();
 	int PhysToVirt(int p);
