@@ -24,6 +24,7 @@
 #include "fpga.h"
 #include "la.h"
 #include "decode.h"
+#include "gen.h"
 #include "../../65_minical/source/calib.h"
 
 using namespace BIOS;
@@ -75,6 +76,10 @@ namespace
   Dec::TCfg dc;
   const char* const DecFile = "LOGICDEC.CFG";
   void DecodeAndShow();
+  // generator (Wave Out): defined with the generator setup
+  extern Gen::TCfg gc;
+  bool gSqOn = false;                   // square wave running
+  uint32_t gFireAt = 0;                 // tick of the automatic shot (0: none)
 
   // protocol trigger: the capture matched (gTrig is the frame), retries
   bool gDecMatch = false;
@@ -112,7 +117,7 @@ namespace
   bool gZoomX = false;                  // the view is X1 .. X2 (Zoom F3 again: all)
   uint32_t cur[2] = { 0, 0 };           // cursors, samples
 
-  enum { ItRate, ItTrig, ItPre, ItThrA, ItThrB, ItMode, ItView, ItZoom, ItX1, ItX2, ItDec, ItList, ItBmp, Items };
+  enum { ItRate, ItTrig, ItPre, ItThrA, ItThrB, ItMode, ItView, ItZoom, ItX1, ItX2, ItDec, ItList, ItGen, ItBmp, Items };
   int nItem = ItView;
 
   enum { Idle, Waiting, Filling } eRun = Idle;
@@ -252,6 +257,12 @@ namespace
     else
       strcpy(p, nameTrig[nTrig]);
     p += strlen(p);
+    // the generator is working or fires with every capture
+    if (gSqOn || (gc.autoFire && gc.mode != Gen::GOff && gc.mode != Gen::GSquare))
+    {
+      strcpy(p, " +Gen");
+      p += 5;
+    }
     int x = 4 + Text(4, 0, clrText, clrBar, s);
     const char* st = eRun == Waiting ? "WAIT" : eRun == Filling ? "TRIG" : gHave ? "STOP" : "";
     uint16_t c = eRun == Waiting ? clrWarn : eRun == Filling ? clrOk : clrTrig;
@@ -583,6 +594,7 @@ namespace
       case ItX2: strcpy(p, "X2"); break;
       case ItDec: strcpy(p, Dec::ProtoName[(int)dc.proto]); break;
       case ItList: strcpy(p, "List"); break;
+      case ItGen: strcpy(p, gc.mode == Gen::GSquare && gSqOn ? "Sq ON" : Gen::ModeName[(int)gc.mode]); break;
       case ItBmp: strcpy(p, "BMP"); break;
     }
   }
@@ -778,6 +790,15 @@ namespace
     Fpga::SetParam(0x14, arm & 255);
     Fpga::SetParam(0x15, arm >> 8);
     ADC::Restart(0);
+    // the shot of the generator when the trigger is armed: after the
+    // pretrigger words or the arm time, whichever comes first (a quiet line)
+    gFireAt = 0;
+    if (gc.autoFire && gc.mode != Gen::GOff && gc.mode != Gen::GSquare)
+    {
+      uint32_t ms = (uint32_t)((float)arm * 1024.0f * 1000.0f / rate) + 3;
+      gFireAt = SYS::GetTick() + ms;
+      if (!gFireAt) gFireAt = 1;
+    }
     eRun = Waiting;
     DrawTitle();
   }
@@ -1277,7 +1298,7 @@ namespace
   }
 
   // digits of a value row
-  int Digits(const TParam& q) { return q.kind == PkHex ? 8 : 7; }
+  int Digits(const TParam& q) { return 8; }
 
   void ParamText(const TParam& q, char* s)
   {
@@ -1285,9 +1306,9 @@ namespace
     if (q.kind == PkHex) { strcpy(s, "0x"); char* p = s + 2; for (int i = 7; i >= 0; i--) *p++ = "0123456789ABCDEF"[(*q.v32 >> (i * 4)) & 15]; *p = 0; return; }
     if (q.kind == PkDec)
     {
-      uint32_t v = *q.v32, d = 1000000;
+      uint32_t v = *q.v32, d = 10000000;
       char* p = s;
-      for (int i = 0; i < 7; i++, d /= 10) *p++ = '0' + (v / d) % 10;
+      for (int i = 0; i < 8; i++, d /= 10) *p++ = '0' + (v / d) % 10;
       *p = 0;
       return;
     }
@@ -1304,16 +1325,258 @@ namespace
     }
   }
 
-  const int SetupRows = 11, SetupY = 20, SetupH = 16;
+  // ------------------------------------------------------------ generator setup
+  Gen::TCfg gc;
+  const char* const GenFile = "LOGICGEN.CFG";
+  const char* const lstGenMode[] = { "off", "single pulse", "square wave", "burst", "test of the decoder" };
+  const char* const lstPol[] = { "active high", "active low" };
+
+  int GenParams(TParam* p)
+  {
+    int n = 0;
+    auto add = [&](const char* name, int kind, int8_t* v, int lo, int hi, const char* const* list = nullptr) {
+      p[n++] = { name, kind, v, nullptr, lo, hi, list };
+    };
+    auto add32 = [&](const char* name, int kind, uint32_t* v) { p[n++] = { name, kind, nullptr, v, 0, 0, nullptr }; };
+    add("Mode", PkList, &gc.mode, 0, Gen::GModes - 1, lstGenMode);
+    switch (gc.mode)
+    {
+      case Gen::GPulse:
+        add32("Width us", PkDec, &gc.pulseUs);
+        add("Polarity", PkList, &gc.pol, 0, 1, lstPol);
+        break;
+      case Gen::GSquare:
+        add32("Frequency Hz", PkDec, &gc.freqHz);
+        add("Duty %", PkNum, &gc.duty, 1, 99);
+        break;
+      case Gen::GBurst:
+        add32("Pulses", PkDec, &gc.count);
+        add32("Frequency Hz", PkDec, &gc.freqHz);
+        add("Duty %", PkNum, &gc.duty, 1, 99);
+        add("Polarity", PkList, &gc.pol, 0, 1, lstPol);
+        break;
+      case Gen::GTest:
+        if (dc.proto == Dec::PUart)
+        {
+          static const char* const lstPay[] = { "text Hello DS203!", "4 bytes of Value" };
+          add("Data", PkList, &gc.payload, 0, 1, lstPay);
+          if (gc.payload) add32("Value", PkHex, &gc.value);
+        }
+        if (dc.proto == Dec::PLin || dc.proto == Dec::PCan || dc.proto == Dec::POneWire || dc.proto == Dec::PNec)
+          add32("Value", PkHex, &gc.value);
+        if (dc.proto == Dec::PPulse || dc.proto == Dec::PCounter)
+        {
+          add32("Pulses", PkDec, &gc.count);
+          add32("Frequency Hz", PkDec, &gc.freqHz);
+          add("Duty %", PkNum, &gc.duty, 1, 99);
+        }
+        break;
+    }
+    if (gc.mode != Gen::GOff && gc.mode != Gen::GSquare)
+      add("With capture", PkList, &gc.autoFire, 0, 1, lstOnOff);
+    return n;
+  }
+
+  uint32_t gGenTab[Gen::MaxTab];        // levels, then GPIOB_BSRR words
+
+  bool GenBusy();
+
+  void SeqInfo(const Gen::TSeq& q, char* s)
+  {
+    char* p = s;
+    if (gc.mode == Gen::GPulse) { p = PutSI(p, q.div / 72e6f, "s"); strcpy(p, gc.pol ? " low" : " high"); return; }
+    if (gc.mode == Gen::GTest) { strcpy(p, Dec::ProtoName[(int)dc.proto]); p += strlen(p); *p++ = ' '; }
+    if (q.real > 0)
+    {
+      bool hz = gc.mode == Gen::GBurst || dc.proto == Dec::PPulse || dc.proto == Dec::PCounter;
+      p = PutSI(p, q.real, hz ? "Hz" : "bit/s");
+      *p++ = ' ';
+    }
+    p = PutSI(p, q.n * (float)q.div / 72e6f, "s");
+    *p = 0;
+  }
+
+  // what the generator will do (setup page, status)
+  void GenInfo(char* s)
+  {
+    *s = 0;
+    char* p = s;
+    switch (gc.mode)
+    {
+      case Gen::GOff: strcpy(s, "Wave Out not used"); return;
+      case Gen::GSquare:
+      {
+        uint32_t psc, arr;
+        float real;
+        if (!Gen::SquarePlan(gc.freqHz, psc, arr, real)) { strcpy(s, "frequency: 1 Hz .. 18 MHz"); return; }
+        p = PutSI(p, real, "Hz");
+        strcpy(p, " (TIM4)");
+        return;
+      }
+      default:
+      {
+        // the table is in use while a shot runs
+        if (GenBusy()) { strcpy(s, "shot running"); return; }
+        Gen::TSeq q;
+        if (!Gen::Build(gc, dc, gGenTab, q)) { strcpy(s, q.err); return; }
+        SeqInfo(q, s);
+        return;
+      }
+    }
+  }
+
+  void LoadGen()
+  {
+    Gen::Defaults(gc);
+    if (FAT::Open(GenFile, FAT::IoRead) != FAT::EOk)
+      return;
+    if (FAT::Read(gSector) == FAT::EOk)
+    {
+      Gen::TCfg c;
+      memcpy(&c, gSector, sizeof(c));
+      if (c.magic == Gen::CfgMagic && c.mode >= 0 && c.mode < Gen::GModes)
+        gc = c;
+    }
+    FAT::Close();
+  }
+
+  void SaveGen()
+  {
+    memset(gSector, 0, sizeof(gSector));
+    memcpy(gSector, &gc, sizeof(gc));
+    if (FAT::Open(GenFile, FAT::IoWrite) == FAT::EOk)
+    {
+      FAT::Write(gSector);
+      FAT::Close(sizeof(gc));
+    }
+  }
+
+  // ------------------------------------------------------------ generator hardware
+#ifdef _ARM
+  inline volatile uint32_t& Reg(uint32_t a) { return *(volatile uint32_t*)a; }
+#else
+  // host builds (renderer, tests): no registers
+  inline volatile uint32_t& Reg(uint32_t) { static volatile uint32_t dummy; return dummy; }
+#endif
+  enum : uint32_t {
+    RCC_AHBENR = 0x40021014, RCC_APB1ENR = 0x4002101C,
+    DMA2_CCR4 = 0x40020444, DMA2_CNDTR4 = 0x40020448, DMA2_CPAR4 = 0x4002044C, DMA2_CMAR4 = 0x40020450,
+    TIM7_CR1 = 0x40001400, TIM7_DIER = 0x4000140C, TIM7_SR = 0x40001410, TIM7_EGR = 0x40001414,
+    TIM7_CNT = 0x40001424, TIM7_PSC = 0x40001428, TIM7_ARR = 0x4000142C,
+    TIM4_CR1 = 0x40000800, TIM4_EGR = 0x40000814, TIM4_PSC = 0x40000828, TIM4_ARR = 0x4000082C,
+    TIM4_CCR1 = 0x40000834, GPIOA_CRL = 0x40010800, DAC_CR = 0x40007400,
+    GPIOB_BSRR = 0x40010C10, Pb6Set = 1u << 6, Pb6Reset = 1u << 22 };
+
+  bool GenBusy()
+  {
+#ifdef _ARM
+    return (Reg(DMA2_CCR4) & 1) && Reg(DMA2_CNDTR4) != 0;
+#else
+    return false;
+#endif
+  }
+
+  void GenStopDma()
+  {
+    Reg(DMA2_CCR4) = 0;
+    Reg(TIM7_CR1) = 0x84;
+  }
+
+  // PB6 a GPIO output at a level (BIOS: DAC off, TIM4 and TIM7 stopped)
+  void GenLevel(int level)
+  {
+    GenStopDma();
+    DAC::SetMode(level ? DAC::EMode::LogicHigh : DAC::EMode::LogicLow, nullptr, 0);
+  }
+
+  void GenOff()
+  {
+    gSqOn = false;
+    gFireAt = 0;
+    GenLevel(0);
+  }
+
+  // square wave from TIM4 channel 1 on PB6 (as the generator of the
+  // oscilloscope); false: frequency out of range
+  bool GenSquare()
+  {
+    uint32_t psc, arr;
+    float real;
+    if (!Gen::SquarePlan(gc.freqHz, psc, arr, real))
+      return false;
+    GenStopDma();
+    // PA4 (DAC) released: it is tied to PB6 on the board
+    Reg(GPIOA_CRL) = (Reg(GPIOA_CRL) & ~(0xfu << 16)) | (0x4u << 16);
+    Reg(DAC_CR) &= ~0x1fffu;
+    DAC::SetMode(DAC::EMode::Square, nullptr, 0);
+    DAC::SetFrequency((int)(real + 0.5f) > 0 ? (int)(real + 0.5f) : 1);
+    DAC::SetDuty(gc.duty);
+    Reg(TIM4_ARR) = arr - 1;
+    Reg(TIM4_PSC) = psc - 1;
+    Reg(TIM4_CCR1) = arr * (100 - gc.duty) / 100;     // same polarity as BIOS
+    Reg(TIM4_EGR) = 1;
+    return true;
+  }
+
+  // one shot: the table to GPIOB_BSRR by DMA2 channel 4, paced by TIM7;
+  // s: what was generated or why not
+  bool GenFire(char* s)
+  {
+    Gen::TSeq q;
+    if (gc.mode == Gen::GOff || gc.mode == Gen::GSquare)
+    {
+      strcpy(s, "no shot in this mode");
+      return false;
+    }
+    if (!Gen::Build(gc, dc, gGenTab, q))
+    {
+      strcpy(s, q.err);
+      return false;
+    }
+    for (int i = 0; i < q.n; i++)
+      gGenTab[i] = gGenTab[i] ? Pb6Set : Pb6Reset;
+    gSqOn = false;
+    // PB6 an output at the idle level (the end of the table); the first level
+    // (a pulse: the active one) is set right before the timer starts
+    GenLevel(gGenTab[q.n - 1] == Pb6Set ? 1 : 0);
+    Reg(RCC_AHBENR) |= 2;               // DMA2
+    Reg(RCC_APB1ENR) |= 0x20;           // TIM7
+    Reg(DMA2_CPAR4) = GPIOB_BSRR;
+    Reg(DMA2_CMAR4) = (uint32_t)(uintptr_t)gGenTab;
+    Reg(DMA2_CNDTR4) = q.n;
+    // priority very high, 32 bit to 32 bit, memory increment, to the peripheral
+    Reg(DMA2_CCR4) = 0x3A90;
+    uint32_t psc = (q.div - 1) / 65536 + 1, arr = (q.div + psc / 2) / psc;
+    Reg(TIM7_CR1) = 0x84;               // stopped, update request only by overflow
+    Reg(TIM7_PSC) = psc - 1;
+    Reg(TIM7_ARR) = arr - 1;
+    Reg(TIM7_CNT) = 0;
+    Reg(TIM7_EGR) = 1;                  // load the prescaler (no DMA request: URS)
+    Reg(TIM7_SR) = 0;
+    Reg(TIM7_DIER) |= 0x100;            // DMA request on update
+    Reg(DMA2_CCR4) |= 1;
+    Reg(GPIOB_BSRR) = q.first ? Pb6Set : Pb6Reset;
+    Reg(TIM7_CR1) = 0x85;
+    SeqInfo(q, s);
+    return true;
+  }
+
+  // the setup page shows the decoder (0) or the generator (1)
+  int gPage = 0;
+  int PageParams(TParam* p) { return gPage ? GenParams(p) : Params(p); }
+
+  const int SetupY = 20, SetupH = 16;
+  int SetupRows() { return gPage ? 10 : 11; }
 
   void DrawSetup(int sel, int top)
   {
     Bar(0, 0, W, TitleH, clrBar);
-    Text(4, 0, clrText, clrBar, "Decoder setup");
+    Text(4, 0, clrText, clrBar, gPage ? "Generator (Wave Out)" : "Decoder setup");
     Bar(0, TitleH, W, H - 34, clrBack);
     TParam p[24];
-    int n = Params(p);
-    for (int r = 0; r < SetupRows; r++)
+    int n = PageParams(p);
+    const int rows = SetupRows();
+    for (int r = 0; r < rows; r++)
     {
       int i = top + r;
       if (i >= n) break;
@@ -1341,15 +1604,25 @@ namespace
     }
     // scroll marks
     if (top > 0) Text(W - 12, SetupY, clrDim, RGBTRANS, "^");
-    if (top + SetupRows < n) Text(W - 12, SetupY + (SetupRows - 1) * SetupH, clrDim, RGBTRANS, "v");
+    if (top + rows < n) Text(W - 12, SetupY + (rows - 1) * SetupH, clrDim, RGBTRANS, "v");
+    if (gPage)
+    {
+      // what will be generated
+      char s[48];
+      GenInfo(s);
+      s[48 - 1] = 0;
+      Text(4, SetupY + rows * SetupH, clrOk, RGBTRANS, s);
+    }
     Bar(0, H - 34, W, H, clrBar);
     Text(4, H - 33, clrDim, RGBTRANS, "Up/Down item  Left/Right change");
     Text(4, H - 17, clrDim, RGBTRANS, "F1 digit  F2/F3/F4 back (saved)");
   }
 
-  void SetupPage()
+  void SetupPage(int page)
   {
+    gPage = page;
     Dec::TCfg old = dc;
+    Gen::TCfg oldGen = gc;
     int sel = 0, top = 0;
     gDigit = 0;
     LCD::Clear(clrBack);
@@ -1362,7 +1635,7 @@ namespace
       if (key == KEY::Escape || key == KEY::F3 || key == KEY::F4)
         break;
       TParam p[24];
-      int n = Params(p);
+      int n = PageParams(p);
       if (key == KEY::Up || key == KEY::Down)
       {
         int d = key == KEY::Up ? -1 : 1;
@@ -1382,7 +1655,7 @@ namespace
           uint32_t digit = (*q.v32 / step) % base;
           digit = (digit + base + d) % base;
           *q.v32 = *q.v32 - ((*q.v32 / step) % base) * step + digit * step;
-          if (q.kind == PkDec && *q.v32 > 9999999) *q.v32 = 9999999;
+          if (q.kind == PkDec && *q.v32 > 99999999) *q.v32 = 99999999;
         }
         else if (q.kind == PkNum && q.lo == 1 && q.hi == 99)
         {
@@ -1396,16 +1669,18 @@ namespace
           if (v > q.hi) v = lo;
           *q.v = (int8_t)v;
         }
-        n = Params(p);
+        n = PageParams(p);
         if (sel >= n) sel = n - 1;
       }
       if (sel < top) top = sel;
-      if (sel >= top + SetupRows) top = sel - SetupRows + 1;
+      if (sel >= top + SetupRows()) top = sel - SetupRows() + 1;
       if (top > 0 && p[top - 1].kind == PkHead && sel == top) top--;   // keep the heading
       DrawSetup(sel, top);
     }
     if (memcmp(&old, &dc, sizeof(dc)) != 0)
       SaveDecoder();
+    if (memcmp(&oldGen, &gc, sizeof(gc)) != 0)
+      SaveGen();
     LCD::Clear(clrBack);
     status[0] = 0;
     DrawAll();
@@ -1586,6 +1861,17 @@ namespace
       case ItX1: case ItX2:
         if (gHave) { MoveCursor(nItem - ItX1, d); DrawPlot(); }
         return;
+      case ItGen:
+        gc.mode = (int8_t)((gc.mode + d + Gen::GModes) % Gen::GModes);
+        if (gSqOn) GenOff();
+        {
+          char s[48];
+          GenInfo(s);
+          s[40] = 0;
+          Status(clrText, s);
+        }
+        DrawTitle();
+        return;
       case ItDec:
         dc.proto = (int8_t)((dc.proto + d + Dec::Protos) % Dec::Protos);
         Status(clrText, "");
@@ -1640,7 +1926,14 @@ namespace
         }
         break;
       case KEY::F3:
-        if (nItem == ItDec) { SetupPage(); break; }
+        if (nItem == ItDec) { SetupPage(0); break; }
+        if (nItem == ItGen)
+        {
+          SetupPage(1);
+          if (gSqOn && (gc.mode != Gen::GSquare || !GenSquare())) GenOff();
+          DrawMenu();
+          break;
+        }
         if (!gHave) break;
         if (nItem == ItList) ListPage();
         else if (nItem == ItX1 || nItem == ItX2) NextEdge();
@@ -1661,6 +1954,21 @@ namespace
         }
         else if (nItem == ItBmp) SaveBmp();
         else if (nItem == ItList || nItem == ItDec) { if (gHave) ListPage(); }
+        else if (nItem == ItGen)
+        {
+          char s[48];
+          if (gc.mode == Gen::GSquare)
+          {
+            if (gSqOn) { GenOff(); strcpy(s, "square off"); }
+            else if (GenSquare()) { gSqOn = true; GenInfo(s); }
+            else strcpy(s, "frequency out of range");
+          }
+          else if (gc.mode == Gen::GOff) strcpy(s, "generator off: F3");
+          else GenFire(s);
+          s[40] = 0;
+          Status(clrOk, s);
+          DrawTitle();
+        }
         else SaveVcd();
         break;
       case KEY::Escape:
@@ -1693,6 +2001,7 @@ int _main(void)
   LoadCalibration();
   Dec::Defaults(dc);
   LoadDecoder();
+  LoadGen();
   LCD::Clear(clrBack);
   DrawAll();
 
@@ -1703,7 +2012,14 @@ int _main(void)
       break;
     if (eRun != Idle)
       PollCapture();
+    if (gFireAt && (int32_t)(SYS::GetTick() - gFireAt) >= 0)
+    {
+      gFireAt = 0;
+      char s[48];
+      GenFire(s);
+    }
   }
+  GenOff();
   RestoreImage();
   return 0;
 }

@@ -22,6 +22,10 @@ changes, at the sample rate of the time base up to **72 MS/s**:
   1-Wire, CAN, WS2812, NEC IR, PS/2, pulse width, edge counter, quadrature
   encoder on any lanes; the frames under the waveform, a list of them, CSV
   files (`LA000.CSV` ..)
+- **generator** on the Wave Out connector (3.3 V logic): single pulse of a
+  set width (a reset), square wave, burst of pulses, test signals for the
+  decoders (UART, LIN, CAN, 1-Wire, NEC IR, pulses), also fired with every
+  capture
 - **protocol trigger**: a condition on the decoded frames (value / mask,
   I2C write or read address, SPI command, CAN ID, error, NACK, pulse
   width ...), followed by a value, n-th occurrence; captures again until
@@ -160,6 +164,39 @@ matches or F1 stops it. Repeat: after a match it waits for the next one.
 The matching frame must be inside one capture (4095 changes), so the
 sample rate should not be much higher than needed (8 .. 20 samples per
 bit).
+
+## Generator (Wave Out)
+
+The item **Gen** (row 2) uses the Wave Out connector of the DS203 as a logic
+output: PB6 of the MCU, 3.3 V push-pull (tied to the DAC pin on the board,
+the DAC is switched off). Connect Wave Out to the input of the circuit and,
+to see the signal, to a lane (C or D directly; A / B with their threshold).
+
+Left / Right on Gen chooses the mode, **F3** opens its setup page (as the
+decoder: Up / Down, Left / Right, F1 the digit of a number; the line at the
+bottom says what will be generated), **F4** fires (square: on / off).
+The setup is kept in `LOGICGEN.CFG`.
+
+| Mode | Settings | Output |
+|---|---|---|
+| single pulse | width 1 us .. 59 s (in us), active high or low | the level changes at once, back after the width (TIM7, exact to 1/72 us); e.g. the reset of a circuit |
+| square wave | frequency 1 Hz .. 18 MHz, duty 1 .. 99 % | TIM4 PWM, runs until F4 again or another mode; the real frequency is shown |
+| burst | 1 .. 1000 pulses, frequency, duty, polarity | n pulses, then idle (tests of counters, the Counter / Pulse decoders) |
+| test of the decoder | the protocol and settings of the decoder (Dec) | one frame or message: UART (text "Hello DS203!" or the 4 bytes of Value, bits, parity, stop, polarity and baud rate of the decoder; auto: 115200), LIN (break, sync, PID = Value & 3F, 2 data bytes from Value, enhanced checksum), CAN (ID = Value, 29 bit when > 7FF, 4 data bytes, CRC, stuffing, ACK; auto: 125 k), 1-Wire (reset, presence, Skip ROM, function command = Value), NEC IR (address, command from Value), Pulse / Counter (burst) |
+
+**With capture: on** fires the shot after every start of a capture (F1,
+Repeat, the retries of the protocol trigger) as soon as the trigger is
+armed, so a trigger on the edge of the generated signal catches it: a
+self test of the decoders and of the protocol trigger without any other
+device. The title shows `+Gen` then.
+
+Protocols with two or more lines (I2C, SPI, PS/2, encoder) cannot be
+generated with one output; WS2812 is too fast for the DMA (at most 4 M
+changes per second). One shot is a table of at most 1024 levels written by
+DMA2 to GPIOB_BSRR at a TIM7 rate; the samples per bit are chosen so that
+the bit rate is exact or the error is the smallest (shown on the setup
+page). Host test: `test/test_gen.cpp` decodes every generated test signal
+with the decoders of the analyzer.
 
 ## Notes
 
