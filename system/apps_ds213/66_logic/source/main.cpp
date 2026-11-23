@@ -8,12 +8,17 @@
 //   Left / Right  change the item (View: scroll, Zoom: zoom, X1 / X2: move)
 //   F1            run / stop
 //   F2            exit (the oscilloscope FPGA image is loaded back)
-//   F3            X1 / X2: next edge; otherwise: whole capture
-//   F4            save VCD (item BMP: screenshot)
+//   F3            X1 / X2: next edge; Dec: decoder setup; List: decoded
+//                 frames; otherwise: whole capture
+//   F4            save VCD (item BMP: screenshot, List: decoded frames)
+//
+// Protocol decoders (decode.h): UART, SPI, I2C, 1-Wire, any lanes; the
+// frames are drawn under the waveform of their lane and listed (List).
 
 #include <library.h>
 #include "fpga.h"
 #include "la.h"
+#include "decode.h"
 #include "../../65_minical/source/calib.h"
 
 using namespace BIOS;
@@ -54,6 +59,38 @@ namespace
   float gRate = 1;                      // samples per second of the capture
   bool gHave = false;
 
+  // ------------------------------------------------------------ decoders
+  enum { MaxFrames = 1024 };
+  Dec::TFrame gFrames[MaxFrames];
+  int gFrameN = 0;
+  uint32_t gAutoBaud[2] = { 0, 0 };     // UART RX, TX
+  char gDecNote[24] = "";
+
+  const char* const nameProto[] = { "Dec off", "UART", "SPI", "I2C", "1-Wire" };
+  const uint32_t arrBaud[] = { 0, 300, 1200, 2400, 4800, 9600, 19200, 31250, 38400,
+    57600, 115200, 230400, 250000, 460800, 500000, 921600, 1000000, 2000000, 3000000 };
+  const int Bauds = sizeof(arrBaud) / sizeof(arrBaud[0]);
+
+  // lanes: 0 A, 1 B, 2 C, 3 D, -1 none
+  struct TDecCfg
+  {
+    uint32_t magic;
+    int8_t proto;
+    int8_t uart[2];                     // RX, TX
+    int8_t baud;                        // index of arrBaud, 0 automatic
+    int8_t bits, parity, stop, inv;
+    int8_t spi[4];                      // CLK, MOSI, MISO, CS
+    int8_t mode, spiBits, lsb;
+    int8_t i2c[2];                      // SCL, SDA
+    int8_t ow;
+    int8_t fmt;                         // 0 hex, 1 decimal, 2 ASCII
+  };
+  const uint32_t DecMagic = 0x4c444331; // "LDC1"
+  TDecCfg dc = { DecMagic, Dec::POff, { 2, 3 }, 0, 8, 0, 1, 0, { 2, 3, 0, 1 }, 0, 8, 0,
+    { 2, 3 }, 2, 0 };
+  const char* const DecFile = "LOGICDEC.CFG";
+  void DecodeAndShow();
+
   // ------------------------------------------------------------ settings
   // sample rates: time bases of BIOS::ADC::ConfigureTimebase (30 samples / div)
   const float arrTime[] = { 200e-9f, 500e-9f, 1e-6f, 2e-6f, 5e-6f, 10e-6f, 20e-6f, 50e-6f,
@@ -79,7 +116,7 @@ namespace
   int zoom = 0;                         // 1/8 samples per column = 2^zoom
   uint32_t cur[2] = { 0, 0 };           // cursors, samples
 
-  enum { ItRate, ItTrig, ItPre, ItThrA, ItThrB, ItMode, ItView, ItZoom, ItX1, ItX2, ItBmp, Items };
+  enum { ItRate, ItTrig, ItPre, ItThrA, ItThrB, ItMode, ItView, ItZoom, ItX1, ItX2, ItDec, ItList, ItBmp, Items };
   int nItem = ItView;
 
   enum { Idle, Waiting, Filling } eRun = Idle;
@@ -240,16 +277,195 @@ namespace
     }
   }
 
+  // ------------------------------------------------------------ decoded frames
+  // role of a lane in the decoder ("" none); decoded: frames on it
+  const char* Role(int lane, bool* decoded = nullptr)
+  {
+    if (decoded) *decoded = false;
+    const char* r = "";
+    bool d = false;
+    switch (dc.proto)
+    {
+      case Dec::PUart:
+        if (dc.uart[0] == lane) { r = "RX"; d = true; }
+        else if (dc.uart[1] == lane) { r = "TX"; d = true; }
+        break;
+      case Dec::PSpi:
+        if (dc.spi[0] == lane) r = "CK";
+        else if (dc.spi[1] == lane) { r = "MO"; d = true; }
+        else if (dc.spi[2] == lane) { r = "MI"; d = true; }
+        else if (dc.spi[3] == lane) r = "CS";
+        break;
+      case Dec::PI2c:
+        if (dc.i2c[0] == lane) r = "CL";
+        else if (dc.i2c[1] == lane) { r = "DA"; d = true; }
+        break;
+      case Dec::POneWire:
+        if (dc.ow == lane) { r = "1W"; d = true; }
+        break;
+    }
+    if (decoded) *decoded = d;
+    return r;
+  }
+
+  char* PutHex(char* p, uint32_t v, int digits)
+  {
+    for (int i = digits - 1; i >= 0; i--)
+      *p++ = "0123456789ABCDEF"[(v >> (i * 4)) & 15];
+    *p = 0;
+    return p;
+  }
+
+  int DataBits()
+  {
+    return dc.proto == Dec::PUart ? dc.bits : dc.proto == Dec::PSpi ? dc.spiBits : 8;
+  }
+
+  char* PutValue(char* p, uint32_t v, bool quote)
+  {
+    int digits = (DataBits() + 3) / 4;
+    if (dc.fmt == 1)
+      return PutU(p, v);
+    if (dc.fmt == 2 && v >= 32 && v < 127)
+    {
+      if (quote) *p++ = '\'';
+      *p++ = (char)v;
+      if (quote) *p++ = '\'';
+      *p = 0;
+      return p;
+    }
+    if (dc.fmt == 2 && (v == 10 || v == 13))
+    {
+      *p++ = '\\'; *p++ = v == 10 ? 'n' : 'r'; *p = 0;
+      return p;
+    }
+    return PutHex(p, v, digits);
+  }
+
+  // short text in the lane, or the line of the list (full)
+  void FrameText(const Dec::TFrame& f, char* s, bool full)
+  {
+    char* p = s;
+    *p = 0;
+    switch (f.kind)
+    {
+      case Dec::Data:
+        if (full && dc.fmt != 1)
+        {
+          strcpy(p, "0x");
+          p = PutHex(p + 2, f.v, (DataBits() + 3) / 4);
+          if (dc.fmt == 0) break;
+          *p++ = ' ';
+        }
+        p = PutValue(p, f.v, full);
+        break;
+      case Dec::AddrW: case Dec::AddrR:
+        if (full) { strcpy(p, f.kind == Dec::AddrW ? "write 0x" : "read 0x"); p += strlen(p); }
+        else *p++ = f.kind == Dec::AddrW ? 'W' : 'R';
+        p = PutHex(p, f.v, 2);
+        break;
+      case Dec::Start: strcpy(p, full ? "start" : "S"); break;
+      case Dec::Restart: strcpy(p, full ? "restart" : "Sr"); break;
+      case Dec::Stop: strcpy(p, full ? "stop" : "P"); break;
+      case Dec::Reset: strcpy(p, full ? "reset" : "RST"); break;
+      case Dec::Presence: strcpy(p, full ? "presence" : "PRS"); break;
+    }
+    p += strlen(p);
+    if (full)
+    {
+      if (f.kind == Dec::AddrW || f.kind == Dec::AddrR || (dc.proto == Dec::PI2c && f.kind == Dec::Data))
+        strcpy(p, f.flags & Dec::FlNack ? " NACK" : " ACK");
+      p += strlen(p);
+      if (f.flags & Dec::FlPar) { strcpy(p, " parity error"); p += strlen(p); }
+      if (f.flags & Dec::FlErr) strcpy(p, dc.proto == Dec::PSpi ? " cut by CS" : " framing error");
+    } else if (f.flags & Dec::FlNack)
+      strcpy(p, "~");
+  }
+
+  uint16_t FrameColor(const Dec::TFrame& f)
+  {
+    if (f.flags & (Dec::FlErr | Dec::FlPar)) return clrTrig;
+    if (f.flags & Dec::FlNack) return clrX1;
+    switch (f.kind)
+    {
+      case Dec::AddrW: case Dec::AddrR: return clrX2;
+      case Dec::Start: case Dec::Restart: case Dec::Reset: return clrOk;
+      case Dec::Stop: case Dec::Presence: return clrWarn;
+      default: return clrText;
+    }
+  }
+
+  // frame row of a decoded lane: y0 + 18 .. y0 + 35
+  void DrawFrames(int lane, int y0)
+  {
+    const int yT = y0 + 18, yB = y0 + 35;
+    int textEnd = -100;                 // no overlapping labels
+    for (int i = 0; i < gFrameN; i++)
+    {
+      const Dec::TFrame& f = gFrames[i];
+      if (f.lane != lane)
+        continue;
+      int x0 = SampleToX(f.t0), x1 = SampleToX(f.t1);
+      if (x1 < 0) continue;
+      if (x0 >= PlotW) break;
+      uint16_t c = FrameColor(f);
+      char s[16];
+      FrameText(f, s, false);
+      int tw = strlen(s) * 8;
+      if (f.t0 == f.t1)
+      {
+        // a point: line and the letter at its right when the next frame
+        // of the lane leaves room
+        Bar(PlotX + x0, yT, PlotX + x0 + 2, yB, c);
+        int next = PlotW;
+        for (int j = i + 1; j < gFrameN; j++)
+          if (gFrames[j].lane == lane) { next = SampleToX(gFrames[j].t0); break; }
+        if (x0 + 3 > textEnd && x0 + 3 + tw <= next - 1 && x0 + 3 + tw <= PlotW)
+        {
+          Text(PlotX + x0 + 3, yT + 1, c, RGBTRANS, s);
+          textEnd = x0 + 3 + tw;
+        }
+        continue;
+      }
+      int cx0 = x0 < 0 ? 0 : x0, cx1 = x1 > PlotW ? PlotW : x1;
+      if (cx1 - cx0 < 3)
+      {
+        Bar(PlotX + cx0, yT + 4, PlotX + cx0 + (cx1 > cx0 ? cx1 - cx0 : 1), yB - 4, c);
+        continue;
+      }
+      Bar(PlotX + cx0, yT, PlotX + cx1, yT + 1, c);
+      Bar(PlotX + cx0, yB - 1, PlotX + cx1, yB, c);
+      if (x0 >= 0) Bar(PlotX + x0, yT, PlotX + x0 + 1, yB, c);
+      if (x1 <= PlotW) Bar(PlotX + x1 - 1, yT, PlotX + x1, yB, c);
+      if (tw <= cx1 - cx0 - 2)
+      {
+        int tx = (cx0 + cx1 - tw) / 2;
+        if (tx > textEnd)
+        {
+          Text(PlotX + tx, yT + 1, c, RGBTRANS, s);
+          textEnd = tx + tw;
+        }
+      }
+    }
+  }
+
   // column x of the lane: state and whether it changes inside the column
   void DrawLane(int lane)
   {
     int y0 = LaneTop + lane * LaneH;
-    int yHi = y0 + 6, yLo = y0 + LaneH - 8;
+    bool decoded;
+    const char* role = Role(lane, &decoded);
+    // decoded lane: the waveform in the upper half, the frames below
+    int yHi = y0 + (decoded ? 3 : 6), yLo = y0 + (decoded ? 13 : LaneH - 8);
     Bar(0, y0, W, y0 + LaneH, clrBack);
     Bar(0, y0 + LaneH - 1, W, y0 + LaneH, clrGrid);
-    Text(4, y0 + 11, clrLane[lane], RGBTRANS, nameLane[lane]);
+    Text(4, y0 + (role[0] ? 2 : 11), clrLane[lane], RGBTRANS, nameLane[lane]);
+    if (role[0])
+      Text(2, y0 + 19, clrDim, RGBTRANS, role);
     if (!gHave || gEvents == 0)
       return;
+    if (decoded)
+      DrawFrames(lane, y0);
     int bit = bitLane[lane];
     uint16_t c = clrLane[lane];
     int i = La::Find(gEv, gEvents, XToSample(0));
@@ -348,6 +564,8 @@ namespace
       case ItZoom: strcpy(p, "Zoom"); break;
       case ItX1: strcpy(p, "X1"); break;
       case ItX2: strcpy(p, "X2"); break;
+      case ItDec: strcpy(p, nameProto[(int)dc.proto]); break;
+      case ItList: strcpy(p, "List"); break;
       case ItBmp: strcpy(p, "BMP"); break;
     }
   }
@@ -582,6 +800,7 @@ namespace
       cur[0] = gTrig;
       cur[1] = gTrig + (gEnd - gTrig) / 4;
       Status(clrOk, stopped ? "stopped" : "");
+      DecodeAndShow();
     } else
       Status(clrWarn, "no trigger");
     DrawTitle();
@@ -704,6 +923,36 @@ namespace
     Status(ok ? clrOk : clrTrig, s);
   }
 
+  // decoded frames: time from the trigger in ns, lane, role, text
+  bool SaveCsv()
+  {
+    char name[16];
+    if (!OpenNew(name, "LA", "CSV")) { strcpy(status, "file error"); return false; }
+    TWriter w;
+    w.Str("time_ns,lane,role,frame\n");
+    uint64_t ps = (uint64_t)(1e12f / gRate + 0.5f);
+    for (int i = 0; i < gFrameN && w.ok; i++)
+    {
+      const Dec::TFrame& f = gFrames[i];
+      int64_t d = (int64_t)f.t0 - gTrig;
+      if (d < 0) { w.Put('-'); d = -d; }
+      w.U64((uint64_t)d * ps / 1000);
+      w.Put(','); w.Str(nameLane[f.lane]); w.Put(','); w.Str(Role(f.lane)); w.Put(',');
+      char s[40];
+      FrameText(f, s, true);
+      // a comma or quote in ASCII: quoted
+      bool q = strchr(s, ',') || strchr(s, '"');
+      if (q) w.Put('"');
+      for (char* c = s; *c; c++) { if (*c == '"') w.Put('"'); w.Put(*c); }
+      if (q) w.Put('"');
+      w.Put('\n');
+    }
+    bool ok = Finish(w);
+    strcpy(status, ok ? name : "save error");
+    statusClr = ok ? clrOk : clrTrig;
+    return ok;
+  }
+
   void SaveBmp()
   {
     char name[16];
@@ -719,6 +968,322 @@ namespace
         w.Le16(LCD::GetPixel(x, y));
     bool ok = Finish(w);
     Status(ok ? clrOk : clrTrig, ok ? name : "save error");
+  }
+
+  // ------------------------------------------------------------ decoding
+  void RunDecoder()
+  {
+    gFrameN = 0;
+    gDecNote[0] = 0;
+    gAutoBaud[0] = gAutoBaud[1] = 0;
+    if (!gHave || dc.proto == Dec::POff || gEvents < 2)
+      return;
+    Dec::TOut o(gFrames, MaxFrames);
+    bool slow = false;
+    switch (dc.proto)
+    {
+      case Dec::PUart:
+      {
+        uint32_t baud[2] = { arrBaud[(int)dc.baud], arrBaud[(int)dc.baud] };
+        for (int r = 0; r < 2; r++)
+          if (dc.uart[r] >= 0 && !dc.baud)
+            baud[r] = gAutoBaud[r] = Dec::AutoBaud(gEv, gEvents, bitLane[(int)dc.uart[r]], gRate);
+        // a lane without traffic: the rate of the other one
+        if (!dc.baud && !baud[0]) baud[0] = baud[1];
+        if (!dc.baud && !baud[1]) baud[1] = baud[0];
+        for (int r = 0; r < 2; r++)
+          if (dc.uart[r] >= 0 && baud[r] &&
+              !Dec::Uart(gEv, gEvents, gEnd, bitLane[(int)dc.uart[r]], dc.uart[r], gRate, baud[r],
+                         dc.bits, dc.parity, dc.stop, dc.inv, o))
+            slow = true;
+        if (!dc.baud && (baud[0] || baud[1]))
+        {
+          char* p = PutU(gDecNote, baud[dc.uart[0] >= 0 && baud[0] ? 0 : 1]);
+          strcpy(p, " Bd");
+        }
+        break;
+      }
+      case Dec::PSpi:
+        if (dc.spi[0] >= 0)
+          Dec::Spi(gEv, gEvents, bitLane[(int)dc.spi[0]],
+                   dc.spi[1] >= 0 ? bitLane[(int)dc.spi[1]] : 0, dc.spi[2] >= 0 ? bitLane[(int)dc.spi[2]] : 0,
+                   dc.spi[3] >= 0 ? bitLane[(int)dc.spi[3]] : 0, dc.spi[1], dc.spi[2],
+                   dc.mode & 2, dc.mode & 1, dc.spiBits, !dc.lsb, o);
+        break;
+      case Dec::PI2c:
+        Dec::I2c(gEv, gEvents, bitLane[(int)dc.i2c[0]], bitLane[(int)dc.i2c[1]], dc.i2c[1], o);
+        break;
+      case Dec::POneWire:
+        Dec::OneWire(gEv, gEvents, bitLane[(int)dc.ow], dc.ow, gRate, o);
+        break;
+    }
+    Dec::Sort(gFrames, o.n);
+    gFrameN = o.n;
+    if (slow) strcpy(gDecNote, "rate too low");
+    else if (o.overflow) strcpy(gDecNote, "1024 frames max");
+  }
+
+  void DecodeAndShow()
+  {
+    RunDecoder();
+    // a number (the automatic baud rate) or a warning
+    bool warn = gDecNote[0] < '0' || gDecNote[0] > '9';
+    if (gDecNote[0])
+      Status(warn ? clrWarn : clrOk, gDecNote);
+  }
+
+  void LoadDecoder()
+  {
+    if (FAT::Open(DecFile, FAT::IoRead) != FAT::EOk)
+      return;
+    if (FAT::Read(gSector) == FAT::EOk)
+    {
+      TDecCfg c;
+      memcpy(&c, gSector, sizeof(c));
+      if (c.magic == DecMagic && c.proto >= 0 && c.proto < Dec::Protos)
+        dc = c;
+    }
+    FAT::Close();
+  }
+
+  void SaveDecoder()
+  {
+    memset(gSector, 0, sizeof(gSector));
+    memcpy(gSector, &dc, sizeof(dc));
+    if (FAT::Open(DecFile, FAT::IoWrite) == FAT::EOk)
+    {
+      FAT::Write(gSector);
+      FAT::Close(sizeof(dc));
+    }
+  }
+
+  // ------------------------------------------------------------ decoder setup page
+  // parameters of the protocol: name, value pointer, minimum, maximum, kind
+  enum { PkLane, PkLaneOpt, PkNum, PkBaud, PkParity, PkStop, PkIdle, PkMode, PkOrder, PkFmt };
+  struct TParam { const char* name; int8_t* v; int lo, hi, kind; };
+
+  int Params(TParam* p)
+  {
+    int n = 0;
+    auto add = [&](const char* name, int8_t* v, int lo, int hi, int kind) { p[n++] = { name, v, lo, hi, kind }; };
+    switch (dc.proto)
+    {
+      case Dec::PUart:
+        add("RX lane", &dc.uart[0], -1, 3, PkLaneOpt);
+        add("TX lane", &dc.uart[1], -1, 3, PkLaneOpt);
+        add("Baud rate", &dc.baud, 0, Bauds - 1, PkBaud);
+        add("Data bits", &dc.bits, 5, 9, PkNum);
+        add("Parity", &dc.parity, 0, 2, PkParity);
+        add("Stop bits", &dc.stop, 1, 2, PkNum);
+        add("Idle level", &dc.inv, 0, 1, PkIdle);
+        break;
+      case Dec::PSpi:
+        add("CLK lane", &dc.spi[0], 0, 3, PkLane);
+        add("MOSI lane", &dc.spi[1], -1, 3, PkLaneOpt);
+        add("MISO lane", &dc.spi[2], -1, 3, PkLaneOpt);
+        add("CS lane", &dc.spi[3], -1, 3, PkLaneOpt);
+        add("Mode", &dc.mode, 0, 3, PkMode);
+        add("Word bits", &dc.spiBits, 4, 16, PkNum);
+        add("Bit order", &dc.lsb, 0, 1, PkOrder);
+        break;
+      case Dec::PI2c:
+        add("SCL lane", &dc.i2c[0], 0, 3, PkLane);
+        add("SDA lane", &dc.i2c[1], 0, 3, PkLane);
+        break;
+      case Dec::POneWire:
+        add("Data lane", &dc.ow, 0, 3, PkLane);
+        break;
+    }
+    if (dc.proto != Dec::POff)
+      add("Format", &dc.fmt, 0, 2, PkFmt);
+    return n;
+  }
+
+  void ParamText(const TParam& p, char* s)
+  {
+    int v = *p.v;
+    switch (p.kind)
+    {
+      case PkLane: case PkLaneOpt: strcpy(s, v < 0 ? "-" : nameLane[v]); break;
+      case PkNum: PutU(s, v); break;
+      case PkBaud:
+        if (v) PutU(s, arrBaud[v]);
+        else
+        {
+          strcpy(s, "auto");
+          uint32_t a = gAutoBaud[0] ? gAutoBaud[0] : gAutoBaud[1];
+          if (a) { strcat(s, " ("); char* q = PutU(s + strlen(s), a); strcpy(q, ")"); }
+        }
+        break;
+      case PkParity: strcpy(s, v == 0 ? "none" : v == 1 ? "even" : "odd"); break;
+      case PkIdle: strcpy(s, v ? "low (inverted)" : "high"); break;
+      case PkMode:
+        strcpy(s, "0  CPOL 0 CPHA 0");
+        s[0] = '0' + v; s[8] = '0' + (v >> 1); s[15] = '0' + (v & 1);
+        break;
+      case PkOrder: strcpy(s, v ? "LSB first" : "MSB first"); break;
+      case PkFmt: strcpy(s, v == 0 ? "hex" : v == 1 ? "decimal" : "ASCII"); break;
+    }
+  }
+
+  void DrawSetup(int sel)
+  {
+    LCD::Clear(clrBack);
+    Bar(0, 0, W, TitleH, clrBar);
+    char s[48];
+    strcpy(s, "Decoder: ");
+    strcat(s, dc.proto == Dec::POff ? "off" : nameProto[(int)dc.proto]);
+    Text(4, 0, clrText, clrBar, s);
+    TParam p[10];
+    int n = Params(p);
+    // row 0: the protocol
+    for (int i = 0; i <= n; i++)
+    {
+      int y = 26 + i * 18;
+      bool hl = i == sel;
+      if (hl) Bar(0, y, W, y + 16, clrSel);
+      Text(12, y + 1, hl ? clrText : clrDim, RGBTRANS, i == 0 ? "Protocol" : p[i - 1].name);
+      if (i == 0) strcpy(s, nameProto[(int)dc.proto]);
+      else ParamText(p[i - 1], s);
+      Text(140, y + 1, clrText, RGBTRANS, s);
+    }
+    Text(4, H - 34, clrDim, RGBTRANS, "Up/Down: item  Left/Right: change");
+    Text(4, H - 18, clrDim, RGBTRANS, "F2 / F3 / F4: back (saved)");
+  }
+
+  void SetupPage()
+  {
+    TDecCfg old = dc;
+    int sel = 0;
+    DrawSetup(sel);
+    while (true)
+    {
+      KEY::EKey key = KEY::GetKey();
+      if (key == KEY::None)
+        continue;
+      TParam p[10];
+      int n = Params(p);
+      if (key == KEY::Escape || key == KEY::F3 || key == KEY::F4)
+        break;
+      if (key == KEY::Up) sel = (sel + n) % (n + 1);
+      if (key == KEY::Down) sel = (sel + 1) % (n + 1);
+      if (key == KEY::Left || key == KEY::Right)
+      {
+        int d = key == KEY::Right ? 1 : -1;
+        if (sel == 0)
+          dc.proto = (int8_t)((dc.proto + d + Dec::Protos) % Dec::Protos);
+        else
+        {
+          const TParam& q = p[sel - 1];
+          int v = *q.v + d;
+          if (v < q.lo) v = q.hi;
+          if (v > q.hi) v = q.lo;
+          *q.v = (int8_t)v;
+        }
+        n = Params(p);
+        if (sel > n) sel = n;
+        RunDecoder();                   // automatic baud rate shown
+      }
+      DrawSetup(sel);
+    }
+    if (memcmp(&old, &dc, sizeof(dc)) != 0)
+      SaveDecoder();
+    LCD::Clear(clrBack);
+    status[0] = 0;
+    DrawAll();
+    DecodeAndShow();
+  }
+
+  // ------------------------------------------------------------ list of frames
+  const int ListRows = 13, ListY = 18, ListH = 15;
+
+  // time of the frame relative to the trigger, the lane, the text
+  void ListLine(const Dec::TFrame& f, char* s)
+  {
+    char* p = PutSI(s, SamplesToSec((int64_t)f.t0 - gTrig), "s");
+    while (p - s < 9) *p++ = ' ';
+    *p++ = ' ';
+    *p++ = nameLane[f.lane][0];
+    *p++ = ' ';
+    strcpy(p, Role(f.lane));
+    p += strlen(p);
+    *p++ = ' ';
+    FrameText(f, p, true);
+  }
+
+  void DrawList(int top, int sel)
+  {
+    Bar(0, 0, W, TitleH, clrBar);
+    char s[64], *p;
+    strcpy(s, nameProto[(int)dc.proto]);
+    p = s + strlen(s);
+    strcpy(p, "  "); p = PutU(p + 2, gFrameN); strcpy(p, " frames");
+    Text(4, 0, clrText, clrBar, s);
+    Bar(0, TitleH, W, H - 16, clrBack);
+    for (int r = 0; r < ListRows; r++)
+    {
+      int i = top + r;
+      if (i >= gFrameN) break;
+      int y = ListY + r * ListH;
+      if (i == sel) Bar(0, y, W, y + ListH, clrSel);
+      ListLine(gFrames[i], s);
+      s[49] = 0;                        // LCD::Print does not clip
+      Text(4, y, i == sel ? clrText : FrameColor(gFrames[i]), RGBTRANS, s);
+    }
+    Bar(0, H - 16, W, H, clrBar);
+    Text(4, H - 16, clrDim, RGBTRANS, "F3 X1 here  F4 save CSV  F2 back");
+  }
+
+  // F3: X1 to the selected frame
+  void ListPage()
+  {
+    if (!gFrameN)
+    {
+      Status(clrWarn, dc.proto == Dec::POff ? "decoder off" : "no frames");
+      return;
+    }
+    // the first frame at X1
+    int sel = 0;
+    while (sel + 1 < gFrameN && gFrames[sel].t0 < cur[0]) sel++;
+    int top = sel > 2 ? sel - 2 : 0;
+    bool jump = false;
+    LCD::Clear(clrBack);
+    DrawList(top, sel);
+    while (true)
+    {
+      KEY::EKey key = KEY::GetKey();
+      if (key == KEY::None)
+        continue;
+      if (key == KEY::Escape) break;
+      if (key == KEY::F3) { jump = true; break; }
+      if (key == KEY::F4)
+      {
+        bool ok = SaveCsv();
+        Bar(W - 120, H - 16, W, H, clrBar);
+        Text(W - 116, H - 16, ok ? clrOk : clrTrig, RGBTRANS, ok ? status : "save error");
+        continue;
+      }
+      int d = key == KEY::Up ? -1 : key == KEY::Down ? 1 : key == KEY::Left ? -ListRows : key == KEY::Right ? ListRows : 0;
+      if (!d) continue;
+      sel += d;
+      if (sel < 0) sel = 0;
+      if (sel >= gFrameN) sel = gFrameN - 1;
+      if (sel < top) top = sel;
+      if (sel >= top + ListRows) top = sel - ListRows + 1;
+      DrawList(top, sel);
+    }
+    if (jump)
+    {
+      cur[0] = gFrames[sel].t0;
+      // the frame in the middle of the view
+      int64_t left = ((int64_t)cur[0] << 3) - ((int64_t)PlotW << zoom) / 2;
+      viewLeft = left < 0 ? 0 : (uint32_t)left;
+      ClampView();
+      nItem = ItX1;
+    }
+    LCD::Clear(clrBack);
+    status[0] = 0;
+    DrawAll();
   }
 
   // ------------------------------------------------------------ keys
@@ -781,6 +1346,13 @@ namespace
       case ItX1: case ItX2:
         if (gHave) { MoveCursor(nItem - ItX1, d); DrawPlot(); }
         return;
+      case ItDec:
+        dc.proto = (int8_t)((dc.proto + d + Dec::Protos) % Dec::Protos);
+        Status(clrText, "");
+        DecodeAndShow();
+        DrawPlot();
+        DrawMenu();
+        return;
       default:
         return;
     }
@@ -825,12 +1397,16 @@ namespace
         }
         break;
       case KEY::F3:
+        if (nItem == ItDec) { SetupPage(); break; }
         if (!gHave) break;
-        if (nItem == ItX1 || nItem == ItX2) NextEdge();
+        if (nItem == ItList) ListPage();
+        else if (nItem == ItX1 || nItem == ItX2) NextEdge();
         else { Fit(); DrawPlot(); }
         break;
       case KEY::F4:
-        if (nItem == ItBmp) SaveBmp(); else SaveVcd();
+        if (nItem == ItBmp) SaveBmp();
+        else if (nItem == ItList || nItem == ItDec) { if (gHave) ListPage(); }
+        else SaveVcd();
         break;
       case KEY::Escape:
         return false;
@@ -860,6 +1436,7 @@ int _main(void)
     return 0;
   }
   LoadCalibration();
+  LoadDecoder();
   LCD::Clear(clrBack);
   DrawAll();
 
