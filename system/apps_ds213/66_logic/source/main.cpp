@@ -237,15 +237,51 @@ namespace
     }
   }
 
-  // nice step 1-2-5 for about 70 columns
+  // ruler label: 3 digits without trailing zeros (20us, 1.5ms, 0)
+  void RulerLabel(char* str, float t)
+  {
+    if (t > -1e-12f && t < 1e-12f) { strcpy(str, "0"); return; }
+    PutSI(str, t, "s");
+    char* dot = strchr(str, '.');
+    if (!dot) return;
+    char* e = dot + 1;
+    while (*e >= '0' && *e <= '9') e++;           // the unit follows
+    char* z = e;
+    while (z > dot + 1 && z[-1] == '0') z--;
+    if (z == dot + 1) z = dot;
+    memmove(z, e, strlen(e) + 1);
+  }
+
+  // width in pixels of the ruler label of t
+  int LabelW(float t)
+  {
+    char str[16];
+    RulerLabel(str, t);
+    return strlen(str) * 8;
+  }
+
+  // step 1-2-5: the widest label of the view plus a gap between labels
   float RulerStep()
   {
     float colSec = SamplesToSec(1) * (float)(1u << zoom) / 8.0f;
-    float want = colSec * 70;
+    float tLeft = SamplesToSec((int64_t)XToSample(0) - gTrig);
+    float tRight = SamplesToSec((int64_t)XToSample(PlotW - 1) - gTrig);
     float d = 1e-9f;
-    while (d * 10 <= want) d *= 10;
-    if (d * 5 <= want) return d * 5;
-    if (d * 2 <= want) return d * 2;
+    for (int i = 0; i < 40; i++)
+    {
+      for (int m = 0; m < 3; m++)
+      {
+        float step = d * (m == 0 ? 1 : m == 1 ? 2 : 5);
+        // labels at both ends of the view and next to them (the longest)
+        int k0 = (int)(tLeft / step) - 1, k1 = (int)(tRight / step) + 1;
+        int w = 0;
+        for (int k = k0; k <= k0 + 2; k++) w = max(w, LabelW(k * step));
+        for (int k = k1 - 2; k <= k1; k++) w = max(w, LabelW(k * step));
+        if (step / colSec >= w + 10)
+          return step;
+      }
+      d *= 10;
+    }
     return d;
   }
 
@@ -259,21 +295,26 @@ namespace
     float tLeft = SamplesToSec((int64_t)XToSample(0) - gTrig);
     float tRight = SamplesToSec((int64_t)XToSample(PlotW - 1) - gTrig);
     int k0 = (int)(tLeft / step) - 1, k1 = (int)(tRight / step) + 1;
+    int lastEnd = -100;
     for (int k = k0; k <= k1; k++)
     {
       float t = k * step;
-      int64_t s = (int64_t)(t * gRate + 0.5f) + gTrig;
+      int64_t s = (int64_t)(t * gRate + (t < 0 ? -0.5f : 0.5f)) + gTrig;
       if (s < 0) continue;
       int x = SampleToX((uint32_t)s);
       if (x < 0 || x >= PlotW) continue;
       char str[16];
-      PutSI(str, t, "s");
+      RulerLabel(str, k == 0 ? 0.0f : t);
       Bar(PlotX + x, RulerY + RulerH - 3, PlotX + x + 1, RulerY + RulerH, clrDim);
       int w = strlen(str) * 8;
       int tx = PlotX + x - w / 2;
       if (tx < 0) tx = 0;
       if (tx + w > W) tx = W - w;
+      // never over the previous label (at the edges of the screen)
+      if (tx < lastEnd + 4)
+        continue;
       Text(tx, RulerY - 2, clrDim, RGBTRANS, str);
+      lastEnd = tx + w;
     }
   }
 
