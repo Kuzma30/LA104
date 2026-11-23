@@ -121,6 +121,7 @@ namespace
   const uint8_t arrLanes[] = { 15, 7, 11, 13, 14, 3, 12, 5, 6, 9, 10, 1, 2, 4, 8 };
   const int LaneSets = sizeof(arrLanes);
   int nLanes = 0;                       // index of arrLanes
+  enum { LaVersion = 901, LaVersionMask = 902 };
   int gLaVersion = 0;                   // of the loaded image
   uint8_t gCapMask = 15;                // channels on in the capture shown
 
@@ -428,9 +429,35 @@ namespace
   }
 
   // frame row of a decoded lane: y0 + 18 .. y0 + 35
-  void DrawFrames(int lane, int y0)
+  // lanes on the screen: the channels of the capture shown, before a
+  // capture the setting; a lane that is off is hidden (a trigger on it
+  // still works), the others share its height
+  uint8_t ShownMask()
   {
-    const int yT = y0 + 18, yB = y0 + 35;
+    if (gHave) return gCapMask;
+    return gLaVersion >= LaVersionMask ? arrLanes[nLanes] : 15;
+  }
+
+  // top and height of a lane, false when hidden
+  bool LaneGeom(int lane, int& y0, int& h)
+  {
+    uint8_t m = ShownMask();
+    if (!(m & bitLane[lane]))
+      return false;
+    int n = 0, k = 0;
+    for (int l = 0; l < Lanes; l++)
+      if (m & bitLane[l]) { if (l < lane) k++; n++; }
+    const int total = Lanes * LaneH;  // 152
+    h = total / n;
+    y0 = LaneTop + k * h;
+    if (k == n - 1) h = LaneTop + total - y0;   // the rest to the last
+    return true;
+  }
+
+  // frames of a lane: boxes from yT, 17 pixels high
+  void DrawFrames(int lane, int yT)
+  {
+    const int yB = yT + 17;
     int textEnd = -100;                 // no overlapping labels
     for (int i = 0; i < gFrameN; i++)
     {
@@ -495,25 +522,35 @@ namespace
   // column x of the lane: state and whether it changes inside the column
   void DrawLane(int lane)
   {
-    int y0 = LaneTop + lane * LaneH;
+    int y0, h;
+    if (!LaneGeom(lane, y0, h))
+      return;
     bool decoded;
     const char* role = Role(lane, &decoded);
-    // decoded lane: the waveform in the upper half, the frames below
-    int yHi = y0 + (decoded ? 3 : 6), yLo = y0 + (decoded ? 13 : LaneH - 8);
-    Bar(0, y0, W, y0 + LaneH, clrBack);
-    Bar(0, y0 + LaneH - 1, W, y0 + LaneH, clrGrid);
-    Text(4, y0 + (role[0] ? 2 : 11), clrLane[lane], RGBTRANS, nameLane[lane]);
-    if (role[0])
-      Text(2, y0 + 19, clrDim, RGBTRANS, role);
-    if (gHave && !(gCapMask & bitLane[lane]))
+    // decoded lane: the waveform at the top, the frames right below it;
+    // a high lane gets a higher waveform (up to 48 pixels)
+    int yHi, yLo;
+    if (decoded)
     {
-      Text(PlotX + 4, y0 + 11, clrDim, RGBTRANS, "off");
-      return;
+      yHi = y0 + 3;
+      yLo = min(y0 + h - 25, yHi + 40);
     }
+    else
+    {
+      int sw = min(h - 14, 48);
+      yHi = y0 + (h - sw - 2) / 2;
+      yLo = yHi + sw;
+    }
+    Bar(0, y0, W, y0 + h, clrBack);
+    Bar(0, y0 + h - 1, W, y0 + h, clrGrid);
+    int ny = role[0] ? (decoded ? y0 + 2 : (yHi + yLo) / 2 - 15) : (yHi + yLo) / 2 - 7;
+    Text(4, ny, clrLane[lane], RGBTRANS, nameLane[lane]);
+    if (role[0])
+      Text(2, ny + 17, clrDim, RGBTRANS, role);
     if (!gHave || gEvents == 0)
       return;
     if (decoded)
-      DrawFrames(lane, y0);
+      DrawFrames(lane, yLo + 5);
     int bit = bitLane[lane];
     uint16_t c = clrLane[lane];
     int i = La::Find(gEv, gEvents, XToSample(0));
@@ -666,6 +703,7 @@ namespace
   void DrawPlot()
   {
     DrawRuler();
+    Bar(0, LaneTop, W, InfoY - 1, clrBack);
     for (int l = 0; l < Lanes; l++)
       DrawLane(l);
     DrawMarkers();
@@ -729,7 +767,6 @@ namespace
 
   // ------------------------------------------------------------ FPGA image
   const char* const ImageFile = "LAFPGA.BIN";
-  enum { LaVersion = 901, LaVersionMask = 902 };
 
   bool LoadImage()
   {
@@ -1946,6 +1983,7 @@ namespace
       case ItLanes:
         if (gLaVersion < LaVersionMask) { Status(clrWarn, "needs LAFPGA.BIN 9.02"); return; }
         nLanes = (nLanes + d + LaneSets) % LaneSets;
+        if (!gHave) DrawPlot();
         break;
       case ItView:
       {

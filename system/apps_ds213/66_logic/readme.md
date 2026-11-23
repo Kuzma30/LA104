@@ -78,8 +78,10 @@ View Zoom X1 X2 UART List BMP             status        view
 Settings: sample rate 72 MS/s .. 30 S/s (right: faster), trigger, pretrigger,
 thresholds of A and B (-0.5 .. 30 V; 1, 2 or 5 V/div is chosen for the
 threshold), single (Sgl) / repeat (Rep), channels on (ABCD, ACD, BCD, ABC,
-ABD, CD, AB, AC, AD, BC, BD, C, D, A, B; a channel that is off shows "off",
-a trigger on it still works).
+ABD, CD, AB, AC, AD, BC, BD, C, D, A, B; a channel that is off is hidden
+and the other lanes share its height, a decoded lane then shows a higher
+waveform with the frames right below it; a trigger on a hidden channel
+still works).
 
 The settings of the decoder and of the generator are checked at the start
 and on every setup page; a value out of range (a damaged LOGICDEC.CFG /
