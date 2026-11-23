@@ -1,6 +1,7 @@
 #include "Bios.h"
 #include "imports.h"
 #include "font.h"
+#include "fontuni.h"
 
 #define FLIP(y) (BIOS::LCD::Height-1-(y))
 // TODO: global namespace
@@ -58,20 +59,77 @@ uint16_t BIOS::LCD::GetPixel(int x, int y)
   return c;
 }
 
+int _DrawGlyph(int x, int y, unsigned short clrf, unsigned short clrb, const unsigned char *pFont);
+
+// UTF-8 text: a valid sequence is a Unicode code point, any other byte
+// (a single byte >= 0x80, the code of the CP437 font as before) is drawn
+// as it is
+static uint32_t _Utf8Next(const char*& s)
+{
+	const uint8_t* p = (const uint8_t*)s;
+	uint8_t b = p[0];
+	if (b >= 0xc2 && b <= 0xdf && (p[1] & 0xc0) == 0x80)
+	{
+		s += 2;
+		return ((b & 0x1f) << 6) | (p[1] & 0x3f);
+	}
+	if (b >= 0xe0 && b <= 0xef && (p[1] & 0xc0) == 0x80 && (p[2] & 0xc0) == 0x80)
+	{
+		uint32_t c = ((b & 0x0f) << 12) | ((p[1] & 0x3f) << 6) | (p[2] & 0x3f);
+		if (c >= 0x800)
+		{
+			s += 3;
+			return c;
+		}
+	}
+	if (b >= 0xf0 && b <= 0xf4 && (p[1] & 0xc0) == 0x80 && (p[2] & 0xc0) == 0x80 && (p[3] & 0xc0) == 0x80)
+	{
+		s += 4;
+		return ((b & 0x07) << 18) | ((p[1] & 0x3f) << 12) | ((p[2] & 0x3f) << 6) | (p[3] & 0x3f);
+	}
+	s++;
+	return b < 0x80 ? b : 0x110000 | b;   // a raw byte of the CP437 font
+}
+
+// glyph (14 rows) of a code point
+static const unsigned char* _GlyphUni(uint32_t c)
+{
+	if (c < 0x80)
+		return GetFont((ui8)c);
+	if (c >= 0x110000)
+		return GetFont((ui8)c);
+	int lo = 0, hi = sizeof(fontUniCp437) / sizeof(fontUniCp437[0]) - 1;
+	while (lo <= hi)
+	{
+		int m = (lo + hi) >> 1;
+		if (fontUniCp437[m][0] == c) return GetFont((ui8)fontUniCp437[m][1]);
+		if (fontUniCp437[m][0] < c) lo = m + 1; else hi = m - 1;
+	}
+	lo = 0; hi = sizeof(fontUniExtraCp) / sizeof(fontUniExtraCp[0]) - 1;
+	while (lo <= hi)
+	{
+		int m = (lo + hi) >> 1;
+		if (fontUniExtraCp[m] == c) return fontUniExtra + m * 14;
+		if (fontUniExtraCp[m] < c) lo = m + 1; else hi = m - 1;
+	}
+	return GetFont('?');
+}
+
 int BIOS::LCD::Print (int x, int y, unsigned short clrf, unsigned short clrb, const char *str)
 {
 	if (!str || !*str)
 		return 0;
 	int _x = x;
-	for (;*str; str++)
+	while (*str)
 	{
-		if (*str == '\n')
+		uint32_t c = _Utf8Next(str);
+		if (c == '\n')
 		{
 			x = _x;
 			y += 16;
 			continue;
 		}
-		x += _DrawChar(x, y, clrf, clrb, *str);
+		x += _DrawGlyph(x, y, clrf, clrb, _GlyphUni(c));
 	}
 	return x - _x;
 }
@@ -92,7 +150,7 @@ int BIOS::LCD::Printf (int x, int y, unsigned short clrf, unsigned short clrb, c
         
         va_start( args, format );
 
-	char buffer[64];
+	char buffer[128];
 	char* _buffer = buffer;
         vsprintf( _buffer, format, args );
         va_end(args);
@@ -102,7 +160,11 @@ int BIOS::LCD::Printf (int x, int y, unsigned short clrf, unsigned short clrb, c
 
 int _DrawChar(int x, int y, unsigned short clrf, unsigned short clrb, char ch)
 {
-	const unsigned char *pFont = GetFont(ch);
+	return _DrawGlyph(x, y, clrf, clrb, GetFont(ch));
+}
+
+int _DrawGlyph(int x, int y, unsigned short clrf, unsigned short clrb, const unsigned char *pFont)
+{
 	if (clrb == RGBTRANS)
 	{
 		for (ui8 _y=0; _y<14; _y++)
