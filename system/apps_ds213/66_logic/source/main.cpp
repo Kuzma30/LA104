@@ -26,6 +26,7 @@
 #include "decode.h"
 #include "gen.h"
 #include "../../65_minical/source/calib.h"
+#include "../../common/lang.h"
 
 using namespace BIOS;
 
@@ -75,7 +76,8 @@ namespace
   int gFrameN = 0;
   Dec::TStats gStats;
   bool gFrameOvf = false;
-  char gDecNote[40] = "";
+  char gDecNote[64] = "";
+  bool gDecWarn = false;
 
   Dec::TCfg dc;
   const char* const DecFile = "LOGICDEC.CFG";
@@ -135,7 +137,7 @@ namespace
   int nItem = ItView;
 
   enum { Idle, Waiting, Filling } eRun = Idle;
-  char status[52] = "";
+  char status[96] = "";
   uint16_t statusClr = clrText;
 
   Cal::TData gCal;
@@ -190,7 +192,28 @@ namespace
       LCD::Bar(x1, y1, x2, y2, c);
   }
 
-  int Text(int x, int y, uint16_t c, uint16_t b, const char* s) { return LCD::Print(x, y, c, b, s); }
+  // texts of the interface: the translation (LANG.CFG, LANG/<code>/LOGIC.TXT)
+  // of the whole string; composed strings take the translation of their parts
+  int Text(int x, int y, uint16_t c, uint16_t b, const char* s) { return LCD::Print(x, y, c, b, Lang::T(s)); }
+  // a text with a context (a word with two meanings): the translation of
+  // "ctx:en", else en
+  const char* TrCtx(const char* ctx, const char* en)
+  {
+    char key[40];
+    int n = strlen(ctx);
+    if (n + strlen(en) + 2 > sizeof(key)) return en;
+    strcpy(key, ctx); key[n] = ':'; strcpy(key + n + 1, en);
+    const char* t = Lang::T(key);
+    return t == key ? en : t;
+  }
+  // appends the translation of en, returns the end
+  char* Put(char* p, const char* en)
+  {
+    const char* t = Lang::T(en);
+    size_t n = strlen(t);
+    memcpy(p, t, n + 1);
+    return p + n;
+  }
 
   // ------------------------------------------------------------ time / view
   float SamplesToSec(int64_t n) { return (float)n / gRate; }
@@ -259,18 +282,17 @@ namespace
   void DrawTitle()
   {
     Bar(0, 0, W, TitleH, clrBar);
-    char s[60], *p = s;
-    strcpy(p, "Logic "); p += 6;
+    char s[120], *p = s;
+    p = Put(p, "Logic ");
     p = PutSI(p, 72e6f / arrDiv[nRate], "S/s");
     strcpy(p, "  "); p += 2;
     if (nTrig == TrigDec && dc.proto > Dec::POff)
     {
       strcpy(p, Dec::ProtoName[(int)dc.proto]); p += strlen(p); *p++ = ' ';
-      strcpy(p, Dec::Cond(dc).name);
+      p = Put(p, Dec::Cond(dc).name);
     }
     else
-      strcpy(p, nameTrig[nTrig]);
-    p += strlen(p);
+      p = Put(p, nameTrig[nTrig]);
     // the generator is working or fires with every capture
     if (gSqOn || (gc.autoFire && gc.mode != Gen::GOff && gc.mode != Gen::GSquare))
     {
@@ -278,19 +300,22 @@ namespace
       p += 5;
     }
     int x = 4 + Text(4, 0, clrText, clrBar, s);
-    const char* st = eRun == Waiting ? "WAIT" : eRun == Filling ? "TRIG" : gHave ? "STOP" : "";
+    int stateX = W;
+    const char* st = Lang::T(eRun == Waiting ? "WAIT" : eRun == Filling ? "TRIG" : gHave ? "STOP" : "");
     uint16_t c = eRun == Waiting ? clrWarn : eRun == Filling ? clrOk : clrTrig;
     if (st[0])
     {
-      int w = strlen(st) * 8;
+      int w = Lang::Width(st);
+      stateX = W - w - 8;
       Bar(W - w - 8, 1, W - 2, TitleH - 1, c);
       Text(W - w - 5, 0, clrBack, RGBTRANS, st);
     }
     if (gHave)
     {
-      p = s; p = PutU(p, gEvents); strcpy(p, " ch "); p += 4;
+      p = s; p = PutU(p, gEvents); p = Put(p, " ch ");
       p = PutSI(p, SamplesToSec(gEnd), "s");
-      Text(x + 8, 0, clrDim, RGBTRANS, s);
+      if (x + 8 + Lang::Width(s) <= stateX - 4)
+        Text(x + 8, 0, clrDim, RGBTRANS, s);
     }
   }
 
@@ -640,11 +665,11 @@ namespace
     switch (it)
     {
       case ItRate: PutSI(p, 72e6f / arrDiv[nRate], "S/s"); break;
-      case ItTrig: strcpy(p, nameTrig[nTrig]); break;
-      case ItPre: strcpy(p, "Pre "); p = PutU(p + 4, arrPre[nPre]); strcpy(p, "%"); break;
+      case ItTrig: Put(p, nameTrig[nTrig]); break;
+      case ItPre: p = Put(p, "Pre "); p = PutU(p, arrPre[nPre]); strcpy(p, "%"); break;
       case ItThrA: strcpy(p, "A "); PutMv(p + 2, thrMv[0]); break;
       case ItThrB: strcpy(p, "B "); PutMv(p + 2, thrMv[1]); break;
-      case ItMode: strcpy(p, bRepeat ? "Rep" : "Sgl"); break;
+      case ItMode: Put(p, bRepeat ? "Rep" : "Sgl"); break;
       case ItLanes:
       {
         // the letters of the channels on: A B C D
@@ -654,14 +679,14 @@ namespace
         *p = 0;
         break;
       }
-      case ItView: strcpy(p, "View"); break;
-      case ItZoom: strcpy(p, "Zoom"); break;
+      case ItView: Put(p, "View"); break;
+      case ItZoom: Put(p, "Zoom"); break;
       case ItX1: strcpy(p, "X1"); break;
       case ItX2: strcpy(p, "X2"); break;
       case ItDec: strcpy(p, Dec::ProtoName[(int)dc.proto]); break;
-      case ItList: strcpy(p, "List"); break;
-      case ItGen: strcpy(p, gc.mode == Gen::GSquare && gSqOn ? "Sq ON" : Gen::ModeName[(int)gc.mode]); break;
-      case ItBmp: strcpy(p, "BMP"); break;
+      case ItList: Put(p, "List"); break;
+      case ItGen: strcpy(p, gc.mode == Gen::GSquare && gSqOn ? Lang::T("Sq ON") : TrCtx("gen", Gen::ModeName[(int)gc.mode])); break;
+      case ItBmp: Put(p, "BMP"); break;
     }
   }
 
@@ -673,9 +698,9 @@ namespace
     for (int it = 0; it < Items; it++)
     {
       if (it == ItView) { x = 3; y = MenuY + 14; }
-      char s[24];
+      char s[48];
       ItemText(it, s);
-      int w = strlen(s) * 8;
+      int w = Lang::Width(s);
       bool sel = it == nItem;
       if (sel) Bar(x - 2, y + 1, x + w + 2, y + 14, clrSel);
       Text(x, y, sel ? clrText : clrDim, RGBTRANS, s);
@@ -686,8 +711,8 @@ namespace
     strcpy(st, status);
     int room = (W - 2 - (x + 2)) / 8;
     if (room < 0) room = 0;
-    if ((int)strlen(st) > room) st[room] = 0;
-    int w = strlen(st) * 8;
+    Lang::Cut(st, room);
+    int w = Lang::Width(st);
     if (w)
       Text(W - w - 2, MenuY + 14, statusClr, RGBTRANS, st);
   }
@@ -695,8 +720,7 @@ namespace
   void Status(uint16_t c, const char* s)
   {
     statusClr = c;
-    strncpy(status, s, sizeof(status) - 1);
-    status[sizeof(status) - 1] = 0;
+    Lang::Copy(status, s, sizeof(status));
     DrawMenu();
   }
 
@@ -977,16 +1001,16 @@ namespace
           cur[0] = gFrames[k].t0;
           cur[1] = gFrames[k].t1 + 1;
           ShowFrame(k);
-          char s[40], *p = s;
-          strcpy(p, "match"); p += 5;
+          char s[64], *p = s;
+          p = Put(p, "match");
           if (gRetries) { strcpy(p, " #"); p = PutU(p + 2, gRetries + 1); }
           Status(clrOk, s);
         }
         else if (!stopped)
         {
           gRetries++;
-          char s[40], *p = s;
-          strcpy(p, "no match #"); p = PutU(p + 10, gRetries + 1);
+          char s[64], *p = s;
+          p = Put(p, "no match #"); p = PutU(p, gRetries + 1);
           Status(clrWarn, s);
           DrawTitle();
           DrawPlot();
@@ -1169,6 +1193,7 @@ namespace
   {
     gFrameN = 0;
     gDecNote[0] = 0;
+    gDecWarn = false;
     gFrameOvf = false;
     memset(&gStats, 0, sizeof(gStats));
     if (!gHave || dc.proto == Dec::POff || gEvents < 2)
@@ -1176,16 +1201,18 @@ namespace
     gFrameN = Dec::Decode(gEv, gEvents, gEnd, gRate, dc, gFrames, MaxFrames, gStats, gFrameOvf);
     char* p = gDecNote;
     *p = 0;
-    if (gStats.noLane) { strcpy(p, "lanes: F3 on Dec"); return; }
-    if (gStats.slow) { strcpy(p, "rate too low"); return; }
-    if (gFrameOvf) { strcpy(p, "1024 frames max"); return; }
+    gDecWarn = true;
+    if (gStats.noLane) { Put(p, "lanes: F3 on Dec"); return; }
+    if (gStats.slow) { Put(p, "rate too low"); return; }
+    if (gFrameOvf) { Put(p, "1024 frames max"); return; }
+    gDecWarn = false;
     switch (dc.proto)
     {
       case Dec::PUart: case Dec::PLin: case Dec::PCan:
-        if (gStats.baud) { p = PutU(p, gStats.baud); strcpy(p, dc.proto == Dec::PCan ? " bit/s" : " Bd"); }
+        if (gStats.baud) { p = PutU(p, gStats.baud); Put(p, dc.proto == Dec::PCan ? " bit/s" : " Bd"); }
         break;
       case Dec::PCounter:
-        p = PutU(p, gStats.edges); strcpy(p, " edges");
+        p = PutU(p, gStats.edges); Put(p, " edges");
         break;
       case Dec::PPulse:
       {
@@ -1202,7 +1229,7 @@ namespace
         if (nP)
         {
           p = PutSI(p, gRate * nP / (float)sumP, "Hz");
-          strcpy(p, " duty "); p += 6;
+          p = Put(p, " duty ");
           uint32_t pm = (uint32_t)(sumW * 1000 / sumP);
           p = PutU(p, pm / 10); *p++ = '.'; p = PutU(p, pm % 10); strcpy(p, "%");
         }
@@ -1215,7 +1242,7 @@ namespace
         p = PutU(p, steps);
         if (gStats.havePerRev)
         {
-          strcpy(p, " rev "); p += 5;
+          p = Put(p, " rev ");
           int32_t r = Dec::QuadScale(gStats.perRev < 0 ? -gStats.perRev : gStats.perRev, dc);
           p = PutU(p, r);
         }
@@ -1225,7 +1252,7 @@ namespace
           float r = gStats.qRate / (dc.quadRes == 2 ? 4 : dc.quadRes == 1 ? 2 : 1);
           p = PutSI(p, r, "/s");
         }
-        if (gStats.qErrors) { strcpy(p, " err "); p = PutU(p + 5, gStats.qErrors); }
+        if (gStats.qErrors) { p = Put(p, " err "); p = PutU(p, gStats.qErrors); }
         break;
       }
     }
@@ -1234,10 +1261,8 @@ namespace
   void DecodeAndShow()
   {
     RunDecoder();
-    // a warning starts with a letter
-    bool warn = gDecNote[0] >= 'a' && gDecNote[0] <= 'z';
     if (gDecNote[0])
-      Status(warn ? clrWarn : clrOk, gDecNote);
+      Status(gDecWarn ? clrWarn : clrOk, gDecNote);
   }
 
   void LoadDecoder()
@@ -1309,12 +1334,13 @@ namespace
     add("Protocol", PkProto, &dc.proto, 0, Dec::Protos - 1);
     if (pr == Dec::POff)
       return n;
-    static char roleNames[Dec::MaxRoles][16];
+    static char roleNames[Dec::MaxRoles][32];
     for (int r = 0; r < Dec::MaxRoles; r++)
       if (Dec::RoleName[pr][r])
       {
-        strcpy(roleNames[r], Dec::RoleName[pr][r]);
-        strcat(roleNames[r], " lane");
+        char* q = roleNames[r];
+        strcpy(q, Dec::RoleName[pr][r]);
+        Put(q + strlen(q), " lane");
         add(roleNames[r], Dec::RoleOptional(pr, r) ? PkLaneOpt : PkLane, &dc.lane[pr][r], -1, 3);
       }
     switch (pr)
@@ -1482,7 +1508,7 @@ namespace
   void SeqInfo(const Gen::TSeq& q, char* s)
   {
     char* p = s;
-    if (gc.mode == Gen::GPulse) { p = PutSI(p, q.div / 72e6f, "s"); strcpy(p, gc.pol ? " low" : " high"); return; }
+    if (gc.mode == Gen::GPulse) { p = PutSI(p, q.div / 72e6f, "s"); Put(p, gc.pol ? " low" : " high"); return; }
     if (gc.mode == Gen::GTest) { strcpy(p, Dec::ProtoName[(int)dc.proto]); p += strlen(p); *p++ = ' '; }
     if (q.real > 0)
     {
@@ -1501,7 +1527,7 @@ namespace
     else if (gc.mode == Gen::GTest && (dc.proto == Dec::PNec)) need = 30e3f;
     if (need > 0 && 72e6f / arrDiv[nRate] < need)
     {
-      strcpy(p, " rate>="); p += 7;
+      p = Put(p, " rate>=");
       PutSI(p, need, "S/s");
     }
   }
@@ -1513,12 +1539,12 @@ namespace
     char* p = s;
     switch (gc.mode)
     {
-      case Gen::GOff: strcpy(s, "Wave Out not used"); return;
+      case Gen::GOff: Put(s, "Wave Out not used"); return;
       case Gen::GSquare:
       {
         uint32_t psc, arr;
         float real;
-        if (!Gen::SquarePlan(gc.freqHz, psc, arr, real)) { strcpy(s, "frequency: 1 Hz .. 18 MHz"); return; }
+        if (!Gen::SquarePlan(gc.freqHz, psc, arr, real)) { Put(s, "frequency: 1 Hz .. 18 MHz"); return; }
         p = PutSI(p, real, "Hz");
         strcpy(p, " (TIM4)");
         return;
@@ -1526,9 +1552,9 @@ namespace
       default:
       {
         // the table is in use while a shot runs
-        if (GenBusy()) { strcpy(s, "shot running"); return; }
+        if (GenBusy()) { Put(s, "shot running"); return; }
         Gen::TSeq q;
-        if (!Gen::Build(gc, dc, gGenTab, q)) { strcpy(s, q.err); return; }
+        if (!Gen::Build(gc, dc, gGenTab, q)) { Put(s, q.err); return; }
         SeqInfo(q, s);
         return;
       }
@@ -1734,7 +1760,7 @@ namespace
       }
       if (hl) Bar(0, y, W, y + SetupH, clrSel);
       Text(12, y, hl ? clrText : clrDim, RGBTRANS, p[i].name);
-      char s[32];
+      char s[48];
       ParamText(p[i], s);
       int x = 148;
       Text(x, y, clrText, RGBTRANS, s);
@@ -1753,9 +1779,9 @@ namespace
     if (gPage)
     {
       // what will be generated
-      char s[48];
+      char s[120];
       GenInfo(s);
-      s[48 - 1] = 0;
+      Lang::Cut(s, 49);
       Text(4, SetupY + rows * SetupH, clrOk, RGBTRANS, s);
     }
     Bar(0, H - 34, W, H, clrBar);
@@ -1854,10 +1880,10 @@ namespace
   void DrawList(int top, int sel)
   {
     Bar(0, 0, W, TitleH, clrBar);
-    char s[72], *p;
+    char s[96], *p;
     strcpy(s, Dec::ProtoName[(int)dc.proto]);
     p = s + strlen(s);
-    strcpy(p, "  "); p = PutU(p + 2, gFrameN); strcpy(p, " frames");
+    strcpy(p, "  "); p = PutU(p + 2, gFrameN); Put(p, " frames");
     Text(4, 0, clrText, clrBar, s);
     Bar(0, TitleH, W, H - 16, clrBack);
     for (int r = 0; r < ListRows; r++)
@@ -2015,9 +2041,8 @@ namespace
         gc.mode = (int8_t)((gc.mode + d + Gen::GModes) % Gen::GModes);
         if (gSqOn) GenOff();
         {
-          char s[48];
+          char s[120];
           GenInfo(s);
-          s[40] = 0;
           Status(clrText, s);
         }
         DrawTitle();
@@ -2106,7 +2131,7 @@ namespace
         else if (nItem == ItList || nItem == ItDec) { if (gHave) ListPage(); }
         else if (nItem == ItGen)
         {
-          char s[48];
+          char s[120];
           if (gc.mode == Gen::GSquare)
           {
             if (gSqOn) { GenOff(); strcpy(s, "square off"); }
@@ -2115,7 +2140,6 @@ namespace
           }
           else if (gc.mode == Gen::GOff) strcpy(s, "generator off: F3");
           else GenFire(s);
-          s[40] = 0;
           Status(clrOk, s);
           DrawTitle();
         }
@@ -2135,6 +2159,9 @@ __attribute__((__section__(".entry")))
 #endif
 int _main(void)
 {
+  // the translation (scratch: the frames, empty at the start)
+  Lang::Init("LOGIC", (uint8_t*)gFrames, sizeof(gFrames));
+  memset(gFrames, 0, sizeof(gFrames));
   LCD::Clear(clrBack);
   Text(8, 100, clrText, RGBTRANS, "Loading LAFPGA.BIN into the FPGA...");
   if (!LoadImage())
@@ -2157,6 +2184,8 @@ int _main(void)
   DrawAll();
   if (repaired)
     Status(clrWarn, "settings repaired");
+  else if (Lang::Status()[0])
+    Status(clrWarn, Lang::Status());
 
   // stack guard: 128 bytes above .got; changed bytes mean the stack came
   // down to the variables of the application
@@ -2192,7 +2221,7 @@ int _main(void)
     if (gFireAt && (int32_t)(SYS::GetTick() - gFireAt) >= 0)
     {
       gFireAt = 0;
-      char s[48];
+      char s[120];
       GenFire(s);
     }
   }

@@ -50,7 +50,8 @@ changes, at the sample rate of the time base up to **72 MS/s**:
   used for the thresholds of A and B.
 
 Needs the STM32F103VE (512 KB flash, 64 KB RAM) of the DS203 HW 2.6x / 2.7x:
-code at 0x08068000 (64 KB), the capture (16 KB) in the RAM at 0x2000C000.
+code at 0x08068000 (52 KB, then 12 KB for the compiled translation), the
+capture (16 KB) in the RAM at 0x2000C000.
 
 ## Screen and keys
 
@@ -228,3 +229,10 @@ with the decoders of the analyzer.
   happens (the trigger time is corrected for it).
 - VCD time unit is 1 ps (the sample period rounded to ps), the trigger time
   is written as a comment.
+
+## Language
+
+`LANG.CFG` with `UK` on the disk and `LANG/UK/LOGIC.TXT`: Ukrainian texts
+(see `../lang/README.md`; the OS must be the one with UTF-8 text). Values
+keep the international units (S/s, Hz, s, V); protocol names, roles and the
+decoded frames stay as they are.
