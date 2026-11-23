@@ -17,8 +17,14 @@ changes, at the sample rate of the time base up to **72 MS/s**:
   1/dX, jump to the next edge
 - **VCD** files (GTKWave, PulseView: `LA000.VCD` ..) and screenshots
   (`LA000.BMP` ..)
-- **protocol decoders**: UART, SPI, I2C, 1-Wire on any lanes; the frames
-  under the waveform, a list of them, CSV files (`LA000.CSV` ..)
+- **protocol decoders** (as in the oscilloscope): UART, LIN, I2C, SPI,
+  1-Wire, CAN, WS2812, NEC IR, PS/2, pulse width, edge counter, quadrature
+  encoder on any lanes; the frames under the waveform, a list of them, CSV
+  files (`LA000.CSV` ..)
+- **protocol trigger**: a condition on the decoded frames (value / mask,
+  I2C write or read address, SPI command, CAN ID, error, NACK, pulse
+  width ...), followed by a value, n-th occurrence; captures again until
+  it matches
 
 ## Files
 
@@ -33,7 +39,7 @@ changes, at the sample rate of the time base up to **72 MS/s**:
   used for the thresholds of A and B.
 
 Needs the STM32F103VE (512 KB flash, 64 KB RAM) of the DS203 HW 2.6x / 2.7x:
-code at 0x08068000, the capture (16 KB) in the RAM at 0x2000C000.
+code at 0x08068000 (64 KB), the capture (16 KB) in the RAM at 0x2000C000.
 
 ## Screen and keys
 
@@ -64,48 +70,90 @@ threshold), single / repeat.
 
 ## Protocol decoders
 
-The item **Dec** (row 2, shows the protocol): Left / Right chooses off,
-UART, SPI, I2C, 1-Wire; **F3** opens the setup page (Up / Down item, Left /
-Right change, F2 / F3 / F4 back). The setup is kept in `LOGICDEC.CFG` (written
-only when it changes). Every capture is decoded right away; a change of the
-setup decodes the capture again.
+The item **Dec** (row 2, shows the protocol): Left / Right chooses the
+protocol; **F3** opens the setup page: Up / Down item, Left / Right change,
+F1 the digit of a value, F2 / F3 / F4 back. The setup is kept in
+`LOGICDEC.CFG` (written only when it changes). Every capture is decoded
+right away; a change of the setup decodes the capture again.
 
-| Protocol | Lanes (default) | Settings |
-|---|---|---|
-| UART | RX (C), TX (D), each optional | baud rate (auto or 300 .. 3 M), 5 .. 9 data bits, parity none / even / odd, 1 / 2 stop bits, idle high / low (inverted, RS-232 level shifted) |
-| SPI | CLK (C), MOSI (D), MISO (A), CS (B); MOSI, MISO, CS optional | mode 0 .. 3 (CPOL / CPHA), 4 .. 16 bits per word, MSB / LSB first; CS active low |
-| I2C | SCL (C), SDA (D) | 7 bit address, R / W, ACK / NACK, start / restart / stop |
-| 1-Wire | data (C) | standard speed: reset, presence, bytes (LSB first) |
+Every signal of a protocol is put on any lane: A, B (the analog inputs
+against their thresholds), C, D; optional ones can be "-".
 
-All protocols: values in hex, decimal or ASCII (Format).
+| Protocol | Signals (default) | Settings | Status line |
+|---|---|---|---|
+| UART | RX (C), TX (D), each optional | baud rate (auto, 300 .. 4 M), 5 .. 9 bits, parity, 1 / 2 stop bits, polarity | baud rate |
+| LIN | Bus (C) | baud rate (auto, 2400 .. 19200), polarity; break, sync, PID with parity check, checksum classic / enhanced | baud rate |
+| I2C | SCL (C), SDA (D) | 7 bit address, R / W, ACK / NACK, start / repeated start / stop | |
+| SPI | CLK (C), MOSI (D), MISO (A), CS (B); MOSI, MISO, CS optional | mode 0 .. 3, 4 .. 32 bits, MSB / LSB first; the first word after CS is marked (command) | |
+| 1-Wire | DQ (C) | reset, presence, bytes; ROM and function commands by name | |
+| CAN | RX (C) | bit rate (auto, 10 k .. 1 M), polarity; standard / extended ID, RTR, DLC, data, CRC check, ACK, stuff errors | bit rate |
+| WS2812 | DIN (C) | GRB / RGB; LED number and color (the frame in that color) | |
+| NEC IR | IR (C) | polarity (receiver: idle high); leader, address (also 16 bit), command with inverse check, repeat | |
+| PS/2 | CLK (C), DATA (D) | device to host, parity and stop check | |
+| Pulse | In (C) | high or low pulses: width, period, frequency, duty cycle | mean frequency, duty cycle |
+| Counter | In (C) | rising, falling or both edges, numbered | number of edges |
+| Encoder | A (C), B (D), Z (optional) | x4 / x2 / x1, direction, Z polarity: runs of steps, Z with the steps per revolution, A / B errors | steps, per revolution, speed |
+
+All protocols with values: hex, decimal or ASCII (Format).
 
 - A decoded lane shows the waveform in its upper half and the frames below
-  it: a box from the first to the last bit with the value inside when it
-  fits (zoom in for the text). Address of I2C orange (`W50`, `R50`), start
-  green line (`S`, `Sr`), stop yellow (`P`), NACK pink with `~`, errors
-  red (UART framing / parity, SPI word cut by CS). The role of every lane
-  of the decoder is written under its letter (RX, TX, CK, MO, MI, CS, CL,
-  DA, 1W).
-- **Automatic baud rate**: the runs of the line as whole numbers of bits,
-  rounded to a standard rate within 8 %; the result is in the status line
-  and on the setup page (`auto (115200)`). A lane without traffic gets the
-  rate of the other one. At least 3 samples per bit are needed (status
-  `rate too low`; 8 or more are better: the sample rate at least 8 x the
-  baud rate).
+  it: a box from the first to the last bit with the text inside when it
+  fits (zoom in for more text). Address / ID / PID orange, start / break /
+  leader / Z green, stop / CRC / checksum yellow, NACK pink with `~`,
+  errors red with `!`. The role of every lane is written under its letter
+  (RX, TX, CK, MO, MI, CS, CL, DA, QA ...).
+- Automatic baud / bit rate: the shortest runs of the line, refined with
+  all runs up to 10 bits, rounded to a standard rate within 5 %. At least
+  3 samples per bit are needed (status `sample rate too low`); 8 or more
+  are better.
 - **List** (F3 on the item List): the frames with the time from the
-  trigger, lane, role, value and ACK / errors, starting at X1. Up / Down,
-  Left / Right a page; F3 puts X1 on the selected frame and shows it; F4
-  writes `LA000.CSV` (time in ns from the trigger, lane, role, frame);
-  F2 back.
+  trigger, lane, role and the full text (ACK, errors, commands by name),
+  starting at X1. Up / Down, Left / Right a page; F3 puts X1 on the
+  selected frame and shows it; F4 writes `LA000.CSV` (time in ns from the
+  trigger, lane, role, frame); F2 back.
 - At most 1024 frames per capture (status `1024 frames max`).
-- SPI without CS: the words count from the first clock edge of the
-  capture. I2C: the transfer must start in the capture (the first START).
-- Sample rates: SPI and I2C need at least 2 samples per clock phase (I2C
-  400 kHz: 4 MS/s or more); 1-Wire: 1 MS/s or more.
-- Decoders tested on the host (`test/test_decode.cpp`: UART at 115200 /
-  9600 even 2 stop / 921600 odd inverted / 115200 at 1 MS/s with jitter,
-  automatic baud rate, parity errors; SPI modes 0 .. 3 with a cut word;
-  I2C write, restart, read, NACK; 1-Wire reset, presence, bytes).
+- Host test of every decoder and trigger condition: `test/test_decode.cpp`
+  (`g++ -std=c++17 -I../source test_decode.cpp && ./a.out`).
+
+## Protocol trigger
+
+The trigger item (row 1) has the choice **Decoder**; the condition is set on
+the setup page of the decoder, part "Trigger":
+
+| Protocol | Conditions |
+|---|---|
+| UART | data, RX data, TX data (value / mask), break, error (framing, parity) |
+| LIN | PID (6 bit id / mask), data, break, error (sync, parity, checksum) |
+| I2C | write address, read address, address R/W (value / mask), data, NACK, start |
+| SPI | MOSI word, MISO word, command (the first MOSI word after CS), word cut by CS |
+| 1-Wire | reset, ROM command, function command, data, error |
+| CAN | ID (11 / 29 bit, value / mask), data, error (CRC, ACK, stuffing) |
+| WS2812 | color (0xRRGGBB / mask), LED number, error |
+| NEC IR | address, command, repeat, error |
+| PS/2 | data (scan code), error |
+| Pulse | width > t, width < t, period > t (t in us) |
+| Counter | edge number n |
+| Encoder | index Z, A / B error |
+
+- **Value / Mask**: the bits of the mask are compared (mask 0x7F with an
+  I2C address, 0xF0 for a group of values ...).
+- **Then next =**: the next frame of the same lane must have this value:
+  "I2C write address 0x50, then 0x20" triggers on a write to register 0x20,
+  "SPI command 0x03 then 0x00" on a read from address 0x00.., "CAN ID
+  0x7DF then 8" on the DLC.
+- **Occurrence**: the n-th matching frame of the capture (1 .. 99).
+
+How it works: the FPGA stores the changes of the lines, the decoder runs
+on the stored capture. With Trig = Decoder the capture starts at the first
+activity of the main signal of the protocol (UART start bit, I2C SDA fall,
+SPI CS fall or the first clock edge, CAN SOF ...) with 10 % before it.
+After the capture the frames are searched; on a match the trigger mark
+(time 0), X1 and the view go to the frame (X2 at its end); without a
+match the analyzer captures again (status `no match, capture n`) until it
+matches or F1 stops it. Repeat: after a match it waits for the next one.
+The matching frame must be inside one capture (4095 changes), so the
+sample rate should not be much higher than needed (8 .. 20 samples per
+bit).
 
 ## Notes
 

@@ -1,9 +1,9 @@
 MEMORY
 {
   null (rwx): ORIGIN = 0x00001000, LENGTH = 4K
-  /* above the oscilloscope and the logic analyzer (0x08068000..):
+  /* above the oscilloscope and the logic analyzer (0x08068000..0x08077FFF):
      no flashing when switching applications; 512 KB flash (VE) */
-  rom (rx) : ORIGIN = 0x08070000, LENGTH = 64K
+  rom (rx) : ORIGIN = 0x08078000, LENGTH = 32K
   /* as the other applications: 0x20004400.., >= 1.5 KB stack below the OS */
   ram (rwx) : ORIGIN = 0x20004400, LENGTH = 0x6200
   /* RAM above the OS (64 KB RAM of the STM32F103VE), zeroed by the loader */

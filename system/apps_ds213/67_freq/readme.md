@@ -69,5 +69,5 @@ Coupling AC (default) removes the DC level of Wave Out (the DAC output is
 alike in mode A/B. Use DC for circuits that pass DC down to the lowest
 frequency in mode A.
 
-Build: `./build_ds203.sh` -> `build/67freq3.elf`. Code at 0x08070000, the
+Build: `./build_ds203.sh` -> `build/67freq3.elf`. Code at 0x08078000, the
 samples in the RAM at 0x2000C000 (STM32F103VE of the DS203 HW 2.6x / 2.7x).
