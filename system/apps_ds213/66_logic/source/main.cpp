@@ -8,9 +8,11 @@
 //   Left / Right  change the item (View: scroll, Zoom: zoom, X1 / X2: move)
 //   F1            run / stop
 //   F2            exit (the oscilloscope FPGA image is loaded back)
-//   F3            X1 / X2: next edge; Dec: decoder setup; List: decoded
-//                 frames; otherwise: whole capture
-//   F4            save VCD (item BMP: screenshot, List: decoded frames)
+//   F3            X1 / X2: next edge; Zoom: X1..X2 on the screen / whole
+//                 capture; Dec: decoder setup; List: decoded frames;
+//                 otherwise: whole capture
+//   F4            save VCD (BMP: screenshot, List / Dec: decoded frames,
+//                 X1 / X2: X1..X2 on the screen / whole capture)
 //
 // Protocol decoders (decode.h): UART, SPI, I2C, 1-Wire, any lanes; the
 // frames are drawn under the waveform of their lane and listed (List).
@@ -103,7 +105,8 @@ namespace
 
   // view: left edge and zoom in 1/8 samples
   uint32_t viewLeft = 0;                // 1/8 sample
-  int zoom = 0;                         // 1/8 samples per column = 2^zoom
+  uint32_t scale = 1;                   // 1/8 samples per column (any, not only 2^n)
+  bool gZoomX = false;                  // the view is X1 .. X2 (Zoom F3 again: all)
   uint32_t cur[2] = { 0, 0 };           // cursors, samples
 
   enum { ItRate, ItTrig, ItPre, ItThrA, ItThrB, ItMode, ItView, ItZoom, ItX1, ItX2, ItDec, ItList, ItBmp, Items };
@@ -170,7 +173,7 @@ namespace
   // ------------------------------------------------------------ time / view
   float SamplesToSec(int64_t n) { return (float)n / gRate; }
   uint32_t Total8() { return (gEnd ? gEnd : 1) << 3; }
-  uint32_t Span8() { return (uint32_t)PlotW << zoom; }
+  uint32_t Span8() { return (uint32_t)PlotW * scale; }
 
   void ClampView()
   {
@@ -179,26 +182,55 @@ namespace
     else if (viewLeft > total - span) viewLeft = total - span;
   }
 
-  // zoom: 1/8 sample per column (0) .. 2^21 / 8 samples per column (the
-  // longest capture, 4095 * 16384 samples, fits in 378 columns at 21)
-  enum { ZoomMax = 21 };
+  // zoom: 1/8 sample per column (8 columns per sample) .. 2^21 / 8 samples
+  // per column (the longest capture, 4095 * 16384 samples, fits in 378
+  // columns)
+  const uint32_t ScaleMax = 1u << 21;
 
+  // n / d rounded up
+  uint32_t CeilDiv(uint64_t n, uint32_t d) { return (uint32_t)((n + d - 1) / d); }
+
+  // the whole capture exactly on the screen
   void Fit()
   {
-    zoom = 0;
-    while (Span8() < Total8() && zoom < ZoomMax) zoom++;
+    scale = CeilDiv(Total8(), PlotW);
+    if (scale < 1) scale = 1;
+    if (scale > ScaleMax) scale = ScaleMax;
     viewLeft = 0;
+    gZoomX = false;
   }
 
   int SampleToX(uint32_t s)
   {
     int64_t d = ((int64_t)s << 3) - viewLeft;
-    return (int)(d >> zoom);
+    // rounded down also for negative d
+    return (int)(d >= 0 ? d / scale : -((-d + scale - 1) / scale));
   }
 
   uint32_t XToSample(int x)
   {
-    return (uint32_t)(((uint64_t)viewLeft + ((uint64_t)x << zoom)) >> 3);
+    return (uint32_t)(((uint64_t)viewLeft + (uint64_t)x * scale) >> 3);
+  }
+
+  // the samples [a, b) on the whole screen
+  void ShowRange(uint32_t a, uint32_t b)
+  {
+    if (b <= a) b = a + 1;
+    scale = CeilDiv((uint64_t)(b - a) << 3, PlotW);
+    if (scale < 1) scale = 1;
+    if (scale > ScaleMax) scale = ScaleMax;
+    // centered when the range is shorter than the screen (8 columns per sample)
+    int64_t left = ((int64_t)a << 3) - ((int64_t)PlotW * scale - ((int64_t)(b - a) << 3)) / 2;
+    viewLeft = left < 0 ? 0 : (uint32_t)left;
+    ClampView();
+  }
+
+  // the view centered on sample t (the zoom stays)
+  void CenterOn(uint32_t t)
+  {
+    int64_t left = ((int64_t)t << 3) - (int64_t)Span8() / 2;
+    viewLeft = left < 0 ? 0 : (uint32_t)left;
+    ClampView();
   }
 
   // ------------------------------------------------------------ drawing
@@ -260,7 +292,7 @@ namespace
   // step 1-2-5: the widest label of the view plus a gap between labels
   float RulerStep()
   {
-    float colSec = SamplesToSec(1) * (float)(1u << zoom) / 8.0f;
+    float colSec = SamplesToSec(1) * (float)scale / 8.0f;
     float tLeft = SamplesToSec((int64_t)XToSample(0) - gTrig);
     float tRight = SamplesToSec((int64_t)XToSample(PlotW - 1) - gTrig);
     float d = 1e-9f;
@@ -414,7 +446,7 @@ namespace
       int room = (cx1 - cx0 - 2) / 8;
       if (room > 0 && (int)strlen(s) > room)
       {
-        char* sp = strchr(s, ' ');
+        char* sp = f.kind == Dec::Pulse ? strchr(s, ' ') : nullptr;
         if (!sp || sp - s > room) continue;
         *sp = 0;
         tw = strlen(s) * 8;
@@ -568,10 +600,15 @@ namespace
       Text(x, y, sel ? clrText : clrDim, RGBTRANS, s);
       x += w + 6;
     }
-    // status at the right of row 2
-    int w = strlen(status) * 8;
+    // status at the right of row 2, its end cut when it would cover the items
+    char st[sizeof(status)];
+    strcpy(st, status);
+    int room = (W - 2 - (x + 2)) / 8;
+    if (room < 0) room = 0;
+    if ((int)strlen(st) > room) st[room] = 0;
+    int w = strlen(st) * 8;
     if (w)
-      Text(W - w - 2, MenuY + 14, statusClr, RGBTRANS, status);
+      Text(W - w - 2, MenuY + 14, statusClr, RGBTRANS, st);
   }
 
   void Status(uint16_t c, const char* s)
@@ -788,11 +825,29 @@ namespace
   void ShowFrame(int k)
   {
     uint64_t w8 = ((uint64_t)(gFrames[k].t1 - gFrames[k].t0 + 1)) << 3;
-    zoom = 0;
-    while (zoom < ZoomMax && (w8 >> zoom) > 60) zoom++;
-    int64_t left = ((int64_t)gFrames[k].t0 << 3) - ((int64_t)PlotW << zoom) / 3;
+    scale = CeilDiv(w8, 60);
+    if (scale < 1) scale = 1;
+    gZoomX = false;
+    int64_t left = ((int64_t)gFrames[k].t0 << 3) - (int64_t)Span8() / 3;
     viewLeft = left < 0 ? 0 : (uint32_t)left;
     ClampView();
+  }
+
+  // the data between X1 and X2 on the whole screen
+  void ZoomX1X2()
+  {
+    if (!gHave) return;
+    uint32_t a = cur[0] < cur[1] ? cur[0] : cur[1], b = cur[0] < cur[1] ? cur[1] : cur[0];
+    if (a == b)
+    {
+      DrawAll();
+      Status(clrWarn, "X1 = X2");
+      return;
+    }
+    ShowRange(a, b);
+    gZoomX = true;
+    DrawAll();
+    Status(clrOk, "X1-X2  F3: all");
   }
 
   // false: the protocol trigger did not match, capture again
@@ -821,21 +876,21 @@ namespace
           ShowFrame(k);
           char s[40], *p = s;
           strcpy(p, "match"); p += 5;
-          if (gRetries) { strcpy(p, " after "); p = PutU(p + 7, gRetries + 1); strcpy(p, " captures"); }
+          if (gRetries) { strcpy(p, " #"); p = PutU(p + 2, gRetries + 1); }
           Status(clrOk, s);
         }
         else if (!stopped)
         {
           gRetries++;
           char s[40], *p = s;
-          strcpy(p, "no match, capture "); p = PutU(p + 18, gRetries + 1);
+          strcpy(p, "no match #"); p = PutU(p + 10, gRetries + 1);
           Status(clrWarn, s);
           DrawTitle();
           DrawPlot();
           return false;
         }
         else
-          Status(clrWarn, "stopped, no match");
+          Status(clrWarn, "no match");
       }
     } else
       Status(clrWarn, "no trigger");
@@ -1018,8 +1073,8 @@ namespace
     gFrameN = Dec::Decode(gEv, gEvents, gEnd, gRate, dc, gFrames, MaxFrames, gStats, gFrameOvf);
     char* p = gDecNote;
     *p = 0;
-    if (gStats.noLane) { strcpy(p, "choose lanes: F3 on Dec"); return; }
-    if (gStats.slow) { strcpy(p, "sample rate too low"); return; }
+    if (gStats.noLane) { strcpy(p, "lanes: F3 on Dec"); return; }
+    if (gStats.slow) { strcpy(p, "rate too low"); return; }
     if (gFrameOvf) { strcpy(p, "1024 frames max"); return; }
     switch (dc.proto)
     {
@@ -1393,10 +1448,21 @@ namespace
       Text(4, y, i == sel ? clrText : FrameColor(gFrames[i]), RGBTRANS, s);
     }
     Bar(0, H - 16, W, H, clrBar);
-    Text(4, H - 16, clrDim, RGBTRANS, "F3 X1 here  F4 save CSV  F2 back");
+    Text(4, H - 16, clrDim, RGBTRANS, "F1 X1  F3 X2  F4 CSV  F2 back");
+    // marks of the frames under X1 / X2
+    for (int r = 0; r < ListRows; r++)
+    {
+      int i = top + r;
+      if (i >= gFrameN) break;
+      int y = ListY + r * ListH;
+      if (gFrames[i].t0 == cur[0]) Text(W - 36, y, clrBack, clrX1, "X1");
+      if (gFrames[i].t1 + 1 == cur[1] || (gFrames[i].t0 == cur[1] && (gFrames[i].flags & Dec::FlPoint)))
+        Text(W - 18, y, clrBack, clrX2, "X2");
+    }
   }
 
-  // F3: X1 to the selected frame
+  // F1: X1 to the start of the selected frame, F3: X2 to its end; back with
+  // both set: X1 .. X2 on the whole screen, one: the view at it
   void ListPage()
   {
     if (!gFrameN)
@@ -1408,7 +1474,7 @@ namespace
     int sel = 0;
     while (sel + 1 < gFrameN && gFrames[sel].t0 < cur[0]) sel++;
     int top = sel > 2 ? sel - 2 : 0;
-    bool jump = false;
+    bool set1 = false, set2 = false;
     LCD::Clear(clrBack);
     DrawList(top, sel);
     while (true)
@@ -1417,7 +1483,14 @@ namespace
       if (key == KEY::None)
         continue;
       if (key == KEY::Escape) break;
-      if (key == KEY::F3) { jump = true; break; }
+      if (key == KEY::F1 || key == KEY::F3)
+      {
+        const Dec::TFrame& f = gFrames[sel];
+        if (key == KEY::F1) { cur[0] = f.t0; set1 = true; }
+        else { cur[1] = (f.flags & Dec::FlPoint) ? f.t0 : f.t1 + 1; set2 = true; }
+        DrawList(top, sel);
+        continue;
+      }
       if (key == KEY::F4)
       {
         bool ok = SaveCsv();
@@ -1434,17 +1507,18 @@ namespace
       if (sel >= top + ListRows) top = sel - ListRows + 1;
       DrawList(top, sel);
     }
-    if (jump)
-    {
-      cur[0] = gFrames[sel].t0;
-      // the frame in the middle of the view
-      int64_t left = ((int64_t)cur[0] << 3) - ((int64_t)PlotW << zoom) / 2;
-      viewLeft = left < 0 ? 0 : (uint32_t)left;
-      ClampView();
-      nItem = ItX1;
-    }
     LCD::Clear(clrBack);
     status[0] = 0;
+    if (set1 && set2)
+    {
+      ZoomX1X2();                       // draws
+      return;
+    }
+    if (set1 || set2)
+    {
+      CenterOn(cur[set1 ? 0 : 1]);
+      nItem = set1 ? ItX1 : ItX2;
+    }
     DrawAll();
   }
 
@@ -1457,7 +1531,7 @@ namespace
 
   void MoveCursor(int c, int d)
   {
-    int64_t s = (int64_t)cur[c] + (int64_t)d * Accel() * (((int64_t)1 << zoom) > 8 ? ((int64_t)1 << zoom) / 8 : 1);
+    int64_t s = (int64_t)cur[c] + (int64_t)d * Accel() * (scale > 8 ? scale / 8 : 1);
     if (s < 0) s = 0;
     if (s > (int64_t)gEnd) s = gEnd;
     cur[c] = (uint32_t)s;
@@ -1465,9 +1539,7 @@ namespace
     int x = SampleToX(cur[c]);
     if (x < 0 || x >= PlotW)
     {
-      int64_t left = ((int64_t)cur[c] << 3) - ((int64_t)PlotW << zoom) / 2;
-      viewLeft = left < 0 ? 0 : (uint32_t)left;
-      ClampView();
+      CenterOn(cur[c]);
     }
   }
 
@@ -1487,7 +1559,7 @@ namespace
       case ItMode: bRepeat = !bRepeat; break;
       case ItView:
       {
-        int64_t step = (int64_t)(PlotW / 8) << zoom;
+        int64_t step = (int64_t)(PlotW / 8) * scale;
         int64_t v = (int64_t)viewLeft + d * step * (repeat < 6 ? 1 : 4);
         viewLeft = v < 0 ? 0 : (uint32_t)v;
         ClampView();
@@ -1497,8 +1569,11 @@ namespace
       case ItZoom:
       {
         // around the middle of the view
+        // right: in (half the samples per column), left: out
         uint32_t mid = viewLeft + (Span8() / 2);
-        zoom = max(0, min((int)ZoomMax, zoom - d));
+        if (d > 0) scale = scale > 1 ? scale / 2 : 1;
+        else scale = scale < ScaleMax ? scale * 2 : ScaleMax;
+        gZoomX = false;
         int64_t left = (int64_t)mid - Span8() / 2;
         viewLeft = left < 0 ? 0 : (uint32_t)left;
         ClampView();
@@ -1551,7 +1626,7 @@ namespace
           Status(clrText, "");
           gRetries = 0;
           if (nTrig == TrigDec && !DecTrigOn())
-            Status(clrWarn, "set the trigger: F3 on Dec");
+            Status(clrWarn, "trigger: F3 on Dec");
           StartCapture();
         } else
         {
@@ -1566,10 +1641,22 @@ namespace
         if (!gHave) break;
         if (nItem == ItList) ListPage();
         else if (nItem == ItX1 || nItem == ItX2) NextEdge();
+        else if (nItem == ItZoom)
+        {
+          // X1 .. X2 on the screen, again: the whole capture
+          if (gZoomX) { Fit(); DrawPlot(); Status(clrText, ""); }
+          else ZoomX1X2();
+        }
         else { Fit(); DrawPlot(); }
         break;
       case KEY::F4:
-        if (nItem == ItBmp) SaveBmp();
+        if (nItem == ItX1 || nItem == ItX2)
+        {
+          // X1 .. X2 on the screen, again: the whole capture
+          if (gZoomX) { Fit(); DrawPlot(); Status(clrText, ""); }
+          else ZoomX1X2();
+        }
+        else if (nItem == ItBmp) SaveBmp();
         else if (nItem == ItList || nItem == ItDec) { if (gHave) ListPage(); }
         else SaveVcd();
         break;

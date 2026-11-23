@@ -14,7 +14,8 @@ changes, at the sample rate of the time base up to **72 MS/s**:
   words are written or after 0.2 s (quiet lines)
 - single or repeated capture, stop at any time (the words up to then)
 - zoom down to 8 columns per sample, scroll, cursors X1 / X2 with dX and
-  1/dX, jump to the next edge
+  1/dX, jump to the next edge; **the data between X1 and X2 stretched to
+  the whole screen** (any zoom factor, not only powers of 2)
 - **VCD** files (GTKWave, PulseView: `LA000.VCD` ..) and screenshots
   (`LA000.BMP` ..)
 - **protocol decoders** (as in the oscilloscope): UART, LIN, I2C, SPI,
@@ -61,8 +62,8 @@ View Zoom X1 X2 UART List BMP             status        view
 | Left / Right | change the item; View: scroll, Zoom: zoom out / in, X1 / X2: move (held: faster) |
 | F1 | run / stop |
 | F2 | exit |
-| F3 | X1 / X2: next edge of any channel; Dec: decoder setup; List: list of the frames; otherwise the whole capture |
-| F4 | save VCD; on the item BMP a screenshot; on Dec / List the list of the frames |
+| F3 | X1 / X2: next edge of any channel; **Zoom: the data between X1 and X2 on the whole screen, again: the whole capture**; Dec: decoder setup; List: list of the frames; otherwise the whole capture |
+| F4 | save VCD; BMP: screenshot; Dec / List: the list of the frames; **X1 / X2: X1 .. X2 on the whole screen / the whole capture** |
 
 Settings: sample rate 72 MS/s .. 30 S/s (right: faster), trigger, pretrigger,
 thresholds of A and B (-0.5 .. 30 V; 1, 2 or 5 V/div is chosen for the
@@ -104,13 +105,15 @@ All protocols with values: hex, decimal or ASCII (Format).
   (RX, TX, CK, MO, MI, CS, CL, DA, QA ...).
 - Automatic baud / bit rate: the shortest runs of the line, refined with
   all runs up to 10 bits, rounded to a standard rate within 5 %. At least
-  3 samples per bit are needed (status `sample rate too low`); 8 or more
+  3 samples per bit are needed (status `rate too low`); 8 or more
   are better.
 - **List** (F3 on the item List): the frames with the time from the
   trigger, lane, role and the full text (ACK, errors, commands by name),
-  starting at X1. Up / Down, Left / Right a page; F3 puts X1 on the
-  selected frame and shows it; F4 writes `LA000.CSV` (time in ns from the
-  trigger, lane, role, frame); F2 back.
+  starting at X1. Up / Down, Left / Right a page; **F1 puts X1 on the
+  start of the selected frame, F3 X2 on its end** (marks X1 / X2 at the
+  right); F4 writes `LA000.CSV` (time in ns from the trigger, lane, role,
+  frame); F2 back. Back with both set: the frames from X1 to X2 fill the
+  screen; with one set: the view is centered on it.
 - At most 1024 frames per capture (status `1024 frames max`).
 - Host test of every decoder and trigger condition: `test/test_decode.cpp`
   (`g++ -std=c++17 -I../source test_decode.cpp && ./a.out`).
@@ -149,7 +152,7 @@ activity of the main signal of the protocol (UART start bit, I2C SDA fall,
 SPI CS fall or the first clock edge, CAN SOF ...) with 10 % before it.
 After the capture the frames are searched; on a match the trigger mark
 (time 0), X1 and the view go to the frame (X2 at its end); without a
-match the analyzer captures again (status `no match, capture n`) until it
+match the analyzer captures again (status `no match #n`) until it
 matches or F1 stops it. Repeat: after a match it waits for the next one.
 The matching frame must be inside one capture (4095 changes), so the
 sample rate should not be much higher than needed (8 .. 20 samples per
