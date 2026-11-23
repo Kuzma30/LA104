@@ -20,7 +20,7 @@ class CItemTools : public CWndMenuItem
 public:
 	enum { Math, MathRes, Fft, Ref, Csv, Bmp, Zero, Count };
 	int m_nSel;
-	char m_strInfo[3][14];   // result of the last save (CSV, BMP), calibration
+	char m_strInfo[3][32];   // result of the last save (CSV, BMP), calibration
 	bool m_bArmed;           // Zero: first Enter asks, the second runs
 	void Create( CWnd* pParent );
 	virtual void OnPaint() override;
@@ -48,6 +48,6 @@ namespace Tools
 
 	// zero of CH1 / CH2 for every V/div: the ADC value of 0 V at two
 	// positions gives the offset curve (Calibrator Q); K is kept
-	bool ZeroCalibrate( char* strResult );   // strResult: 14 chars
+	bool ZeroCalibrate( char* strResult );   // strResult: 32 bytes (UTF-8)
 	bool LoadCalibration();             // at start, false: defaults kept
 }

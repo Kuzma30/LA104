@@ -36,17 +36,17 @@
 	_ASSERT( pItems[nMenu].m_eType == CBarItem::IMain );
 
 	int x = m_rcClient.left;
-	int nExtentx = (strlen(pItems[nMenu].m_pName) << 3);
+	int nExtentx = UI::Width(pItems[nMenu].m_pName);
 
 	if ( nFocus == nMenu && HasFocus() )
 	{
 		x += BIOS::LCD::Draw(x, 0, RGB565(ffffff), RGB565(000000), CShapes::corner_left);
 		BIOS::LCD::Bar( x, m_rcClient.top, x + nExtentx, m_rcClient.bottom, RGB565(FFFFFF));
-		x += BIOS::LCD::Print(x, 0, RGB565(000000), RGBTRANS, pItems[nMenu].m_pName);
+		x += UI::Print(x, 0, RGB565(000000), RGBTRANS, pItems[nMenu].m_pName);
 	} else {
 		x += BIOS::LCD::Draw(x, 0, RGB565(0020ff), RGB565(000000), CShapes::corner_left);
 		BIOS::LCD::Bar( x, m_rcClient.top, x + nExtentx, m_rcClient.bottom, RGB565(0020ff));
-		x += BIOS::LCD::Print(x, 0, RGB565(ffffff), RGBTRANS, pItems[nMenu].m_pName);
+		x += UI::Print(x, 0, RGB565(ffffff), RGBTRANS, pItems[nMenu].m_pName);
 	}
 
 	CRect rcSub( m_rcClient );
@@ -68,13 +68,13 @@
 	int nAvailable = BIOS::LCD::Width - 16 - x; // 16px reserved for arrows
 	for ( int i = nFocus; i > 0 && pItems[i].m_eType != CBarItem::IMain; i-- )
 	{
-		nRequired += strlen(pItems[i].m_pName)*8 + 16;
+		nRequired += UI::Width(pItems[i].m_pName) + 16;
 		if ( nRequired > nAvailable )
 			nIgnoreFirst++;
 	}
 
 	if ( nIgnoreFirst > 1 )
-		x += BIOS::LCD::Print( x, m_rcClient.top, RGB565(b0b0b0), RGBTRANS, "\x11");
+		x += UI::Print( x, m_rcClient.top, RGB565(b0b0b0), RGBTRANS, "\x11");
 
 	for ( int i = nMenu+nIgnoreFirst; pItems[i].m_eType == CBarItem::ISub; i++ )
 	{
@@ -88,9 +88,9 @@
 			bgr = bgrSelectedFocus;
 		}
 
-		if ( x + 16 + strlen(pItems[i].m_pName)*8 >= BIOS::LCD::Width )
+		if ( x + 16 + UI::Width(pItems[i].m_pName) >= BIOS::LCD::Width )
 		{
-			x += BIOS::LCD::Print( x, m_rcClient.top, RGB565(b0b0b0), RGBTRANS, "\x10");
+			x += UI::Print( x, m_rcClient.top, RGB565(b0b0b0), RGBTRANS, "\x10");
 			break;
 		}
 
@@ -100,9 +100,9 @@
 			x += 8;
 
 		if ( bSelected )
-			BIOS::LCD::Bar( x, m_rcClient.top, x + (strlen(pItems[i].m_pName)<<3), m_rcClient.bottom, bgr);
+			BIOS::LCD::Bar( x, m_rcClient.top, x + UI::Width(pItems[i].m_pName), m_rcClient.bottom, bgr);
 
-		x += BIOS::LCD::Print( x, m_rcClient.top, clr, bgr, pItems[i].m_pName);
+		x += UI::Print( x, m_rcClient.top, clr, bgr, pItems[i].m_pName);
 
 		if ( bSelected )
 			x += BIOS::LCD::Draw( x, m_rcClient.top, bgr, RGBTRANS, CShapes::corner_right);

@@ -2,6 +2,7 @@
 #include "MainWnd.h"
 #include "SettingsStore.h"
 #include "Oscilloscope/Meas/MeasCore.h"
+#include "Framework/UiText.h"
 
 CMainWnd app;
 
@@ -10,6 +11,14 @@ __attribute__((__section__(".entry")))
 #endif
 int _main(void)
 {    
+    // the translation (LANG.CFG, LANG/<code>/OSC.TXT); scratch: the sample
+    // memory, not used yet
+    {
+        int n;
+        uint8_t* scratch = Sampler::Scratch(n);
+        Lang::Init("OSC", scratch, n);
+        memset(scratch, 0, n);
+    }
     SettingsStore::Load();
     app.Create();
     // zero calibration of the channels (Tools: Zero cal)

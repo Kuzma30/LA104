@@ -128,7 +128,7 @@ void CMainWnd::AutoSet()
 	CRect rc( m_wndGraph.m_rcClient.left + 4, m_wndGraph.m_rcClient.top + 4,
 		m_wndGraph.m_rcClient.left + 4 + 110, m_wndGraph.m_rcClient.top + 4 + 16 );
 	BIOS::LCD::Bar( rc, RGB565(000000) );
-	BIOS::LCD::Print( rc.left + 4, rc.top, RGB565(ffff00), RGBTRANS, "AUTO..." );
+	UI::Print( rc.left + 4, rc.top, RGB565(ffff00), RGBTRANS, "AUTO..." );
 
 	AutoSet::EResult result = AutoSet::Run();
 
@@ -142,7 +142,7 @@ void CMainWnd::AutoSet()
 	if ( result == AutoSet::NoSignal )
 	{
 		BIOS::LCD::Bar( rc, RGB565(000000) );
-		BIOS::LCD::Print( rc.left + 4, rc.top, RGB565(ff4040), RGBTRANS, "AUTO: no signal" );
+		UI::Print( rc.left + 4, rc.top, RGB565(ff4040), RGBTRANS, "AUTO: no signal" );
 	}
 }
 

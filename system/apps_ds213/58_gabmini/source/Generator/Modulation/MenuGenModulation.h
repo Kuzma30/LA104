@@ -93,9 +93,9 @@ public:
 			return;
 		}
 		if ( m_pszUnit[0] == 'H' )
-			BIOS::LCD::Print( x, y, RGB565(000000), RGBTRANS, CUtils::FormatFrequency( *m_pValue, 11 ) );
+			UI::Print( x, y, RGB565(000000), RGBTRANS, CUtils::FormatFrequency( *m_pValue, 11 ) );
 		else if ( m_nDec == 0 )
-			BIOS::LCD::Printf( x, y, RGB565(000000), RGBTRANS, "%d %s", (int)(*m_pValue + 0.5f), m_pszUnit );
+			UI::Printf( x, y, RGB565(000000), RGBTRANS, "%d %s", (int)(*m_pValue + 0.5f), m_pszUnit );
 		else
 		{
 			// fixed number of decimals
@@ -111,7 +111,7 @@ public:
 				nFrac /= 10;
 			}
 			strFrac[m_nDec] = 0;
-			BIOS::LCD::Printf( x, y, RGB565(000000), RGBTRANS, "%d.%s %s", nFixed / nScale, strFrac, m_pszUnit );
+			UI::Printf( x, y, RGB565(000000), RGBTRANS, "%d.%s %s", nFixed / nScale, strFrac, m_pszUnit );
 		}
 	}
 };

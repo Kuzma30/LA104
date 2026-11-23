@@ -34,13 +34,13 @@ public:
 	{
 		ui16 clr = bFocus ? RGB565(ffffff) : RGB565(000000);
 		ui16 x = rcRect.left;
-		x += BIOS::LCD::Print( x, rcRect.top, clr, RGBTRANS, 
+		x += UI::Print( x, rcRect.top, clr, RGBTRANS, 
 			((const char**)m_ppszText)[ *m_pVal ]);
 	}	
 
 	virtual ui16 GetWidth()
 	{
-		return (ui16)strlen(((const char**)m_ppszText)[ *m_pVal ]) << 3;
+		return (ui16)UI::Width(((const char**)m_ppszText)[ *m_pVal ]);
 	}
 
 	virtual void Set(ui32 val)
@@ -89,10 +89,10 @@ public:
 		ui16 clr = bFocus ? RGB565(ffffff) : RGB565(000000);
 		_ASSERT( m_pVal );
 		if ( *m_pVal < m_nMin || *m_pVal > m_nMax )
-			BIOS::LCD::Print( rcRect.left, rcRect.top, clr, RGBTRANS, 
+			UI::Print( rcRect.left, rcRect.top, clr, RGBTRANS, 
 				"*" );
 		else
-			BIOS::LCD::Print( rcRect.left, rcRect.top, clr, RGBTRANS, 
+			UI::Print( rcRect.left, rcRect.top, clr, RGBTRANS, 
 				CUtils::itoa( *m_pVal ) );
 	}	
 
@@ -147,10 +147,10 @@ public:
 		ui16 clr = bFocus ? RGB565(ffffff) : RGB565(000000);
 		_ASSERT( m_pVal );
 		if ( *m_pVal < m_nMin || *m_pVal > m_nMax )
-			BIOS::LCD::Print( rcRect.left, rcRect.top, clr, RGBTRANS, 
+			UI::Print( rcRect.left, rcRect.top, clr, RGBTRANS, 
 				"*" );
 		else
-			BIOS::LCD::Print( rcRect.left, rcRect.top, clr, RGBTRANS, 
+			UI::Print( rcRect.left, rcRect.top, clr, RGBTRANS, 
 				CUtils::itoa( *m_pVal ) );
 	}	
 
@@ -181,7 +181,7 @@ public:
 		ui16 x = rcRect.left;
 		x -= 8;
 		x += BIOS::LCD::Draw( x, rcRect.top, clr, RGBTRANS, CShapes::sel_left );
-		x += BIOS::LCD::Print( x, rcRect.top, RGBTRANS, clr, 
+		x += UI::Print( x, rcRect.top, RGBTRANS, clr, 
 			CUtils::clrhex( clr ) );
 		x += BIOS::LCD::Draw( x, rcRect.top, clr, RGBTRANS, CShapes::sel_right );
 	}	
@@ -215,7 +215,7 @@ public:
 		ui16 x = rcRect.left;
 		x -= 8;
 		x += BIOS::LCD::Draw( x, rcRect.top, clr, RGBTRANS, CShapes::sel_left );
-		x += BIOS::LCD::Print( x, rcRect.top, RGBTRANS, clr, m_pName );
+		x += UI::Print( x, rcRect.top, RGBTRANS, clr, m_pName );
 		x += BIOS::LCD::Draw( x, rcRect.top, clr, RGBTRANS, CShapes::sel_right );
 	}	
 	
@@ -311,7 +311,7 @@ public:
 		temp[0] = CUtils::tohex(GetValue());
 		temp[1] = 0;
 
-		BIOS::LCD::Print( rcRect.left, rcRect.top, clr, RGBTRANS, 
+		UI::Print( rcRect.left, rcRect.top, clr, RGBTRANS, 
 			temp );
 	}
 	

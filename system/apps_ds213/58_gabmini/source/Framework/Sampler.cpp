@@ -17,6 +17,13 @@ namespace Sampler
 	// V/div and position of CH1 / CH2 when the samples were taken
 	static int arrCapVRes[2] = { -1, -1 }, arrCapPos[2] = { 0, 0 };
 
+	// the sample memory as scratch before the first capture (translation)
+	uint8_t* Scratch(int& size)
+	{
+		size = sizeof(memory);
+		return memory;
+	}
+
 	static inline void _Captured()
 	{
 		nCapRes = (int)Settings.Time.Resolution;

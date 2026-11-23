@@ -64,20 +64,20 @@ void CWndPidGraph::_Values()
 	BIOS::LCD::Bar( m_rcClient.left, y, m_rcClient.right, y + 16, clrBack );
 	if ( Settings.Pid.Mode == CorePid::Off )
 	{
-		BIOS::LCD::Print( x, y, RGB565(808080), clrBack, "Regulator off" );
+		UI::Print( x, y, RGB565(808080), clrBack, "Regulator off" );
 		return;
 	}
 	if ( CorePid::Stalled() )
 	{
-		BIOS::LCD::Print( x, y, RGB565(ff4040), clrBack, "Scope stopped!" );
+		UI::Print( x, y, RGB565(ff4040), clrBack, "Scope stopped!" );
 		return;
 	}
-	x += BIOS::LCD::Print( x, y, clrTarget, clrBack, _Fmt(strS, Settings.Pid.fTarget) );
+	x += UI::Print( x, y, clrTarget, clrBack, _Fmt(strS, Settings.Pid.fTarget) );
 	x += 8;
-	x += BIOS::LCD::Print( x, y, clrMeasured, clrBack, _Fmt(strI, CorePid::Measured()) );
+	x += UI::Print( x, y, clrMeasured, clrBack, _Fmt(strI, CorePid::Measured()) );
 	x += 8;
-	x += BIOS::LCD::Print( x, y, clrOutput, clrBack, _Fmt(strO, CorePid::Pid().m_fOutput) );
-	BIOS::LCD::Print( x, y, RGB565(808080), clrBack, " V" );
+	x += UI::Print( x, y, clrOutput, clrBack, _Fmt(strO, CorePid::Pid().m_fOutput) );
+	UI::Print( x, y, RGB565(808080), clrBack, " V" );
 }
 
 /*virtual*/ void CWndPidGraph::OnPaint()
@@ -97,9 +97,9 @@ void CWndPidGraph::_Values()
 		char str[12];
 		_Fmt( str, f );
 		str[strlen(str) - 2] = 0; // one decimal
-		BIOS::LCD::Print( m_rcClient.right - 8*(int)strlen(str) - 2, _Y(f) - 14, clrGrid, RGBTRANS, str );
+		UI::Print( m_rcClient.right - UI::Width(str) - 2, _Y(f) - 14, clrGrid, RGBTRANS, str );
 	}
-	BIOS::LCD::Print( m_rcClient.left + 2, m_rcClient.bottom - 16, RGB565(606060), RGBTRANS,
+	UI::Print( m_rcClient.left + 2, m_rcClient.bottom - 16, RGB565(606060), RGBTRANS,
 		Settings.Pid.Mode == CorePid::Simulation ? "Simulated plant" : "CH1 -> Wave Out" );
 
 	m_nX = 0;

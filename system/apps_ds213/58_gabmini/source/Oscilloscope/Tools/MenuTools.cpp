@@ -461,7 +461,7 @@ namespace Tools
 			strcpy( strResult, "Err file" );
 		else if ( nFails )
 		{
-			strcpy( strResult, nFailCh ? "Err2 " : "Err1 " );
+			strcpy( strResult, UI::T(nFailCh ? "Err2 " : "Err1 ") );
 			strcat( strResult, CSettings::AnalogChannel::ppszTextResolution[ nFailRes ] );
 		} else
 			strcpy( strResult, "done" );
@@ -521,7 +521,7 @@ void CItemTools::OnPaint()
 			BIOS::LCD::Bar( x - 2, y, m_rcClient.right - 3, y + h - 1, RGB565(000000) );
 			clr = RGB565(ffffff);
 		}
-		int w = BIOS::LCD::Print( x, y, clr, RGBTRANS, s_arrIds[i] );
+		int w = UI::Print( x, y, clr, RGBTRANS, s_arrIds[i] );
 		const char* p = "";
 		switch ( i )
 		{
@@ -535,9 +535,9 @@ void CItemTools::OnPaint()
 			default: p = m_strInfo[i - Csv][0] ? m_strInfo[i - Csv] : "F4: save"; break;
 		}
 		if ( s_arrRows[i] == 2 )
-			BIOS::LCD::Print( x + 8, y + 16, clr, RGBTRANS, p );
+			UI::Print( x + 8, y + 16, clr, RGBTRANS, p );
 		else
-			BIOS::LCD::Print( x + w + 8, y, clr, RGBTRANS, p );
+			UI::Print( x + w + 8, y, clr, RGBTRANS, p );
 		y += h;
 	}
 }

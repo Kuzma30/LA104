@@ -691,13 +691,13 @@ static void FormatFreq(float f, char* buf)
     if ( HasFocus() )
     {
         x += BIOS::LCD::Draw(x, y, RGB565(000000), RGBTRANS, CShapes::sel_left);
-        int w = strlen(text)*8;
+        int w = UI::Width(text);
         BIOS::LCD::Bar( x, y, x + w, y + 14, RGB565(000000) );
-        BIOS::LCD::Print( x, y, RGB565(ffffff), RGBTRANS, text );
+        UI::Print( x, y, RGB565(ffffff), RGBTRANS, text );
         x += w;
         BIOS::LCD::Draw(x, y, RGB565(000000), RGBTRANS, CShapes::sel_right);
     } else
-        BIOS::LCD::Print( x, y, RGB565(000000), RGBTRANS, text );
+        UI::Print( x, y, RGB565(000000), RGBTRANS, text );
 }
 
 /*virtual*/ void CItemDecodeBrowse::OnKey(int nKey)
@@ -747,7 +747,7 @@ void CItemDecodeInfo::Create(CWnd* pParent)
         for ( int i = 0; i < 4; i++ )
         {
             EncoderText( i, text );
-            BIOS::LCD::Print( x, y + 16*i, arrClr[i], RGBTRANS, text );
+            UI::Print( x, y + 16*i, arrClr[i], RGBTRANS, text );
         }
         return;
     }
@@ -757,7 +757,7 @@ void CItemDecodeInfo::Create(CWnd* pParent)
         for ( int i = 0; i < 3; i++ )
         {
             CounterText( i, text );
-            BIOS::LCD::Print( x, y + 16*i, arrClr[i], RGBTRANS, text );
+            UI::Print( x, y + 16*i, arrClr[i], RGBTRANS, text );
         }
         return;
     }
@@ -777,7 +777,7 @@ void CItemDecodeInfo::Create(CWnd* pParent)
         FormatFreq( fFreq, text );
         if ( text[strlen(text)-1] != 'z' )
             strcat( text, "Hz" );
-        BIOS::LCD::Print( x, y, RGB565(ffffff), RGBTRANS, text );
+        UI::Print( x, y, RGB565(ffffff), RGBTRANS, text );
         // duty cycle of the high level also when low pulses are measured
         if ( Settings.Decode.invert[Pulse] )
             fDuty = 100.0f - fDuty;
@@ -787,15 +787,15 @@ void CItemDecodeInfo::Create(CWnd* pParent)
         strcat( text, "." );
         strcat( text, CUtils::itoa(nPermille % 10) );
         strcat( text, "%" );
-        BIOS::LCD::Print( x, y + 16, RGB565(ffffff), RGBTRANS, text );
+        UI::Print( x, y + 16, RGB565(ffffff), RGBTRANS, text );
         text[0] = 0;
     }
     if ( text[0] )
-        BIOS::LCD::Print( x, y, RGB565(ffffff), RGBTRANS, text );
+        UI::Print( x, y, RGB565(ffffff), RGBTRANS, text );
     // sampling rate, the time resolution of the decoder is 1/fs
     strcpy( text, "fs " );
     FormatFreq( DecodeUi::SampleRate(), text + 3 );
-    BIOS::LCD::Print( x, y + 32, RGB565(b0b0b0), RGBTRANS, text );
+    UI::Print( x, y + 32, RGB565(b0b0b0), RGBTRANS, text );
 }
 
 // ---------------------------------------------------------------------------
@@ -894,12 +894,12 @@ void CWndDecodeList::Create(CWnd* pParent)
 {
     CDesign::Window( m_rcClient, RGB565(ffffff) );
 
-    char title[40];
-    strcpy( title, ProtocolText[Settings.Decode.protocol] );
+    char title[64];
+    strcpy( title, UI::T(ProtocolText[Settings.Decode.protocol]) );
     strcat( title, ": " );
     strcat( title, CUtils::itoa(Decoder::Count) );
-    strcat( title, Overflow ? "+ items" : " items" );
-    BIOS::LCD::Print( m_rcClient.CenterX() - strlen(title)*4, m_rcClient.top+2,
+    strcat( title, UI::T(Overflow ? "+ items" : " items") );
+    UI::Print( m_rcClient.CenterX() - UI::Width(title)/2, m_rcClient.top+2,
         RGB565(000000), RGBTRANS, title );
 
     float fRate = DecodeUi::SampleRate();
@@ -922,10 +922,10 @@ void CWndDecodeList::Create(CWnd* pParent)
             line[n++] = ' ';
         Decoder::Format( a, line + n, sizeof(line) - n, true, Settings.Decode, fRate );
         line[37] = 0;   // window width
-        BIOS::LCD::Print( x, y, clr, RGBTRANS, line );
+        UI::Print( x, y, clr, RGBTRANS, line );
     }
     if ( Decoder::Count == 0 )
-        BIOS::LCD::Print( x, m_rcClient.top + 18, RGB565(000000), RGBTRANS, "No data" );
+        UI::Print( x, m_rcClient.top + 18, RGB565(000000), RGBTRANS, "No data" );
 }
 
 /*virtual*/ void CWndDecodeList::OnKey(int nKey)

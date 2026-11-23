@@ -13,7 +13,7 @@ public:
 		ui16 x = m_rcClient.left;
 		x -= 8;
 		x += BIOS::LCD::Draw( x, m_rcClient.top, clr, RGBTRANS, CShapes::sel_left );
-		x += BIOS::LCD::Print( x, m_rcClient.top, RGBTRANS, clr, this->m_pszId );
+		x += UI::Print( x, m_rcClient.top, RGBTRANS, clr, this->m_pszId );
 		x += BIOS::LCD::Draw( x, m_rcClient.top, clr, RGBTRANS, CShapes::sel_right );
 	}	
 

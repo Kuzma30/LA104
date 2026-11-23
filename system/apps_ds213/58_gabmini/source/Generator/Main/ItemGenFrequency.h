@@ -73,7 +73,7 @@ public:
 		if ( m_edit.IsActive() )
 			m_edit.Draw( x - 8, y, Settings.Gen.nFrequency, "Hz" );
 		else
-			BIOS::LCD::Print( x, y, RGB565(000000), RGBTRANS,
+			UI::Print( x, y, RGB565(000000), RGBTRANS,
 				CUtils::FormatFrequency(CCoreGenerator::GetFrequency(), 11) );
 	}
 

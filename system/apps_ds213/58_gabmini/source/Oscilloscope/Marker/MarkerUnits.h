@@ -38,9 +38,9 @@ inline int MarkerPrint( int x, int y, ui16 clr, float f )
 {
 	float a = f < 0 ? -f : f;
 	if ( a < 9.995f )
-		return BIOS::LCD::Printf( x, y, clr, RGBTRANS, "%.2f", F2D( f < 0 ? f - 0.005f : f + 0.005f ) );
+		return UI::Printf( x, y, clr, RGBTRANS, "%.2f", F2D( f < 0 ? f - 0.005f : f + 0.005f ) );
 	if ( a < 99.95f )
-		return BIOS::LCD::Printf( x, y, clr, RGBTRANS, "%.1f", F2D( f < 0 ? f - 0.05f : f + 0.05f ) );
+		return UI::Printf( x, y, clr, RGBTRANS, "%.1f", F2D( f < 0 ? f - 0.05f : f + 0.05f ) );
 	int n = (int)( f < 0 ? f - 0.5f : f + 0.5f );
-	return BIOS::LCD::Printf( x, y, clr, RGBTRANS, "%d", n );
+	return UI::Printf( x, y, clr, RGBTRANS, "%d", n );
 }

@@ -85,8 +85,18 @@ ignored once).
 `system/os_library/build/libbios_ds203.so`. Memory on the DS203
 (`source/app_ds203.lds`), needs the STM32F103VE (512 KB flash, 64 KB RAM) of
 HW 2.6x / 2.7x:
-- code at 0x08040000, 160 KB, above the factory data at 0x0802C000..0x0803FFFF
+- code at 0x08040000, 144 KB (then 16 KB for the translation), above the factory data at 0x0802C000..0x0803FFFF
   (FPGA bitstream, calibration; the loader refuses to write there)
 - RAM 0x20004400, 0x6200 bytes, the stack of the OS below it
 - the sample buffer (12 KB) in the section `.bss_hi` at 0x2000C000, RAM the OS
   does not use (it ends at 0x2000B800); the loader zeroes it like `.bss`
+
+## Language
+
+`LANG.CFG` with `UK` on the disk and `LANG/UK/OSC.TXT`: Ukrainian texts (see
+`../lang/README.md`; needs the OS with UTF-8 text). All texts drawn through
+`UI::Print` / `UI::Printf` (Framework/UiText.h) and the labels of the OS
+controls (gui/Controls.h, `GUI_TEXT`) are translated as whole strings.
+Values keep the international units; protocol names and decoded frames stay
+as they are. Flash: the program up to 144 KB at 0x08040000, the compiled
+translation 16 KB at 0x08064000.

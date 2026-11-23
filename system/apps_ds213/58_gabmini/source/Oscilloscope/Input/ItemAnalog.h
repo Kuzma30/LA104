@@ -22,7 +22,7 @@ public:
 		CWndMenuItem::OnPaint();
 		int x = m_rcClient.left + 12 + MarginLeft;
 		int y = m_rcClient.top;
-		x += BIOS::LCD::Print( x, y, clr, RGBTRANS, 
+		x += UI::Print( x, y, clr, RGBTRANS, 
 			m_pInfo->pszName );
 		x += 8;
 		
@@ -39,14 +39,14 @@ public:
 		y += 16;
         if ( !HasFocus() )
         {
-            x += BIOS::LCD::Print( x, y, clr, RGBTRANS, 
+            x += UI::Print( x, y, clr, RGBTRANS, 
                 CSettings::AnalogChannel::ppszTextResolutionByProbe[m_pInfo->Probe][ m_pInfo->Resolution ] );
             x += BIOS::LCD::Draw(x, y, clr, RGBTRANS, CShapes::per_div);
         } else
         {
             x -= 8;
             x += BIOS::LCD::Draw(x, y, clr, RGBTRANS, CShapes::sel_left);
-            x += BIOS::LCD::Print(x, y, RGB565(ffffff), clr, 
+            x += UI::Print(x, y, RGB565(ffffff), clr, 
                 CSettings::AnalogChannel::ppszTextResolutionByProbe[m_pInfo->Probe][ m_pInfo->Resolution ] );
             x += BIOS::LCD::Draw(x, y, clr, RGBTRANS, CShapes::sel_right);
             x += BIOS::LCD::Draw(x, y, clr, RGBTRANS, CShapes::per_div);

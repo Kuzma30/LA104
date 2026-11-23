@@ -39,10 +39,14 @@ public:
 		}
 
 
+		// the frame only: the label is drawn below (once)
+		const char* id = m_pszId;
+		m_pszId = NULL;
 		CWndMenuItem::OnPaint();
+		m_pszId = id;
 		int x = m_rcClient.left + 12 + MarginLeft;
 		int y = m_rcClient.top;
-		BIOS::LCD::Print( x, y, clr, RGBTRANS, m_pszId );
+		UI::Print( x, y, clr, RGBTRANS, m_pszId );
 		x += 52;
 
 		const char *pSym1 = NULL;
@@ -82,7 +86,7 @@ public:
 			x = m_rcClient.left + 12 + MarginLeft;
 		} else
 		{
-			BIOS::LCD::Print( x, y, clr, RGBTRANS, CSettings::Trigger::ppszTextSync[Settings.Trig.Sync]);
+			UI::Print( x, y, clr, RGBTRANS, CSettings::Trigger::ppszTextSync[Settings.Trig.Sync]);
 		}
 
 		x += 52;
@@ -101,7 +105,7 @@ public:
 				x += BIOS::LCD::Draw( x, y, RGB565(ff0000), RGBTRANS, CShapes::trig_stop);
 				break;
 			case CSettings::Trigger::_Wait:
-				x += BIOS::LCD::Print( x, y, RGB565(ff0000), RGBTRANS, "W");
+				x += UI::Print( x, y, RGB565(ff0000), RGBTRANS, "W");
 				break;
 			case CSettings::Trigger::_Unsync:
 				_ASSERT(0);
@@ -169,9 +173,9 @@ public:
 			x += 52;
 			y += 16;
 			if ( m_nTimer++ & 1 )
-				BIOS::LCD::Print( x, y, RGB565(b00000), RGBTRANS, "W");
+				UI::Print( x, y, RGB565(b00000), RGBTRANS, "W");
 			else
-				BIOS::LCD::Print( x, y, RGB565(00b000), RGBTRANS, "W");
+				UI::Print( x, y, RGB565(00b000), RGBTRANS, "W");
 		}
 	}
 };

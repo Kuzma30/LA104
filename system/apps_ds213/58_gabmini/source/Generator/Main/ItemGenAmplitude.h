@@ -35,9 +35,9 @@ public:
 	virtual void OnPaint()
 	{
 		CWndMenuItem::OnPaint();
-		//BIOS::LCD::Printf( m_rcClient.left + 12 + 16, m_rcClient.top + 16, RGB565(000000), RGBTRANS, "%1f V",
+		//UI::Printf( m_rcClient.left + 12 + 16, m_rcClient.top + 16, RGB565(000000), RGBTRANS, "%1f V",
 		//	m_nVolt/10.0f+0.01f ); // rounding error!?
-		BIOS::LCD::Printf( m_rcClient.left + 12 + 16, m_rcClient.top + 16, RGB565(000000), RGBTRANS, "%d%%",
+		UI::Printf( m_rcClient.left + 12 + 16, m_rcClient.top + 16, RGB565(000000), RGBTRANS, "%d%%",
 			m_nVolt*5 );
 	}
 	float GetAmplitude()

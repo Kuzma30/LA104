@@ -41,13 +41,13 @@ public:
 		else if ( m_strId[0] == 'Y' && m_strId[1] == '2' )
 			x += BIOS::LCD::Draw(x, y+1, clr, RGBTRANS, CShapes::cury2);
 		else
-			x += BIOS::LCD::Print( x, y, clr, RGBTRANS, m_strId );
+			x += UI::Print( x, y, clr, RGBTRANS, m_strId );
 
 		if ( HasFocus() )
 		{
 			x += BIOS::LCD::Draw(x, y+1, clr, RGBTRANS, CShapes::sel_left);
 			if ( m_pMarker->Mode == CSettings::Marker::_Auto )
-				x += BIOS::LCD::Print(x, y+1, RGBTRANS, clr, "A");
+				x += UI::Print(x, y+1, RGBTRANS, clr, "A");
 			else
 				x += BIOS::LCD::Draw(x, y+1, RGBTRANS, clr, CShapes::leftright);
 			x += BIOS::LCD::Draw(x, y+1, clr, RGBTRANS, CShapes::sel_right);
@@ -56,7 +56,7 @@ public:
 			x += 4;
 
 		if ( m_pMarker->Display == CSettings::Marker::_Raw )
-			x += BIOS::LCD::Print( x, y, clr, RGBTRANS, CUtils::itoa(m_pMarker->nValue) );
+			x += UI::Print( x, y, clr, RGBTRANS, CUtils::itoa(m_pMarker->nValue) );
 		else
 		{
 			if ( m_pMarker->Type == CSettings::Marker::_Time && Fft::Shown() )
@@ -68,7 +68,7 @@ public:
 				if (!HasFocus())
 				{
 					x += 2;
-					BIOS::LCD::Print( x, y, clr2, RGBTRANS, unit.strUnit );
+					UI::Print( x, y, clr2, RGBTRANS, unit.strUnit );
 				}
 			} else
 			if ( m_pMarker->Type == CSettings::Marker::_Time )
@@ -81,7 +81,7 @@ public:
 				if (!HasFocus())
 				{
 					x += 2;
-					BIOS::LCD::Print( x, y, clr2, RGBTRANS, unit.strUnit );
+					UI::Print( x, y, clr2, RGBTRANS, unit.strUnit );
 				}
 			}
 			if ( m_pMarker->Type == CSettings::Marker::_Voltage )
@@ -95,11 +95,11 @@ public:
 				CSettings::Calibrator& cal = m_pMarker->Source == CSettings::Marker::_CH1 ?
 					Settings.CH1Calib : Settings.CH2Calib;
 				float fValue = cal.Voltage( fastCalc, (float)m_pMarker->nValue );
-				x += BIOS::LCD::Printf( x, y, clr, RGBTRANS, "%f", F2D(fValue) );
+				x += UI::Printf( x, y, clr, RGBTRANS, "%f", F2D(fValue) );
 				if (!HasFocus())
 				{
 					x += 2;
-					BIOS::LCD::Print( x, y, clr2, RGBTRANS, "V");
+					UI::Print( x, y, clr2, RGBTRANS, "V");
 				}
 			}
 		}

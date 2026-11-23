@@ -55,8 +55,8 @@ void CItemMeas::OnPaint()
 		if ( bSel )
 			BIOS::LCD::Bar( x0 - 2, y, m_rcClient.right - 3, y + 33, RGB565(000000) );
 		int x = x0;
-		x += BIOS::LCD::Print( x, y, SourceColor( nSource ), RGBTRANS, MeasCore::SourceName( nSource ) );
-		BIOS::LCD::Print( x + 4, y, bSel ? RGB565(ffffff) : RGB565(000000), RGBTRANS, MeasCore::Name( nType ) );
+		x += UI::Print( x, y, SourceColor( nSource ), RGBTRANS, MeasCore::SourceName( nSource ) );
+		UI::Print( x + 4, y, bSel ? RGB565(ffffff) : RGB565(000000), RGBTRANS, MeasCore::Name( nType ) );
 		PaintValue( i );
 	}
 	if ( HasFocus() && m_nSel == StatRow )
@@ -80,7 +80,7 @@ void CItemMeas::PaintValue( int i )
 	else
 		strcpy( str, "--" );
 	// text with its background, then the rest of the row: no flicker
-	int x = x0 + 4 + BIOS::LCD::Print( x0 + 4, y, clr, clrBack, str );
+	int x = x0 + 4 + UI::Print( x0 + 4, y, clr, clrBack, str );
 	ClearRest( x, y, 16, clrBack );
 }
 
@@ -105,15 +105,15 @@ void CItemMeas::PaintStat()
 
 	if ( !Settings.Extra.nStat )
 	{
-		x = x0 + BIOS::LCD::Print( x0, y, clr, clrBack, "Stat: Off" );
+		x = x0 + UI::Print( x0, y, clr, clrBack, "Stat: Off" );
 		ClearRest( x, y, 16 * 4, clrBack );
 		BIOS::LCD::Bar( x0, y + 16, x, y + 16 * 4, clrBack );
 		return;
 	}
 	int s = m_nStatSlot;
 	// 9 characters fit to the row: "M4 n=" and at most 4 digits
-	x = x0 + BIOS::LCD::Printf( x0, y, clr, clrBack, "M%d n=", s + 1 );
-	x += BIOS::LCD::Printf( x, y, clr2, clrBack, "%d", min( m_arrCount[s], 9999 ) );
+	x = x0 + UI::Printf( x0, y, clr, clrBack, "M%d n=", s + 1 );
+	x += UI::Printf( x, y, clr2, clrBack, "%d", min( m_arrCount[s], 9999 ) );
 	ClearRest( x, y, 16, clrBack );
 	static const char* const arrLabel[3] = { "<", ">", "~" };
 	float arrV[3] = { m_arrMin[s], m_arrMax[s], m_arrCount[s] ? m_arrSum[s] / m_arrCount[s] : 0 };
@@ -125,9 +125,9 @@ void CItemMeas::PaintStat()
 		if ( m_arrCount[s] )
 		{
 			MeasCore::Format( nType, arrV[i], str );
-			x += BIOS::LCD::Print( x, _y, clr2, clrBack, arrLabel[i] );
-			x += BIOS::LCD::Print( x, _y, clr, clrBack, " " );
-			x += BIOS::LCD::Print( x, _y, clr, clrBack, str );
+			x += UI::Print( x, _y, clr2, clrBack, arrLabel[i] );
+			x += UI::Print( x, _y, clr, clrBack, " " );
+			x += UI::Print( x, _y, clr, clrBack, str );
 		}
 		ClearRest( x, _y, 16, clrBack );
 	}

@@ -46,12 +46,12 @@ public:
 		CRect rcClient = m_rcClient;
 		CDesign::Window(m_rcClient, m_clrFrame);
 
-		BIOS::LCD::Print( rcClient.CenterX()-((ui8)strlen(m_pszId)<<2), rcClient.top+2, 
+		UI::Print( rcClient.CenterX()-(UI::Width(m_pszId)>>1), rcClient.top+2, 
 			RGB565(000000), RGBTRANS, m_pszId);
 
 		rcClient.Deflate(2+12+4, 2+14+2, 2+12+4, 2+2+0);
 
-		BIOS::LCD::Print( rcClient.left + 4, rcClient.top + 4,
+		UI::Print( rcClient.left + 4, rcClient.top + 4,
 			RGB565(000000), RGBTRANS, m_strMessage);		
 	}
 	virtual void OnKey(int nKey) override

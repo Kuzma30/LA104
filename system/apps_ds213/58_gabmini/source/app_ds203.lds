@@ -5,7 +5,9 @@ MEMORY
      device info at 0x0802C000..0x0803FFFF, LinearProgram refuses them);
      0x08012C00..0x0802BC00 (100 KB) was too small. Needs the 512 KB flash
      of the STM32F103VE (HW 2.6x / 2.7x). */
-  rom (rx) : ORIGIN = 0x08040000, LENGTH = 160K
+  rom (rx) : ORIGIN = 0x08040000, LENGTH = 144K
+  /* the compiled translation (common/lang.h), written by the application */
+  lang (r) : ORIGIN = 0x08064000, LENGTH = 16K
   /* OS RAM ends at 0x200043CC (no heap), 0x20004400..0x20005000 is free.
      The application runs on the OS stack: main() of the OS keeps 2.8 KB of
      buffers in its frame, so the app starts with SP = 0x2000ABF0 and the
@@ -27,6 +29,8 @@ failed 648 bytes at 0801f648
 */
 SECTIONS
   {
+    _addressLang = ORIGIN(lang);
+    _addressLangEnd = ORIGIN(lang) + LENGTH(lang);
     .text : {
       _addressRomBegin = .;
       *(.entry)

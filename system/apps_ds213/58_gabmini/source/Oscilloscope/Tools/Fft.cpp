@@ -202,9 +202,9 @@ namespace Fft
 	// text on a dark box, readable over the bars
 	static int Label( int x, int y, ui16 clr, const char* str )
 	{
-		int w = strlen( str ) * 8;
+		int w = UI::Width( str );
 		BIOS::LCD::Bar( x - 1, y, x + w + 1, y + 14, RGB565(000000) );
-		BIOS::LCD::Print( x, y, clr, RGBTRANS, str );
+		UI::Print( x, y, clr, RGBTRANS, str );
 		return w;
 	}
 
@@ -251,7 +251,7 @@ namespace Fft
 			if ( hBar > H - 30 ) hBar = H - 30;
 			if ( hBar < 0 ) hBar = 0;
 			sprintf( str, "%d", h );
-			BIOS::LCD::Print( x - 3, rc.bottom - hBar - 30, RGB565(ffff00), RGBTRANS, str );
+			UI::Print( x - 3, rc.bottom - hBar - 30, RGB565(ffff00), RGBTRANS, str );
 			// list
 			sprintf( str, "H%d ", h );
 			int xx = xList + Label( xList, yList, RGB565(ffff00), str );
@@ -437,10 +437,10 @@ namespace Fft
 		// labels
 		char str[16];
 		int x = rc.left + 4, y = rc.top + 2;
-		x += BIOS::LCD::Print( x, y, clrBar, RGBTRANS, nSource == 1 ? "FFT CH1" : "FFT CH2" );
+		x += UI::Print( x, y, clrBar, RGBTRANS, nSource == 1 ? "FFT CH1" : "FFT CH2" );
 		if ( !bValid )
 		{
-			BIOS::LCD::Print( x + 8, y, RGB565(ff4040), RGBTRANS, "no data" );
+			UI::Print( x + 8, y, RGB565(ff4040), RGBTRANS, "no data" );
 			return;
 		}
 		float fs = MeasCore::SampleRate();
@@ -448,21 +448,21 @@ namespace Fft
 		Interpolate( pMag, nPeak, nBins, fBin, fDbX10 );
 		x += 8;
 		MeasCore::FormatSI( fBin * fs / N, "Hz", str );
-		x += BIOS::LCD::Print( x, y, RGB565(ffffff), RGBTRANS, str );
+		x += UI::Print( x, y, RGB565(ffffff), RGBTRANS, str );
 		int nDb = (int)( fDbX10 - nRefX10 );
 		nDb = nDb < 0 ? -( ( -nDb + 5 ) / 10 ) : ( nDb + 5 ) / 10;
-		x += 8 + BIOS::LCD::Printf( x + 8, y, RGB565(ffffff), RGBTRANS, "%ddB", nDb );
+		x += 8 + UI::Printf( x + 8, y, RGB565(ffffff), RGBTRANS, "%ddB", nDb );
 		// resolution: one bin (left of the STOP label)
 		MeasCore::FormatSI( fs / N, "Hz", str );
-		x += 8 + BIOS::LCD::Print( x + 8, y, RGB565(808080), RGBTRANS, "bin " );
-		BIOS::LCD::Print( x, y, RGB565(808080), RGBTRANS, str );
+		x += 8 + UI::Print( x + 8, y, RGB565(808080), RGBTRANS, "bin " );
+		UI::Print( x, y, RGB565(808080), RGBTRANS, str );
 		PaintHarmonics( pGraph, pMag, nBins, N, fs, fBin, fDbX10, nRefX10 );
 		PaintCursors( pGraph, nRefX10 );
 
 		MeasCore::FormatSI( fs / 2, "Hz", str );
-		int w = strlen( str ) * 8;
-		BIOS::LCD::Print( rc.right - w - 4, rc.bottom - 16, RGB565(b0b0b0), RGBTRANS, str );
+		int w = UI::Width( str );
+		UI::Print( rc.right - w - 4, rc.bottom - 16, RGB565(b0b0b0), RGBTRANS, str );
 		MeasCore::FormatSI( fs / 2 / CWndGraph::DivsX, "Hz/div", str );
-		BIOS::LCD::Print( rc.left + 4, rc.bottom - 16, RGB565(b0b0b0), RGBTRANS, str );
+		UI::Print( rc.left + 4, rc.bottom - 16, RGB565(b0b0b0), RGBTRANS, str );
 	}
 }

@@ -17,10 +17,14 @@ public:
 	{
 		ui16 clr = RGB565(000000);
 
+		// the frame only: the label is drawn below (once)
+		const char* id = m_pszId;
+		m_pszId = NULL;
 		CWndMenuItem::OnPaint();
+		m_pszId = id;
 		int x = m_rcClient.left + 12 + MarginLeft;
 		int y = m_rcClient.top;
-		BIOS::LCD::Print( x, y, clr, RGBTRANS, m_pszId );
+		UI::Print( x, y, clr, RGBTRANS, m_pszId );
 		y += 16;
 		if ( HasFocus() )
 		{

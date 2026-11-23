@@ -232,7 +232,7 @@ ui16 CWndOscGraph::_Interpolate( ui16 clrA, ui16 clrB )
 	{
 		int x = m_rcClient.right - 4*8 - 4, y = m_rcClient.top + 2;
 		BIOS::LCD::Bar( x - 2, y, x + 4*8 + 2, y + 14, RGB565(c00000) );
-		BIOS::LCD::Print( x, y, RGB565(ffffff), RGBTRANS, "STOP" );
+		UI::Print( x, y, RGB565(ffffff), RGBTRANS, "STOP" );
 	} else
 		PaintTrigState();
 }
@@ -252,7 +252,7 @@ void CWndOscGraph::PaintTrigState()
 	bool bWait = BIOS::SYS::GetTick() - m_lLastAcquired > (long)fBufferMs + 300;
 	int x = m_rcClient.right - 4*8 - 4, y = m_rcClient.top + 2;
 	BIOS::LCD::Bar( x - 2, y, x + 4*8 + 2, y + 14, bWait ? RGB565(c0a000) : RGB565(00a000) );
-	BIOS::LCD::Print( x, y, RGB565(ffffff), RGBTRANS, bWait ? "WAIT" : "TRIG" );
+	UI::Print( x, y, RGB565(ffffff), RGBTRANS, bWait ? "WAIT" : "TRIG" );
 }
 
 // X-Y (Lissajous figures): CH1 horizontal and CH2 vertical (Y-X swapped) in
@@ -335,7 +335,7 @@ void CWndOscGraph::OnPaintXY()
 
 	if ( !bEnabled1 || !bEnabled2 )
 	{
-		BIOS::LCD::Print( m_rcClient.left + 4, m_rcClient.top + 4, RGB565(ffffff), RGBTRANS, "Enable CH1 and CH2" );
+		UI::Print( m_rcClient.left + 4, m_rcClient.top + 4, RGB565(ffffff), RGBTRANS, "Enable CH1 and CH2" );
 		return;
 	}
 

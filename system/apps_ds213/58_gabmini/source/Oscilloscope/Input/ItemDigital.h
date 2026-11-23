@@ -22,7 +22,7 @@ public:
 		CWndMenuItem::OnPaint();
 		int x = m_rcClient.left + 12 + MarginLeft;
 		int y = m_rcClient.top;
-		x += BIOS::LCD::Print( x, y, clr, RGBTRANS, 
+		x += UI::Print( x, y, clr, RGBTRANS, 
 			m_pInfo->pszName );
 		x += 8;
 		

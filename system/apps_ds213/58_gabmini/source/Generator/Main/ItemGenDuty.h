@@ -29,7 +29,7 @@ public:
 	{
 		CWndMenuItem::OnPaint();
 		int nDuty = CCoreGenerator::GetDuty();
-		BIOS::LCD::Printf( m_rcClient.left + 12 + 16, m_rcClient.top + 16, RGB565(000000), RGBTRANS, "%d%%",
+		UI::Printf( m_rcClient.left + 12 + 16, m_rcClient.top + 16, RGB565(000000), RGBTRANS, "%d%%",
 			nDuty );
 	}
 };

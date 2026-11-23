@@ -8,6 +8,8 @@ namespace Sampler
 	enum { Samples = BIOS::ADC::NumSamples, BytesPerSample = 3 };
 	// one screen with the pre-trigger part and room to move the window
 	enum { ScreenSamples = 480 };
+	// the sample memory as scratch before the first capture
+	uint8_t* Scratch(int& size);
 
 	// samples taken by one acquisition (Samples or ScreenSamples); the
 	// memory after them is free for the persistence history

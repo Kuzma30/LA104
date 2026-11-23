@@ -9,6 +9,13 @@
 #include "Shapes.h"
 #include <string.h>
 
+// texts of the controls: an application with translations defines both
+// before this header (58_gabmini: Framework/UiText.h)
+#ifndef GUI_TEXT
+#define GUI_TEXT(s) (s)
+#define GUI_TEXT_WIDTH(s) ((int)strlen(s) * 8)
+#endif
+
 class CListBox : public CWnd
 {
 	ui16	m_clrFrame;
@@ -24,8 +31,8 @@ public:
 	virtual void OnPaint() override
 	{
 		CDesign::Window( m_rcClient, m_clrFrame );
-		BIOS::LCD::Print( m_rcClient.CenterX()-((ui8)strlen(m_pszId)<<2), m_rcClient.top+2, 
-			RGB565(000000), RGBTRANS, m_pszId);
+		BIOS::LCD::Print( m_rcClient.CenterX()-(GUI_TEXT_WIDTH(m_pszId)>>1), m_rcClient.top+2, 
+			RGB565(000000), RGBTRANS, GUI_TEXT(m_pszId));
 	}
 
 	virtual void OnMessage(CWnd* pSender, int code, uintptr_t data) override
@@ -138,11 +145,11 @@ public:
 		{
 			CDesign::MenuItemEnabled( m_rcClient, m_clr );
 			if ( m_pszId )
-				BIOS::LCD::Print( m_rcClient.left+12, m_rcClient.top, RGB565(000000), RGBTRANS, m_pszId );
+				BIOS::LCD::Print( m_rcClient.left+12, m_rcClient.top, RGB565(000000), RGBTRANS, GUI_TEXT(m_pszId) );
 		} else {
 			CDesign::MenuItemDisabled( m_rcClient, m_clr );
 			if ( m_pszId )
-				BIOS::LCD::Print( m_rcClient.left+12, m_rcClient.top, RGB565(000000), RGBTRANS, m_pszId );
+				BIOS::LCD::Print( m_rcClient.left+12, m_rcClient.top, RGB565(000000), RGBTRANS, GUI_TEXT(m_pszId) );
 		}
 		m_rcClient.left -= MarginLeft;
 	}
@@ -175,10 +182,10 @@ public:
 		if ( HasFocus() )
 		{
 			CDesign::MenuBlockEnabled( m_rcClient, m_clr );
-			BIOS::LCD::Print( m_rcClient.left+12, m_rcClient.top, RGB565(000000), RGBTRANS, m_pszId );
+			BIOS::LCD::Print( m_rcClient.left+12, m_rcClient.top, RGB565(000000), RGBTRANS, GUI_TEXT(m_pszId) );
 		} else {
 			CDesign::MenuBlockDisabled( m_rcClient, m_clr );
-			BIOS::LCD::Print( m_rcClient.left+12, m_rcClient.top, RGB565(000000), RGBTRANS, m_pszId );
+			BIOS::LCD::Print( m_rcClient.left+12, m_rcClient.top, RGB565(000000), RGBTRANS, GUI_TEXT(m_pszId) );
 		}
 	}
 	virtual void OnKey(int nKey) override
@@ -233,7 +240,7 @@ public:
 				RemapPalette( bmp.m_arrPalette, RGB565(8080e0), RGB565(ffffff) );
 				bmp.Blit( m_rcClient.right - bmp.m_width, m_rcClient.bottom - bmp.m_height );
 			}
-			BIOS::LCD::Print( m_rcClient.left+12, m_rcClient.top, RGB565(000000), RGBTRANS, m_pszId );
+			BIOS::LCD::Print( m_rcClient.left+12, m_rcClient.top, RGB565(000000), RGBTRANS, GUI_TEXT(m_pszId) );
 		} else {
 			CDesign::MenuBlockDisabled( m_rcClient, m_clr );
 			if ( m_pImage )
@@ -243,7 +250,7 @@ public:
 				RemapPalette( bmp.m_arrPalette, RGB565(e0e0e0), RGB565(b0b0b0) );
 				bmp.Blit( m_rcClient.right - bmp.m_width, m_rcClient.bottom - bmp.m_height );
 			}
-			BIOS::LCD::Print( m_rcClient.left+12, m_rcClient.top, RGB565(000000), RGBTRANS, m_pszId );
+			BIOS::LCD::Print( m_rcClient.left+12, m_rcClient.top, RGB565(000000), RGBTRANS, GUI_TEXT(m_pszId) );
 		}
 	}
 	virtual void OnKey(ui16 nKey)
@@ -284,7 +291,7 @@ public:
 		CListItem::OnPaint();
 
 		int x = m_rcClient.left+4;
-		BIOS::LCD::Print( x, m_rcClient.top, clr, RGBTRANS, m_pszId);
+		BIOS::LCD::Print( x, m_rcClient.top, clr, RGBTRANS, GUI_TEXT(m_pszId));
 	}	
 };
 
@@ -333,7 +340,7 @@ public:
 		CListItem::OnPaint();
 
 		int x = m_rcClient.left+4;
-		BIOS::LCD::Print( x, m_rcClient.top, clr, RGBTRANS, m_pszId);
+		BIOS::LCD::Print( x, m_rcClient.top, clr, RGBTRANS, GUI_TEXT(m_pszId));
 	
 		x = m_rcClient.left + 120;
 		
@@ -409,8 +416,8 @@ public:
 		CRect rcClient = m_rcClient;
 		CDesign::WindowSelector(m_rcClient, m_clrFrame);
 
-		BIOS::LCD::Print( rcClient.CenterX()-((ui8)strlen(m_pszId)<<2), rcClient.top+2, 
-			RGB565(000000), RGBTRANS, m_pszId);
+		BIOS::LCD::Print( rcClient.CenterX()-(GUI_TEXT_WIDTH(m_pszId)>>1), rcClient.top+2, 
+			RGB565(000000), RGBTRANS, GUI_TEXT(m_pszId));
 		BIOS::LCD::Draw( m_rcClient.left + 6, m_rcClient.top+20, RGB565(000000), RGBTRANS, CShapes::more_left );
 		BIOS::LCD::Draw( m_rcClient.right - 3 - 6, m_rcClient.top+20, RGB565(000000), RGBTRANS, CShapes::more_right );
 
@@ -422,7 +429,7 @@ public:
 
 		BIOS::RoundRect(rcClient, m_clrFrame);
 
-		BIOS::Print( rcClient.CenterX()-((ui8)strlen(m_pszId)<<2), rcClient.top, 
+		BIOS::Print( rcClient.CenterX()-(GUI_TEXT_WIDTH(m_pszId)>>1), rcClient.top, 
 			RGB565(000000), RGBTRANS, m_pszId);
 
 		BIOS::Draw( m_rcClient.left + 4, m_rcClient.top+18, RGB565(000000), RGBTRANS, more_left );
@@ -536,7 +543,7 @@ public:
 
 		CRect rcItem = m_rcClient;
 		rcItem.Deflate( 12+MarginLeft, 0, 0, 0 );
-		BIOS::LCD::Print( rcItem.left, rcItem.top, RGB565(000000), RGBTRANS, m_pszId );
+		BIOS::LCD::Print( rcItem.left, rcItem.top, RGB565(000000), RGBTRANS, GUI_TEXT(m_pszId) );
 		rcItem.top += 16;
 		if ( HasFocus() )
 		{
@@ -666,7 +673,7 @@ public:
 		CListItem::OnPaint();
 		ui16 clr = RGB565(000000);
 		int x = m_rcClient.left+4;
-		BIOS::LCD::Print( x, m_rcClient.top, clr, RGBTRANS, m_pszId);
+		BIOS::LCD::Print( x, m_rcClient.top, clr, RGBTRANS, GUI_TEXT(m_pszId));
 	}
 };
 

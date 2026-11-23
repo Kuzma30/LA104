@@ -1,5 +1,6 @@
 #pragma once
 #include "oldtypes.h"
+#include "Framework/UiText.h"
 #include "../../../os_host/source/framework/Wnd.h"
 #include "../../../os_host/source/framework/Utils.h"
 #include "../../../os_host/source/framework/Serialize.h"

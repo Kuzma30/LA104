@@ -36,18 +36,18 @@ public:
 		int y = m_rcClient.top;
 		int _x = x;
 		x += 8;
-		x += BIOS::LCD::Print( x, y, clr, RGBTRANS, m_strId );
+		x += UI::Print( x, y, clr, RGBTRANS, m_strId );
 		if ( bDisabled )
 			return;
 
 		x = _x;
 		y += 16;
-		//x += BIOS::LCD::Print( x, y, clr, RGBTRANS, CUtils::itoa(nResult) );
+		//x += UI::Print( x, y, clr, RGBTRANS, CUtils::itoa(nResult) );
 
 		if ( m_pMarker1->Display == CSettings::Marker::_Raw )
 		{
 			int nResult = m_pMarker1->nValue - m_pMarker2->nValue;
-			x += BIOS::LCD::Print( x, y, clr, RGBTRANS, CUtils::itoa(nResult) );
+			x += UI::Print( x, y, clr, RGBTRANS, CUtils::itoa(nResult) );
 		}
 		else
 		{
@@ -60,7 +60,7 @@ public:
 				CMarkerUnit funit = MarkerFreqUnit( fDf > 0 ? fDf : 1.0f );
 				x += MarkerPrint( x, y, clr, fDf * funit.fScale );
 				x += 2;
-				BIOS::LCD::Print( x, y, RGB565(404040), RGBTRANS, funit.strUnit );
+				UI::Print( x, y, RGB565(404040), RGBTRANS, funit.strUnit );
 				x = _x;
 				y += 16;
 				float fDb1, fDb2;
@@ -68,9 +68,9 @@ public:
 				{
 					x += MarkerPrint( x, y, clr, fDb2 - fDb1 );
 					x += 2;
-					BIOS::LCD::Print( x, y, RGB565(404040), RGBTRANS, "dB" );
+					UI::Print( x, y, RGB565(404040), RGBTRANS, "dB" );
 				} else
-					BIOS::LCD::Print( x, y, RGB565(808080), RGBTRANS, "--" );
+					UI::Print( x, y, RGB565(808080), RGBTRANS, "--" );
 			} else
 			if ( m_pMarker1->Type == CSettings::Marker::_Time )
 			{ 
@@ -79,25 +79,25 @@ public:
 				CMarkerUnit unit = MarkerTimeUnit();
 				x += MarkerPrint( x, y, clr, fValue * unit.fScale );
 				x += 2;
-				BIOS::LCD::Print( x, y, RGB565(404040), RGBTRANS, unit.strUnit );
+				UI::Print( x, y, RGB565(404040), RGBTRANS, unit.strUnit );
 				x = _x;
 				y += 16;
 				if ( fValue == 0 )
-					BIOS::LCD::Print( x, y, clr, RGBTRANS, "Error");
+					UI::Print( x, y, clr, RGBTRANS, "Error");
 				else
 				{
 					float fFreq = 1.0f / ( fValue < 0 ? -fValue : fValue );
 					CMarkerUnit funit = MarkerFreqUnit( fFreq );
 					x += MarkerPrint( x, y, clr, fFreq * funit.fScale );
 					x += 2;
-					BIOS::LCD::Print( x, y, RGB565(404040), RGBTRANS, funit.strUnit );
+					UI::Print( x, y, RGB565(404040), RGBTRANS, funit.strUnit );
 				}
 			}
 			if ( m_pMarker1->Type == CSettings::Marker::_Voltage )
 			{
 				if ( m_pMarker1->Source != m_pMarker2->Source )
 				{
-					BIOS::LCD::Print( x, y, RGB565(808080), RGBTRANS, "Error");
+					UI::Print( x, y, RGB565(808080), RGBTRANS, "Error");
 				} else
 				{
 					CSettings::Calibrator::FastCalc fastCalc;
@@ -109,9 +109,9 @@ public:
 					float fValue1 = Settings.CH1Calib.Voltage( fastCalc, (float)m_pMarker1->nValue );
 					float fValue2 = Settings.CH1Calib.Voltage( fastCalc, (float)m_pMarker2->nValue );
 					float fResult = fValue2 - fValue1;
-					x += BIOS::LCD::Printf( x, y, clr, RGBTRANS, "%f", F2D(fResult) );
+					x += UI::Printf( x, y, clr, RGBTRANS, "%f", F2D(fResult) );
 					x += 2;
-					BIOS::LCD::Print( x, y, RGB565(404040), RGBTRANS, "V");
+					UI::Print( x, y, RGB565(404040), RGBTRANS, "V");
 				}
 			}
 		}

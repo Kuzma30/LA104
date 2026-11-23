@@ -1,5 +1,6 @@
 #ifndef __DIGITEDIT_H__
 #define __DIGITEDIT_H__
+#include "Framework/UiText.h"
 
 // Digit by digit editing of a number:
 //   Left / Right  - select digit
@@ -116,7 +117,7 @@ public:
 		{
 			int nPos = m_nInt - 1 - i;
 			if ( nPos == -1 )
-				x += BIOS::LCD::Print( x, y, RGB565(000000), RGBTRANS, '.' );
+				x += UI::Print( x, y, RGB565(000000), RGBTRANS, '.' );
 			if ( digits[i] != '0' || nPos <= 0 )
 				bLeading = false;
 			ui16 clr = bLeading ? RGB565(808080) : RGB565(000000);
@@ -125,9 +126,9 @@ public:
 				BIOS::LCD::Bar( x, y, x + 8, y + 14, RGB565(000000) );
 				clr = RGB565(ffffff);
 			}
-			x += BIOS::LCD::Print( x, y, clr, RGBTRANS, digits[i] );
+			x += UI::Print( x, y, clr, RGBTRANS, digits[i] );
 		}
-		x += BIOS::LCD::Print( x, y, RGB565(000000), RGBTRANS, pszUnit );
+		x += UI::Print( x, y, RGB565(000000), RGBTRANS, pszUnit );
 		return x - x0;
 	}
 };

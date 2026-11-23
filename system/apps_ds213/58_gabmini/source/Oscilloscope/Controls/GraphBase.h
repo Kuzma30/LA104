@@ -41,10 +41,10 @@ public:
 			BIOS::LCD::Pattern(m_rcClient.left, m_rcClient.top+BlkY*y, m_rcClient.right, m_rcClient.top+BlkY*y+1, grid, COUNT(grid));
 		//BIOS::Printf( m_rcClient.left+4, m_rcClient.top+4, RGB565(ffffff), RGBTRANS, 
 		//	"Total CWnd instances %d", CWnd::m_nInstances);
-		BIOS::LCD::Print( m_rcClient.left+4, m_rcClient.top+4, RGB565(404040), RGBTRANS, 
+		UI::Print( m_rcClient.left+4, m_rcClient.top+4, RGB565(404040), RGBTRANS, 
 			"Valky.eu");
 
-		BIOS::LCD::Print( m_rcClient.left+4, m_rcClient.bottom-16, RGB565(ffffff), RGBTRANS, 
+		UI::Print( m_rcClient.left+4, m_rcClient.bottom-16, RGB565(ffffff), RGBTRANS, 
 			"Built on " __DATE__ " " __TIME__);
 	}
 };

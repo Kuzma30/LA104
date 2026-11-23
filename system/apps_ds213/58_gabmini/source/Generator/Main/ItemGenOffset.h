@@ -60,9 +60,9 @@ public:
 		if ( m_bDc )
 		{
 			int nMv = m_nPercent * WAVEOUT_FULLSCALE_MV / 100;
-			BIOS::LCD::Printf( x, y, RGB565(000000), RGBTRANS, "%d.%02dV", nMv / 1000, (nMv % 1000) / 10 );
+			UI::Printf( x, y, RGB565(000000), RGBTRANS, "%d.%02dV", nMv / 1000, (nMv % 1000) / 10 );
 		} else
-			BIOS::LCD::Printf( x, y, RGB565(000000), RGBTRANS, "%d%%", m_nPercent );
+			UI::Printf( x, y, RGB565(000000), RGBTRANS, "%d%%", m_nPercent );
 	}
 
 	// 0.0 .. 2.0 (2.0 = 100 %), scale kept for existing callers
