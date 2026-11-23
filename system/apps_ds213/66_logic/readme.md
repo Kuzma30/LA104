@@ -7,6 +7,10 @@ changes, at the sample rate of the time base up to **72 MS/s**:
 
 - 4095 changes per capture; a quiet line takes no space (one word covers
   up to 16384 samples, longer runs take more words)
+- **channels on** (item `ABCD`, FPGA image 9.02): 1 to 4 channels; a
+  channel that is off takes no words, so all 4095 words hold the changes
+  of the channels that are on (with 1 channel of 4 equally busy ones about
+  4 times the time)
 - channels **A, B**: the analog inputs against a threshold (hysteresis about
   0.1 V), **C, D**: the digital inputs
 - trigger on a rising or falling edge of any channel, or none; pretrigger
@@ -58,7 +62,7 @@ B  ...
 C  ...                                                 T (red), X1, X2 dashed
 D  ...
 X1 0s  X2 41.7us  dX 41.7us 24.0kHz
-24.0MS/s C rise Pre 25% A 1.40V B 1.40V Single         settings
+24.0MS/s C rise Pre 25% A 1.40V B 1.40V Sgl ABCD      settings
 View Zoom X1 X2 UART List BMP             status        view
 ```
 
@@ -73,7 +77,15 @@ View Zoom X1 X2 UART List BMP             status        view
 
 Settings: sample rate 72 MS/s .. 30 S/s (right: faster), trigger, pretrigger,
 thresholds of A and B (-0.5 .. 30 V; 1, 2 or 5 V/div is chosen for the
-threshold), single / repeat.
+threshold), single (Sgl) / repeat (Rep), channels on (ABCD, ACD, BCD, ABC,
+ABD, CD, AB, AC, AD, BC, BD, C, D, A, B; a channel that is off shows "off",
+a trigger on it still works).
+
+The settings of the decoder and of the generator are checked at the start
+and on every setup page; a value out of range (a damaged LOGICDEC.CFG /
+LOGICGEN.CFG) gets its default (status `settings repaired`). The status
+`stack overflow!` means that the stack came down to the variables of the
+application (please report it with what was done).
 
 ## Protocol decoders
 
@@ -184,7 +196,13 @@ The setup is kept in `LOGICGEN.CFG`.
 | single pulse | width 1 us .. 59 s (in us), active high or low | the level changes at once, back after the width (TIM7, exact to 1/72 us); e.g. the reset of a circuit |
 | square wave | frequency 1 Hz .. 18 MHz, duty 1 .. 99 % | TIM4 PWM, runs until F4 again or another mode; the real frequency is shown |
 | burst | 1 .. 1000 pulses, frequency, duty, polarity | n pulses, then idle (tests of counters, the Counter / Pulse decoders) |
-| test of the decoder | the protocol and settings of the decoder (Dec) | one frame or message: UART (text "Hello DS203!" or the 4 bytes of Value, bits, parity, stop, polarity and baud rate of the decoder; auto: 115200), LIN (break, sync, PID = Value & 3F, 2 data bytes from Value, enhanced checksum), CAN (ID = Value, 29 bit when > 7FF, 4 data bytes, CRC, stuffing, ACK; auto: 125 k), 1-Wire (reset, presence, Skip ROM, function command = Value), NEC IR (address, command from Value), Pulse / Counter (burst) |
+| test of the decoder | the protocol and settings of the decoder (Dec); the interface settings (baud / bit rate, bits, parity, stop bits, polarity) are also on the page of the generator: the same values | one frame or message: UART (text "Hello DS203!" or the 4 bytes of Value, bits, parity, stop, polarity and baud rate of the decoder; auto: 115200), LIN (break, sync, PID = Value & 3F, 2 data bytes from Value, enhanced checksum), CAN (ID = Value, 29 bit when > 7FF, 4 data bytes, CRC, stuffing, ACK; auto: 125 k), 1-Wire (reset, presence, Skip ROM, function command = Value), NEC IR (address, command from Value), Pulse / Counter (burst) |
+
+The line at the bottom of the generator page shows what will be generated
+and, when the sample rate of the analyzer is too low to see it, the rate
+needed (`rate>=922kS/s`: 8 samples per bit, per period of a burst, per
+pulse width). Set the baud / bit rate of the decoder (not auto) to the
+rate of the test signal for a sure decoding.
 
 **With capture: on** fires the shot after every start of a capture (F1,
 Repeat, the retries of the protocol trigger) as soon as the trigger is

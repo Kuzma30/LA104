@@ -29,6 +29,10 @@
 
 using namespace BIOS;
 
+#ifdef _ARM
+extern "C" char _addressRamEnd;         // end of .bss (app_ds203.lds); the stack ends above .got
+#endif
+
 namespace
 {
   // ------------------------------------------------------------ colors
@@ -111,13 +115,22 @@ namespace
   int32_t thrMv[2] = { 1400, 1400 };    // A, B
   bool bRepeat = false;
 
+  // channels on (FPGA 9.02 register 0x16; state bits: 1 C, 2 D, 4 A, 8 B):
+  // the changes of a channel that is off take no words, the 4095 words go
+  // to the channels that are on
+  const uint8_t arrLanes[] = { 15, 7, 11, 13, 14, 3, 12, 5, 6, 9, 10, 1, 2, 4, 8 };
+  const int LaneSets = sizeof(arrLanes);
+  int nLanes = 0;                       // index of arrLanes
+  int gLaVersion = 0;                   // of the loaded image
+  uint8_t gCapMask = 15;                // channels on in the capture shown
+
   // view: left edge and zoom in 1/8 samples
   uint32_t viewLeft = 0;                // 1/8 sample
   uint32_t scale = 1;                   // 1/8 samples per column (any, not only 2^n)
   bool gZoomX = false;                  // the view is X1 .. X2 (Zoom F3 again: all)
   uint32_t cur[2] = { 0, 0 };           // cursors, samples
 
-  enum { ItRate, ItTrig, ItPre, ItThrA, ItThrB, ItMode, ItView, ItZoom, ItX1, ItX2, ItDec, ItList, ItGen, ItBmp, Items };
+  enum { ItRate, ItTrig, ItPre, ItThrA, ItThrB, ItMode, ItLanes, ItView, ItZoom, ItX1, ItX2, ItDec, ItList, ItGen, ItBmp, Items };
   int nItem = ItView;
 
   enum { Idle, Waiting, Filling } eRun = Idle;
@@ -316,7 +329,9 @@ namespace
       {
         float step = d * (m == 0 ? 1 : m == 1 ? 2 : 5);
         // labels at both ends of the view and next to them (the longest)
-        int k0 = (int)(tLeft / step) - 1, k1 = (int)(tRight / step) + 1;
+        float fl = tLeft / step, fr = tRight / step;
+        if (fl < -1e8f || fl > 1e8f || fr < -1e8f || fr > 1e8f) continue;   // step far too small
+        int k0 = (int)fl - 1, k1 = (int)fr + 1;
         int w = 0;
         for (int k = k0; k <= k0 + 2; k++) w = max(w, LabelW(k * step));
         for (int k = k1 - 2; k <= k1; k++) w = max(w, LabelW(k * step));
@@ -490,6 +505,11 @@ namespace
     Text(4, y0 + (role[0] ? 2 : 11), clrLane[lane], RGBTRANS, nameLane[lane]);
     if (role[0])
       Text(2, y0 + 19, clrDim, RGBTRANS, role);
+    if (gHave && !(gCapMask & bitLane[lane]))
+    {
+      Text(PlotX + 4, y0 + 11, clrDim, RGBTRANS, "off");
+      return;
+    }
     if (!gHave || gEvents == 0)
       return;
     if (decoded)
@@ -587,7 +607,16 @@ namespace
       case ItPre: strcpy(p, "Pre "); p = PutU(p + 4, arrPre[nPre]); strcpy(p, "%"); break;
       case ItThrA: strcpy(p, "A "); PutMv(p + 2, thrMv[0]); break;
       case ItThrB: strcpy(p, "B "); PutMv(p + 2, thrMv[1]); break;
-      case ItMode: strcpy(p, bRepeat ? "Repeat" : "Single"); break;
+      case ItMode: strcpy(p, bRepeat ? "Rep" : "Sgl"); break;
+      case ItLanes:
+      {
+        // the letters of the channels on: A B C D
+        static const uint8_t bit[4] = { 4, 8, 1, 2 };
+        for (int l = 0; l < 4; l++)
+          if (arrLanes[nLanes] & bit[l]) *p++ = "ABCD"[l];
+        *p = 0;
+        break;
+      }
       case ItView: strcpy(p, "View"); break;
       case ItZoom: strcpy(p, "Zoom"); break;
       case ItX1: strcpy(p, "X1"); break;
@@ -700,7 +729,7 @@ namespace
 
   // ------------------------------------------------------------ FPGA image
   const char* const ImageFile = "LAFPGA.BIN";
-  enum { LaVersion = 901 };
+  enum { LaVersion = 901, LaVersionMask = 902 };
 
   bool LoadImage()
   {
@@ -724,7 +753,8 @@ namespace
     }
     bool done = Fpga::ConfigEnd();
     FAT::Close();
-    return ok && done && (Fpga::Status() >> 6) == LaVersion;
+    gLaVersion = Fpga::Status() >> 6;
+    return ok && done && (gLaVersion == LaVersion || gLaVersion == LaVersionMask);
   }
 
   // the oscilloscope image back from the flash
@@ -789,6 +819,12 @@ namespace
     Fpga::SetParam(0x13, b.hys);
     Fpga::SetParam(0x14, arm & 255);
     Fpga::SetParam(0x15, arm >> 8);
+    gCapMask = 15;
+    if (gLaVersion >= LaVersionMask)
+    {
+      Fpga::SetParam(0x16, arrLanes[nLanes]);
+      gCapMask = arrLanes[nLanes];
+    }
     ADC::Restart(0);
     // the shot of the generator when the trigger is armed: after the
     // pretrigger words or the arm time, whichever comes first (a quiet line)
@@ -1326,7 +1362,7 @@ namespace
         strcpy(s, v < 0 ? "-" : v == 0 ? "A (CH1)" : v == 1 ? "B (CH2)" : v == 2 ? "C" : "D");
         break;
       case PkNum: PutU(s, v); break;
-      case PkList: strcpy(s, q.list[v]); break;
+      case PkList: strcpy(s, v >= q.lo && v <= q.hi ? q.list[v] : "?"); break;
       case PkCond: { int nc; strcpy(s, Dec::Conds(dc.proto, nc)[v < nc ? v : 0].name); break; }
     }
   }
@@ -1362,14 +1398,33 @@ namespace
         add("Polarity", PkList, &gc.pol, 0, 1, lstPol);
         break;
       case Gen::GTest:
+        // the interface: the settings of the decoder (the same values as on
+        // its setup page; auto baud / bit rate: 115200 / 19200 / 125 k)
         if (dc.proto == Dec::PUart)
         {
           static const char* const lstPay[] = { "text Hello DS203!", "4 bytes of Value" };
           add("Data", PkList, &gc.payload, 0, 1, lstPay);
           if (gc.payload) add32("Value", PkHex, &gc.value);
+          add("Baud rate", PkList, &dc.uartBaud, 0, Dec::RateUartN - 1, lstBaudU);
+          add("Data bits", PkNum, &dc.uartBits, 5, 9);
+          add("Parity", PkList, &dc.uartParity, 0, 2, lstParity);
+          add("Stop bits", PkNum, &dc.uartStop, 1, 2);
+          add("Polarity", PkList, &dc.inv[Dec::PUart], 0, 1, lstLevel);
         }
         if (dc.proto == Dec::PLin || dc.proto == Dec::PCan || dc.proto == Dec::POneWire || dc.proto == Dec::PNec)
           add32("Value", PkHex, &gc.value);
+        if (dc.proto == Dec::PLin)
+        {
+          add("Baud rate", PkList, &dc.linBaud, 0, Dec::RateLinN - 1, lstBaudL);
+          add("Polarity", PkList, &dc.inv[Dec::PLin], 0, 1, lstLevel);
+        }
+        if (dc.proto == Dec::PCan)
+        {
+          add("Bit rate", PkList, &dc.canRate, 0, Dec::RateCanN - 1, lstBaudC);
+          add("Polarity", PkList, &dc.inv[Dec::PCan], 0, 1, lstLevel);
+        }
+        if (dc.proto == Dec::PNec)
+          add("Polarity", PkList, &dc.inv[Dec::PNec], 0, 1, lstNec);
         if (dc.proto == Dec::PPulse || dc.proto == Dec::PCounter)
         {
           add32("Pulses", PkDec, &gc.count);
@@ -1400,6 +1455,18 @@ namespace
     }
     p = PutSI(p, q.n * (float)q.div / 72e6f, "s");
     *p = 0;
+    // the sample rate of the analyzer needed to see it: 8 samples per bit
+    // (per period of a burst, per width of a pulse)
+    float need = 0;
+    if (gc.mode == Gen::GPulse) need = 8 * 72e6f / q.div;
+    else if (q.real > 0) need = 8 * q.real;
+    else if (gc.mode == Gen::GTest && (dc.proto == Dec::POneWire)) need = 1e6f;
+    else if (gc.mode == Gen::GTest && (dc.proto == Dec::PNec)) need = 30e3f;
+    if (need > 0 && 72e6f / arrDiv[nRate] < need)
+    {
+      strcpy(p, " rate>="); p += 7;
+      PutSI(p, need, "S/s");
+    }
   }
 
   // what the generator will do (setup page, status)
@@ -1567,6 +1634,40 @@ namespace
     return true;
   }
 
+  // every setting in its range (a damaged LOGICDEC.CFG / LOGICGEN.CFG or
+  // RAM must not lead to a table index out of range); true: repaired
+  bool Sanitize()
+  {
+    bool fixed = false;
+    Dec::TCfg d;
+    Dec::Defaults(d);
+    auto cl = [&](int8_t& v, int lo, int hi, int def) { if (v < lo || v > hi) { v = (int8_t)def; fixed = true; } };
+    cl(dc.proto, 0, Dec::Protos - 1, 0);
+    for (int pr = 0; pr < Dec::Protos; pr++)
+    {
+      for (int r = 0; r < Dec::MaxRoles; r++)
+        if (Dec::RoleName[pr][r]) cl(dc.lane[pr][r], -1, 3, d.lane[pr][r]);
+        else dc.lane[pr][r] = -1;
+      cl(dc.inv[pr], 0, 1, d.inv[pr]);
+      int nc;
+      Dec::Conds(pr, nc);
+      cl(dc.tCond[pr], 0, nc - 1, 0);
+    }
+    cl(dc.uartBaud, 0, Dec::RateUartN - 1, 0); cl(dc.uartBits, 5, 9, 8); cl(dc.uartParity, 0, 2, 0);
+    cl(dc.uartStop, 1, 2, 1); cl(dc.linBaud, 0, Dec::RateLinN - 1, 0); cl(dc.spiMode, 0, 3, 0);
+    cl(dc.spiBits, 4, 32, 8); cl(dc.spiLsb, 0, 1, 0); cl(dc.canRate, 0, Dec::RateCanN - 1, 0);
+    cl(dc.wsOrder, 0, 1, 0); cl(dc.cntEdge, 0, 2, 0); cl(dc.quadRes, 0, 2, 0); cl(dc.quadDir, 0, 1, 0);
+    cl(dc.fmt, 0, 2, 0); cl(dc.tThen, 0, 1, 0);
+    if (dc.tNth < 1 || dc.tNth > 99) { dc.tNth = 1; fixed = true; }
+    cl(gc.mode, 0, Gen::GModes - 1, 0); cl(gc.pol, 0, 1, 0); cl(gc.autoFire, 0, 1, 0);
+    cl(gc.payload, 0, 1, 0); cl(gc.duty, 1, 99, 50);
+    return fixed;
+  }
+
+  // the rows of the setup page (one array for SetupPage and DrawSetup: 670
+  // bytes less stack each)
+  TParam gPar[24];
+
   // the setup page shows the decoder (0) or the generator (1)
   int gPage = 0;
   int PageParams(TParam* p) { return gPage ? GenParams(p) : Params(p); }
@@ -1576,10 +1677,11 @@ namespace
 
   void DrawSetup(int sel, int top)
   {
+    Sanitize();
     Bar(0, 0, W, TitleH, clrBar);
     Text(4, 0, clrText, clrBar, gPage ? "Generator (Wave Out)" : "Decoder setup");
     Bar(0, TitleH, W, H - 34, clrBack);
-    TParam p[24];
+    TParam* p = gPar;
     int n = PageParams(p);
     const int rows = SetupRows();
     for (int r = 0; r < rows; r++)
@@ -1640,7 +1742,7 @@ namespace
         continue;
       if (key == KEY::Escape || key == KEY::F3 || key == KEY::F4)
         break;
-      TParam p[24];
+      TParam* p = gPar;
       int n = PageParams(p);
       if (key == KEY::Up || key == KEY::Down)
       {
@@ -1841,6 +1943,10 @@ namespace
         break;
       }
       case ItMode: bRepeat = !bRepeat; break;
+      case ItLanes:
+        if (gLaVersion < LaVersionMask) { Status(clrWarn, "needs LAFPGA.BIN 9.02"); return; }
+        nLanes = (nLanes + d + LaneSets) % LaneSets;
+        break;
       case ItView:
       {
         int64_t step = (int64_t)(PlotW / 8) * scale;
@@ -1999,7 +2105,7 @@ int _main(void)
     RestoreImage();
     LCD::Clear(clrBack);
     Text(8, 90, clrTrig, RGBTRANS, "LAFPGA.BIN missing or not the logic");
-    Text(8, 106, clrTrig, RGBTRANS, "analyzer image (version 9.01).");
+    Text(8, 106, clrTrig, RGBTRANS, "analyzer image (version 9.01 / 9.02).");
     Text(8, 130, clrDim, RGBTRANS, "Copy it to the disk. Any key: exit");
     while (KEY::GetKey() == KEY::None);
     return 0;
@@ -2008,8 +2114,27 @@ int _main(void)
   Dec::Defaults(dc);
   LoadDecoder();
   LoadGen();
+  bool repaired = Sanitize();
   LCD::Clear(clrBack);
   DrawAll();
+  if (repaired)
+    Status(clrWarn, "settings repaired");
+
+  // stack guard: 128 bytes above .got; changed bytes mean the stack came
+  // down to the variables of the application
+  uint8_t* guard = nullptr;
+  bool guardHit = false;
+#ifdef _ARM
+  {
+    uint8_t here;
+    uint8_t* g = (uint8_t*)((((uintptr_t)&_addressRamEnd) + 0x80 + 3) & ~(uintptr_t)3);
+    if (&here - g > 1024)
+    {
+      memset(g, 0xA5, 128);
+      guard = g;
+    }
+  }
+#endif
 
   while (true)
   {
@@ -2018,6 +2143,14 @@ int _main(void)
       break;
     if (eRun != Idle)
       PollCapture();
+    if (guard && !guardHit)
+      for (int i = 0; i < 128; i++)
+        if (guard[i] != 0xA5)
+        {
+          guardHit = true;
+          Status(clrTrig, "stack overflow!");
+          break;
+        }
     if (gFireAt && (int32_t)(SYS::GetTick() - gFireAt) >= 0)
     {
       gFireAt = 0;
