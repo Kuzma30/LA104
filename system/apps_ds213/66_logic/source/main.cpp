@@ -883,9 +883,15 @@ namespace
     if (ok)
     {
       Fit();
-      // cursors around the trigger
-      cur[0] = gTrig;
-      cur[1] = gTrig + (gEnd - gTrig) / 4;
+      // cursors: X1 on the first edge of the capture, X2 on the last one
+      // (no edge: both on the trigger)
+      if (gEvents >= 2)
+      {
+        cur[0] = La::Time(gEv[1]);
+        cur[1] = La::Time(gEv[gEvents - 1]);
+      }
+      else
+        cur[0] = cur[1] = gTrig;
       Status(clrOk, stopped ? "stopped" : "");
       DecodeAndShow();
       if (DecTrigOn())

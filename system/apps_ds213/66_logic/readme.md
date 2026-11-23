@@ -14,7 +14,9 @@ changes, at the sample rate of the time base up to **72 MS/s**:
   words are written or after 0.2 s (quiet lines)
 - single or repeated capture, stop at any time (the words up to then)
 - zoom down to 8 columns per sample, scroll, cursors X1 / X2 with dX and
-  1/dX, jump to the next edge; **the data between X1 and X2 stretched to
+  1/dX (after every capture X1 is on the first edge, X2 on the last one:
+  dX is the length of the activity; F3 on Zoom or F4 on X1 / X2 shows just
+  that part), jump to the next edge; **the data between X1 and X2 stretched to
   the whole screen** (any zoom factor, not only powers of 2)
 - **VCD** files (GTKWave, PulseView: `LA000.VCD` ..) and screenshots
   (`LA000.BMP` ..)
