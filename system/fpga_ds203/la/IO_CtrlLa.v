@@ -9,14 +9,15 @@
    Select 0x51: { Full, Ready, 2'b0, Wptr[11:0] }  write pointer (stable when
                 Full; read twice while capturing)
    Select 0x52: ID 0x1A01 (logic analyzer, run length words)
- Version in the status word: 901 ("9.01").
+   register 0x16: channels on (bit 0 C, 1 D, 2 A, 3 B; 0xF after loading)
+ Version in the status word: 902 ("9.02"; 901 without register 0x16).
 *******************************************************************************/
 module IO_CtrlLa( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
                 A_Edge, A_TL, A_TH, B_Edge, B_TL, B_TH,
                 C_Edge, C_TL, C_TH, D_Edge, D_TL, D_TH,
                 Depth, PerCnt, Delay,
                 nPD, Trigg_Mode, Vthreshold, Tthreshold, CtrlReg,
-                Bptr, Wptr, Wrapped, AThr, AHys, BThr, BHys, ArmTime, DB );
+                Bptr, Wptr, Wrapped, AThr, AHys, BThr, BHys, ArmTime, LaMask, DB );
 
   input     CE, nRD, SCK, SDA;
   input     [17:0]Dout;
@@ -35,6 +36,7 @@ module IO_CtrlLa( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
   input     [11:0]Wptr;
   input     Wrapped;
   output    [ 7:0]AThr, AHys, BThr, BHys;
+  output    [ 3:0]LaMask;
   output    [15:0]ArmTime;
   inout     [15:0]DB;
 
@@ -52,11 +54,12 @@ module IO_CtrlLa( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
   reg       [11:0]PerCnt;
   reg       [31:0]Delay;
   reg       [ 7:0]AThr, AHys, BThr, BHys;
+  reg       [ 3:0]LaMask;
   reg       [15:0]ArmTime;
-  wire      [ 9:0]Version = 10'd901;
+  wire      [ 9:0]Version = 10'd902;
 
   initial begin
-    AThr = 128; AHys = 8; BThr = 128; BHys = 8; ArmTime = 0;
+    AThr = 128; AHys = 8; BThr = 128; BHys = 8; ArmTime = 0; LaMask = 4'hF;
   end
 
   assign nPD = CtrlReg[0];
@@ -120,6 +123,7 @@ module IO_CtrlLa( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
           8'h13:  BHys      [ 7:0] <= DataBuff;
           8'h14:  ArmTime   [ 7:0] <= DataBuff;
           8'h15:  ArmTime  [15:8] <= DataBuff;
+          8'h16:  LaMask    [ 3:0] <= DataBuff[3:0];
         endcase
       end
     end

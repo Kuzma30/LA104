@@ -23,7 +23,7 @@ module tb_la;
     initial begin
         dut.U1.Full = 0; dut.U1.Loaded = 0; dut.U1.Ready = 0; dut.U1.Bptr = 0;
         dut.U1.Rptr = 0; dut.U1.Wptr = 0; dut.U1.Pcnt = 0; dut.U1.DelayCnt = 0;
-        dut.U1.Wrapped = 0; dut.U1.Sampled = 0; dut.U1.ArmCnt = 0; dut.U4.ArmTime = 0;
+        dut.U1.Wrapped = 0; dut.U1.Sampled = 0; dut.U1.ArmCnt = 0; dut.U4.ArmTime = 0; dut.U4.LaMask = 4'hF;
         dut.U2.Dout = 0;
         dut.U3.Start = 0;
         dut.U3.A_Dt_H = 0; dut.U3.A_Dt_L = 0; dut.U3.A_Flag = 0; dut.U3.A_Status = 0;
@@ -138,6 +138,7 @@ module tb_la;
     endtask
 
     reg [17:0] words [0:4095];
+    reg [3:0] vmask = 4'hF;            // channels on (register 0x16)
     integer nwords;
     reg [15:0] r50, r51;
 
@@ -183,7 +184,7 @@ module tb_la;
             for (i = pre; i >= first && bad == 0; i = i - 1) begin
                 s = words[i][17:14]; len = words[i][13:0] + 1;
                 for (j = 1; j <= len; j = j + 1) begin
-                    if (ref[(t - j) % NREF] !== s) begin
+                    if ((ref[(t - j) % NREF] & vmask) !== s) begin
                         if (bad == 0) $display("  pre word %0d sample -%0d: %h ref %h", i, j, s, ref[(t - j) % NREF]);
                         bad = bad + 1;
                     end
@@ -196,7 +197,7 @@ module tb_la;
             for (i = pre + 1; i < nwords && bad == 0; i = i + 1) begin
                 s = words[i][17:14]; len = words[i][13:0] + 1;
                 for (j = 0; j < len; j = j + 1) begin
-                    if (ref[(t + j) % NREF] !== s) begin
+                    if ((ref[(t + j) % NREF] & vmask) !== s) begin
                         if (bad == 0) $display("  post word %0d sample %0d: %h ref %h", i, j, s, ref[(t + j) % NREF]);
                         bad = bad + 1;
                     end
@@ -290,6 +291,29 @@ module tb_la;
         capture(8'h20, 0, 2000, 16'd0);
         check("unconditional: full", r51[15]);
         verify("unconditional: words = pins", 0, 1);
+
+        // 7. channels off (register 0x16): only C on, then C and D; the words
+        //    change only with them, the other bits are 0
+        quiet = 0; maxrun = 20;
+        set_param(8'h16, 8'h01); vmask = 4'h1;
+        capture(8'h11, 1000, 2000, 16'h7fff);
+        verify("mask C: words = pins of C", 1000, 0);
+        begin : mask_chk
+            integer n, other, same;
+            other = 0; same = 0;
+            for (n = 0; n < nwords; n = n + 1) begin
+                if (words[n][17:15] != 0) other = other + 1;
+                if (n > 0 && words[n][17:14] == words[n-1][17:14] && words[n-1][13:0] != 14'h3FFF && n != 1001) same = same + 1;
+            end
+            check("mask C: A, B, D are 0 in every word", other == 0);
+            check("mask C: every word a change of C", same == 0);
+        end
+        set_param(8'h16, 8'h03); vmask = 4'h3;
+        capture(8'h18, 500, 2000, 16'h7fff);
+        verify("mask C, D: words = pins of C, D", 500, 0);
+        set_param(8'h16, 8'h0F); vmask = 4'hF;
+        capture(8'h11, 100, 2000, 16'h7fff);
+        verify("mask all again: words = pins", 100, 0);
 
         if (failures == 0) $display("all passed");
         else $display("%0d FAILED", failures);

@@ -59,6 +59,7 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
   wire	  [17:0]Word_Link;
   wire	  [ 3:0]State_Link;
   wire	  [ 7:0]AThr_Link, AHys_Link, BThr_Link, BHys_Link;
+  wire    [ 3:0]LaMask_Link;
   wire	  [15:0]ArmTime_Link;
 
   // LA104 (FPGA 2.67): the inputs are registered twice in MCI. Without it
@@ -164,7 +165,7 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
 
   LaRle U5( .Mclk( MCI ), .Din( Din_Bus ), .DinP( Din_Pre ), .Mark( Mark_Link ),
     .AThr( AThr_Link ), .AHys( AHys_Link ), .BThr( BThr_Link ), .BHys( BHys_Link ),
-    .Word( Word_Link ), .Adv( Adv_Link ), .State( State_Link ) );
+    .Mask( LaMask_Link ), .Word( Word_Link ), .Adv( Adv_Link ), .State( State_Link ) );
 
   IO_CtrlLa U4( 
     .CE( CE ), 
@@ -200,7 +201,7 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
     .CtrlReg( Ctrl_Link ),
     .Bptr( Bptr_Link ), .Wptr( W_Addr_Bus ), .Wrapped( Wrapped_Link ),
     .AThr( AThr_Link ), .AHys( AHys_Link ), .BThr( BThr_Link ), .BHys( BHys_Link ),
-    .ArmTime( ArmTime_Link ),
+    .ArmTime( ArmTime_Link ), .LaMask( LaMask_Link ),
     .DB( DB ) 
   );
   

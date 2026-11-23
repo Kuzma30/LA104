@@ -8,7 +8,7 @@ set -e
 cd "$(dirname "$0")"
 OUT=build
 mkdir -p $OUT
-SEED=${SEED:-1}
+SEED=${SEED:-3}
 : "${YOSYS:=yosys}" "${NEXTPNR:=nextpnr-ice40}" "${ICEPACK:=icepack}"
 SRC="FIFO_L04.v ../la/AddrCtrlLa.v ../scope/Signal.v ../la/IO_CtrlLa.v ../la/FPGA_La.v \
      ../la/LaRle.v DP_RAM_l04.v RAM4096_L04.v"

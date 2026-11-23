@@ -11,11 +11,15 @@
  or at the trigger (Mark), so the word of the finished run stays in the RAM.
  Word = { S[3:0], R[13:0] } -> DP_RAM Din[17:0]: bit 14 C, 15 D, 16 A, 17 B.
 
+ Mask (register 0x16, bit 0 C, 1 D, 2 A, 3 B): a channel that is off is 0
+ in the state and its changes start no word, so the whole RAM holds the
+ changes of the channels that are on.
+
  Timing: the compare results of A / B are registered from DinP as Din_Bus,
  the level one MCI later; C / D are delayed by one MCI to match.
 *******************************************************************************/
 
-module LaRle ( Mclk, Din, DinP, Mark, AThr, AHys, BThr, BHys, Word, Adv, State );
+module LaRle ( Mclk, Din, DinP, Mark, AThr, AHys, BThr, BHys, Mask, Word, Adv, State );
 
   input   Mclk;
   input   [17:0]Din;       // samples (Din_Bus)
@@ -25,6 +29,7 @@ module LaRle ( Mclk, Din, DinP, Mark, AThr, AHys, BThr, BHys, Word, Adv, State )
   input   [ 7:0]AHys;
   input   [ 7:0]BThr;
   input   [ 7:0]BHys;
+  input   [ 3:0]Mask;          // channels on: { B, A, D, C }
   output  [17:0]Word;
   output  Adv;
   output  [ 3:0]State;
@@ -54,7 +59,7 @@ module LaRle ( Mclk, Din, DinP, Mark, AThr, AHys, BThr, BHys, Word, Adv, State )
     CD <= Din[17:16];
   end
 
-  assign  State = { LvB, LvA, CD[1], CD[0] };
+  assign  State = { LvB, LvA, CD[1], CD[0] } & Mask;
   assign  Adv = ( State != WS ) || ( WR == 14'h3FFF ) || Mark;
   assign  Word = { WS, WR };
 
