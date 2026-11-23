@@ -14,6 +14,13 @@ Keys: F1 run / stop, F2 back, F3 automatic setup (oscilloscope tabs), F4 enter.
   TRIG (green) or WAIT (yellow) at the top right of the graph. Channel list (Enter on CH1 /
   CH2): coupling, V/div, probe, position, Beam (trace width 1..3 px, like
   the focus of an analog scope), color.
+- **Time base while stopped** (F1 stop, Single): a new time base shows
+  the stored samples at that time base (horizontal zoom around the trigger
+  position): faster stretches them (CH1 / CH2 interpolated), slower
+  compresses them (the part outside the stored samples stays empty). The
+  cursors, measurements, FFT, CSV and the decoded frames follow; the
+  decoders keep the rate the samples were taken at. The next capture uses
+  the new time base.
 - **Cursor**: X1 / X2 / Y1 / Y2, dX and dY. Units follow the time base
   (ns, us, ms, s). Y1 / Y2 in mode A follow the signal at X1 / X2.
 - **Disp**: T-Y or X-Y (Lissajous), Dots / Lines / Fill (the area between

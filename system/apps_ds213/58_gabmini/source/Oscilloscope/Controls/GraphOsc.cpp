@@ -560,6 +560,10 @@ void CWndOscGraph::OnPaintTY()
 		bHist = Phosphor::BeginTY( pArea, nBytes, _PersistKey(), bStore );
 	}
 	bool bHistEn1 = en1, bHistEn2 = en2;
+	// channels of the columns with data: a column without data (before the
+	// start of the samples when a stopped capture is shown at a slower time
+	// base, or after their end) hides only itself
+	const ui8 en1All = en1, en2All = en2, en3All = en3, en4All = en4;
 
 	for (ui16 x=0; x<nMax; x++, nIndex++)
 	{
@@ -576,9 +580,12 @@ void CWndOscGraph::OnPaintTY()
 		BIOS::ADC::TSample Sample;
 		Sample.value = nIndex < nMaxIndex ? Sampler::GetAt(nIndex) : 0;
 
+		en1 = en1All; en2 = en2All; en3 = en3All; en4 = en4All;
 		if (Sample.value == BIOS::ADC::NoData)
 		{
 			en1 = en2 = en3 = en4 = false;
+			nPrev1 = nPrev2 = nPrev3 = nPrev4 = -1;
+			beam1.bInit = beam2.bInit = false;
 		}
 
 		if ( en1 )

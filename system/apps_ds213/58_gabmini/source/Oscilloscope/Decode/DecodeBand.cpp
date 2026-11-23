@@ -1,5 +1,7 @@
 #include "DecodeBand.h"
 #include "Font5x7.h"
+#include <library.h>
+#include <Framework/Sampler.h>
 
 using namespace Decoder;
 
@@ -27,6 +29,20 @@ namespace DecodeBand
     static int s_nSelected;
     static float s_fRate;
     static const TConfig* s_pCfg;
+
+    // positions of the decoders are samples of the raw buffer, the graph
+    // shows the buffer at the current time base (Sampler::PhysToVirt)
+    static inline TAnnotation Virt(TAnnotation a)
+    {
+        if ( Sampler::Scaled() )
+        {
+            int b = Sampler::PhysToVirt( a.begin ), e = Sampler::PhysToVirt( a.end + 1 ) - 1;
+            if ( e < b ) e = b;
+            a.begin = (uint16_t)( b < 0 ? 0 : b > 0xffff ? 0xffff : b );
+            a.end = (uint16_t)( e < 0 ? 0 : e > 0xffff ? 0xffff : e );
+        }
+        return a;
+    }
 
     static inline int RowOf(const TAnnotation& a) { return (a.flags & FRow1) ? 1 : 0; }
     static inline int EffBegin(const TAnnotation& a) { return (a.flags & FPoint) ? a.begin - 6 : a.begin; }
@@ -110,13 +126,13 @@ namespace DecodeBand
             {
                 row.p = 0;
                 if ( row.p < Decoder::Count )
-                    row.a = Decoder::Get(row.p);
+                    row.a = Virt( Decoder::Get(row.p) );
             }
             while ( row.p < Decoder::Count && (RowOf(row.a) != r || EffEnd(row.a) < nIndex) )
             {
                 row.p++;
                 if ( row.p < Decoder::Count )
-                    row.a = Decoder::Get(row.p);
+                    row.a = Virt( Decoder::Get(row.p) );
             }
             if ( row.p >= Decoder::Count )
                 continue;

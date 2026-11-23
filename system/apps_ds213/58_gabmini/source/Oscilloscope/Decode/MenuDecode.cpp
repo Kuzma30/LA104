@@ -104,7 +104,7 @@ namespace DecodeUi
             }
             const uint8_t* p = Sampler::GetBuffer() + ch;
             int nMin = s_arrMin[ch], nMax = s_arrMax[ch];
-            for ( int i = Settings.Time.InvalidFirst; i < Sampler::GetValid(); i++ )
+            for ( int i = Settings.Time.InvalidFirst; i < Sampler::GetValidRaw(); i++ )
             {
                 int v = p[i * Decoder::BytesPerSample];
                 if ( v < nMin ) nMin = v;
@@ -155,13 +155,15 @@ namespace DecodeUi
         // tables as BIOS::ADC::ConfigureTimebase (200ns .. 1s per division)
         static const uint32_t arrDiv[] = {1, 2, 3, 5, 12, 24, 48, 120, 240, 480, 1200, 2400, 4800,
             12000, 24000, 48000, 120000, 240000, 480000, 1200000, 2400000};
-        int n = (int)Settings.Time.Resolution;
+        // the rate the buffer was sampled at (the time base may have been
+        // changed while stopped)
+        int n = Sampler::CaptureRes();
         if ( n < 0 ) n = 0;
         if ( n >= (int)COUNT(arrDiv) ) n = COUNT(arrDiv)-1;
         return 72e6f / arrDiv[n];
 #else
         // approximation: 30 samples per division
-        return 30.0f / CSettings::TimeBase::pfValueResolution[ Settings.Time.Resolution ];
+        return 30.0f / CSettings::TimeBase::pfValueResolution[ Sampler::CaptureRes() ];
 #endif
     }
 
@@ -170,7 +172,7 @@ namespace DecodeUi
         // annotations only in the samples of this acquisition, the memory
         // after them may hold the persistence history
         Decoder::Run( Settings.Decode, Sampler::GetBuffer(), Sampler::Length(),
-            Settings.Time.InvalidFirst, Sampler::GetValid(), SampleRate() );
+            Settings.Time.InvalidFirst, Sampler::GetValidRaw(), SampleRate() );
         if ( Settings.Decode.protocol == Counter && Settings.Decode.cntSource == SourceSamples &&
              Sampler::GetSequence() != s_nSwSequence )
         {
@@ -709,7 +711,7 @@ static void FormatFreq(float f, char* buf)
             // start from the item in the middle of current view
             int nCenter = Settings.Time.Shift + CWndGraph::MaxX/2;
             n = 0;
-            while ( n < Decoder::Count-1 && Decoder::Get(n).end < nCenter )
+            while ( n < Decoder::Count-1 && Sampler::PhysToVirt( Decoder::Get(n).end ) < nCenter )
                 n++;
         } else
             n += nDir;
@@ -882,7 +884,7 @@ void CWndDecodeList::Create(CWnd* pParent)
     if ( m_nSel < 0 )
     {
         m_nSel = 0;
-        while ( m_nSel < Decoder::Count-1 && Decoder::Get(m_nSel).end < Settings.Time.Shift )
+        while ( m_nSel < Decoder::Count-1 && Sampler::PhysToVirt( Decoder::Get(m_nSel).end ) < Settings.Time.Shift )
             m_nSel++;
     }
     m_nFirst = max(0, m_nSel - Lines/2);
@@ -983,7 +985,7 @@ void CWndMenuDecode::ShowItem(int n)
         return;
     DecodeUi::Select( n );
     TAnnotation a = Decoder::Get(n);
-    int nShift = (a.begin + a.end)/2 - CWndGraph::MaxX/2;
+    int nShift = ( Sampler::PhysToVirt( a.begin ) + Sampler::PhysToVirt( a.end ) )/2 - CWndGraph::MaxX/2;
     int nMax = Sampler::Length() - CWndGraph::MaxX;
     if ( nShift > nMax )
         nShift = nMax;
@@ -1006,8 +1008,12 @@ void CWndMenuDecode::Refresh()
     static int nLastPulse = -1;
     if ( nLastCount != Decoder::Count || nLastSel != DecodeUi::Selected() )
         m_itmBrowse.Invalidate();
-    if ( nLastRate != Decoder::DetectedRate )
+    // the sample rate (fs) changes with the time base of a new capture
+    static float fLastFs = 0;
+    float fFs = DecodeUi::SampleRate();
+    if ( nLastRate != Decoder::DetectedRate || fLastFs != fFs )
         m_itmInfo.Invalidate();
+    fLastFs = fFs;
     if ( Settings.Decode.protocol == Pulse )
     {
         // redraw the PWM values only when they changed (in 0.1% steps)

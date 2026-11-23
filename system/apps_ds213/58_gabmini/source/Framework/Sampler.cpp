@@ -1,5 +1,6 @@
 #include <library.h>
 #include "Sampler.h"
+#include <Settings.h>
 
 namespace Sampler
 {
@@ -12,6 +13,60 @@ namespace Sampler
 	static int nValid = 0;
 	static uint32_t nSequence = 0;
 	static int nLength = Samples;
+	static int nCapRes = -1;        // time base of the samples (-1: not known)
+
+	static inline void _Captured()
+	{
+		nCapRes = (int)Settings.Time.Resolution;
+	}
+
+	// sample period of a time base in 1/72 us (DS203: the divider of the
+	// sampling clock, as BIOS::ADC::ConfigureTimebase); other devices: in ns
+	static int64_t _Period(int nRes)
+	{
+#if defined(DS203)
+		static const uint32_t arrDiv[] = {1, 2, 3, 5, 12, 24, 48, 120, 240, 480, 1200, 2400, 4800,
+			12000, 24000, 48000, 120000, 240000, 480000, 1200000, 2400000};
+		if ( nRes < 0 ) nRes = 0;
+		if ( nRes >= (int)(sizeof(arrDiv)/sizeof(arrDiv[0])) ) nRes = sizeof(arrDiv)/sizeof(arrDiv[0]) - 1;
+		return arrDiv[nRes];
+#else
+		return (int64_t)( CSettings::TimeBase::pfValueResolution[nRes] * 1e9f / 30.0f + 0.5f );
+#endif
+	}
+
+	bool Scaled()
+	{
+		return nCapRes >= 0 && nCapRes != (int)Settings.Time.Resolution &&
+			_Period( nCapRes ) != _Period( Settings.Time.Resolution );
+	}
+
+	int CaptureRes()
+	{
+		return nCapRes >= 0 ? nCapRes : (int)Settings.Time.Resolution;
+	}
+
+	static inline int64_t _FloorDiv(int64_t a, int64_t b)
+	{
+		return a >= 0 ? a / b : -((-a + b - 1) / b);
+	}
+
+	// the trigger position stays where it is
+	enum { Anchor = CSettings::Trigger::Position };
+
+	int VirtToPhys(int v)
+	{
+		if ( !Scaled() )
+			return v;
+		return Anchor + (int)_FloorDiv( (int64_t)(v - Anchor) * _Period( Settings.Time.Resolution ), _Period( nCapRes ) );
+	}
+
+	int PhysToVirt(int p)
+	{
+		if ( !Scaled() )
+			return p;
+		return Anchor + (int)_FloorDiv( (int64_t)(p - Anchor) * _Period( nCapRes ), _Period( Settings.Time.Resolution ) );
+	}
 
 	static inline void _Store(uint8_t* p, uint32_t value)
 	{
@@ -42,6 +97,7 @@ namespace Sampler
 
 	void RollStart(int nFirst)
 	{
+		_Captured();
 		if ( nFirst > nLength ) nFirst = nLength;
 		nValid = nFirst;
 		memset( memory, 0x80, nFirst * BytesPerSample );
@@ -49,6 +105,7 @@ namespace Sampler
 
 	void RollAppend(const uint32_t* pSamples, int nCount, int nFirst, int nWidth)
 	{
+		_Captured();
 		int nEnd = nFirst + nWidth;
 		if ( nEnd > nLength || nCount <= 0 )
 			return;
@@ -74,6 +131,7 @@ namespace Sampler
 
 	void Copy(bool bNew)
 	{
+		_Captured();
 		uint8_t* p = memory;
 		nValid = nLength;
 		if ( bNew )
@@ -92,9 +150,22 @@ namespace Sampler
 		return memory;
 	}
 
-	int GetValid()
+	int GetValidRaw()
 	{
 		return nValid;
+	}
+
+	int GetValid()
+	{
+		if ( !Scaled() )
+			return nValid;
+		// the virtual samples up to the end of the data, at most the buffer
+		int v = PhysToVirt( nValid );
+		while ( v > 0 && VirtToPhys( v - 1 ) >= nValid )
+			v--;
+		if ( v > nLength ) v = nLength;
+		if ( v < 0 ) v = 0;
+		return v;
 	}
 
 	uint32_t GetSequence()
@@ -102,12 +173,36 @@ namespace Sampler
 		return nSequence;
 	}
 
-	BIOS::ADC::TSample::SampleType GetAt(int i)
+	static inline BIOS::ADC::TSample::SampleType _Raw(int i)
 	{
 		i = (unsigned)i % Samples;
 		if ( i >= nValid )
 			return BIOS::ADC::NoData;
 		const uint8_t* p = memory + i * BytesPerSample;
 		return p[0] | (p[1] << 8) | ((p[2] & 0x03) << 16);
+	}
+
+	BIOS::ADC::TSample::SampleType GetAt(int i)
+	{
+		if ( !Scaled() )
+			return _Raw( i );
+		if ( i < 0 || i >= nLength )
+			return BIOS::ADC::NoData;
+		// position in the buffer: p0 + frac / den
+		int64_t den = _Period( nCapRes );
+		int64_t num = (int64_t)(i - Anchor) * _Period( Settings.Time.Resolution );
+		int64_t q = _FloorDiv( num, den );
+		int p0 = Anchor + (int)q;
+		int64_t frac = num - q * den;
+		if ( p0 < 0 || p0 >= nValid )
+			return BIOS::ADC::NoData;
+		uint32_t a = _Raw( p0 );
+		if ( frac == 0 || p0 + 1 >= nValid )
+			return a;
+		// stretched: CH1 / CH2 linear between two samples, CH3 / CH4 of the first
+		uint32_t b = _Raw( p0 + 1 );
+		int a1 = a & 0xff, b1 = b & 0xff, a2 = (a >> 8) & 0xff, b2 = (b >> 8) & 0xff;
+		int c1 = a1 + (int)((b1 - a1) * frac / den), c2 = a2 + (int)((b2 - a2) * frac / den);
+		return (uint32_t)c1 | ((uint32_t)c2 << 8) | (a & 0x30000);
 	}
 }

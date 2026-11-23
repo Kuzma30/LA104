@@ -24,6 +24,19 @@ namespace Sampler
 	int GetValid();     // samples received by the last Copy()
 	uint32_t GetSequence(); // incremented by every new acquisition
 
+	// Time base of the buffer: the samples were taken at the time base of
+	// the last Copy / roll. When the time base is changed later (stopped),
+	// GetAt / GetValid show the buffer as if it were sampled at the new time
+	// base (horizontal zoom around the trigger position): the trace, cursors,
+	// measurements, FFT and CSV follow the new time base. The decoders work
+	// on the raw buffer (GetBuffer, GetValidRaw) at CaptureRes(); their
+	// positions are converted with PhysToVirt / VirtToPhys.
+	bool Scaled();
+	int CaptureRes();
+	int GetValidRaw();
+	int PhysToVirt(int p);
+	int VirtToPhys(int v);
+
 	// roll mode: samples are appended to the window [nFirst, nFirst+nWidth),
 	// when it is full the older samples move to the left
 	void RollStart(int nFirst);

@@ -180,6 +180,7 @@ CWndMenuInput::CWndMenuInput()
 		m_wndComboSelector.StopModal();
 		CCoreOscilloscope::ConfigureAdc();
 		_ApplyTrigger();
+		MainWnd.WindowMessage( CWnd::WmBroadcast, ToWord('d', 'g') );
 	}
 	if ( code == ToWord('i', 'u') )
 	{
@@ -187,6 +188,10 @@ CWndMenuInput::CWndMenuInput()
 		// roll mode starts / ends with the timebase
 		m_itmBuffer.Invalidate();
 		MainWnd.m_wndZoomBar.Invalidate();
+		// stopped: the stored samples are shown at the new time base (zoom),
+		// redraw them now, not only with the next acquisition
+		MainWnd.m_wndTReferences.Invalidate();
+		MainWnd.WindowMessage( CWnd::WmBroadcast, ToWord('d', 'g') );
 	}
 	if ( code == ToWord('b', 'u') )
 	{
