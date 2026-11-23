@@ -115,6 +115,9 @@ All protocols with values: hex, decimal or ASCII (Format).
   frame); F2 back. Back with both set: the frames from X1 to X2 fill the
   screen; with one set: the view is centered on it.
 - At most 1024 frames per capture (status `1024 frames max`).
+- Status `lanes: F3 on Dec`: a signal the protocol needs has no lane (or
+  two signals share one); `trigger: F3 on Dec`: Trig is Decoder, but the
+  decoder is off or its trigger condition is off.
 - Host test of every decoder and trigger condition: `test/test_decode.cpp`
   (`g++ -std=c++17 -I../source test_decode.cpp && ./a.out`).
 

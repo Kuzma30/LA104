@@ -208,7 +208,9 @@ void CMainWnd::AutoSet()
 			m_lLastRequested = lNow;
 		}
 
-		if ( (Settings.Trig.Sync != CSettings::Trigger::_None) && triggered && !bStopped && !m_lHoldUntil )
+		// None: no trigger condition, the FPGA fills the buffer right after
+		// the restart: every full buffer is shown (free running)
+		if ( triggered && !bStopped && !m_lHoldUntil )
 		{
 			m_lLastAcquired = lNow;
 			Sampler::Copy();

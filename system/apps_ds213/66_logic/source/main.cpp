@@ -14,8 +14,11 @@
 //   F4            save VCD (BMP: screenshot, List / Dec: decoded frames,
 //                 X1 / X2: X1..X2 on the screen / whole capture)
 //
-// Protocol decoders (decode.h): UART, SPI, I2C, 1-Wire, any lanes; the
-// frames are drawn under the waveform of their lane and listed (List).
+// Protocol decoders (decode.h), those of the oscilloscope: UART, LIN, I2C,
+// SPI, 1-Wire, CAN, WS2812, NEC IR, PS/2, pulses, counter, encoder on any
+// lanes; the frames are drawn under the waveform of their lane and listed
+// (List). Protocol trigger (Trig: Decoder): a condition on the frames,
+// searched after every capture; without a match the analyzer captures again.
 
 #include <library.h>
 #include "fpga.h"

@@ -76,8 +76,8 @@ static uint32_t s_nConfigGeneration = 0;
 #ifdef DS203
 	if ( Settings.Time.Resolution == CSettings::TimeBase::_1s )
 	{
-		// the timebase table of the OS has ARR 999 for 1 s/div (72 Hz), the
-		// right one is 2399 (30 Hz, 30 samples per division) as in SYS
+		// 30 Hz (30 samples per division) as in SYS; older OS versions had
+		// ARR 999 (72 Hz) for 1 s/div in their timebase table
 		*(volatile uint32_t*)0x40012C28 = 1000-1;  // TIM1_PSC
 		*(volatile uint32_t*)0x40012C2C = 2400-1;  // TIM1_ARR
 		*(volatile uint32_t*)0x40012C34 = 1200;    // TIM1_CCR1

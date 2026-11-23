@@ -79,6 +79,8 @@ CSettings* CSettings::m_pInstance = NULL;
 		{ "Off", "On" };
 /*static*/ const char* const CSettings::Measure::ppszTextSource[] =
 		{ "CH1", "CH2", "Math" };
+// legacy lists of CSettings::Measure (kept for the settings file format);
+// the Meas tab uses the types of MeasCore (Settings.Extra.arrMeasType)
 /*static*/ const char* const CSettings::Measure::ppszTextType[] =
 		{ "Minimum", "Maximum", "Average", "RectAvg", "RMS", "Vpp", "Freq", "Period", "PWM %", "Delta+M", "Angle+M", "Time H", "Time L", 
 		"Rising", "Falling", "FormFact", "Sigma", "Variance", "Baud", "P(W)+M", "P(kW)+M", "Q(VAr)+M", "Q(kVA)+M", "S(VA)+M", 

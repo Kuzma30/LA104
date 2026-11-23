@@ -5,7 +5,8 @@
 // LA104: tab Tools
 //   Math     Off, A+B, A-B, B-A, A*B (A = CH1, B = CH2, in volts), Left / Right
 //   Math V/d scale of the math trace (V/div, for A*B V^2/div)
-//   FFT      Off, CH1, CH2: spectrum of 256 samples from the screen start
+//   FFT      Off, CH1, CH2: spectrum of 1024 samples from the screen start
+//            (256 with the buffer Buf:Scr), the peak interpolated between bins
 //   Ref      Off / On; Enter stores the CH1 trace as the reference
 //   CSV      Enter saves the samples to WAVnnn.CSV
 //   BMP      Enter saves the screen to SCRnnn.BMP

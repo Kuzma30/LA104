@@ -43,7 +43,7 @@ namespace MeasCore
 #if defined(DS203)
 		// FPGA sampling clock 72 MHz / (PSC+1) / (ARR+1), as BIOS::ADC::ConfigureTimebase
 		static const uint32_t arrDiv[] = {1, 2, 3, 5, 12, 24, 48, 120, 240, 480, 1200, 2400, 4800,
-			12000, 24000, 48000, 120000, 240000, 480000, 1200000, 1000000};
+			12000, 24000, 48000, 120000, 240000, 480000, 1200000, 2400000};
 		if ( n < 0 ) n = 0;
 		if ( n >= (int)COUNT(arrDiv) ) n = COUNT(arrDiv) - 1;
 		return 72e6f / arrDiv[n];

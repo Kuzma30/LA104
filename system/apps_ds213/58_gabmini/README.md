@@ -6,17 +6,22 @@ Keys: F1 run / stop, F2 back, F3 automatic setup (oscilloscope tabs), F4 enter.
 
 - **Input**: channels, time base (up to 1 s/div), window, trigger (F3 on
   the trigger item changes its source), Buf: Full (4096 samples) or Scr (one
-  screen, frames come much faster at slow time bases). Scan at 50 ms/div
-  and slower runs as a roll display. Norm / Single show TRIG (green) or
-  WAIT (yellow) at the top right of the graph. Channel list (Enter on CH1 /
+  screen, frames come much faster at slow time bases). Trigger modes:
+  Auto (triggered, without a trigger the screen is updated anyway after a
+  timeout), Norm (only triggered), Single (one capture, then stop), Scan
+  (no trigger; at 50 ms/div and slower a roll display), None (no trigger
+  condition, every full buffer is shown: free running). Norm / Single show
+  TRIG (green) or WAIT (yellow) at the top right of the graph. Channel list (Enter on CH1 /
   CH2): coupling, V/div, probe, position, Beam (trace width 1..3 px, like
   the focus of an analog scope), color.
 - **Cursor**: X1 / X2 / Y1 / Y2, dX and dY. Units follow the time base
   (ns, us, ms, s). Y1 / Y2 in mode A follow the signal at X1 / X2.
-- **Disp**: T-Y or X-Y (Lissajous), Points / Lines / Fill (the area between
+- **Disp**: T-Y or X-Y (Lissajous), Dots / Lines / Fill (the area between
   the trace and its 0 V level), averaging, Persist No / Yes / Phosph, grid.
 - **Decode**: UART, SPI, I2C, CAN, LIN, 1-Wire, WS2812, NEC, PS/2, pulses,
-  pulse counter, quadrature encoder (FPGA) ...
+  pulse counter, quadrature encoder (FPGA) ... With Counter and with
+  Encoder on the hardware counter the item List becomes Reset (the counted
+  value back to 0).
 - **Meas**: four automatic measurements and statistics.
   Up / Down selects M1..M4 or Stat, Left / Right the type, F4 the source.
   Types: Vpp, Vmax, Vmin, Vavg, Vrms (CH1 / CH2), Freq, Period, Duty,
@@ -47,6 +52,13 @@ Keys: F1 run / stop, F2 back, F3 automatic setup (oscilloscope tabs), F4 enter.
     the real 0 V and the voltages (cursors, measurements, math, CSV) are
     relative to it. Zero and gain of every range can be edited by hand
     with the separate application 65_minical (same file).
+
+## Generator
+
+Tabs Wave (waveform, frequency, amplitude, offset / level, duty), Mod
+(AM, FM, sweep), Edit (custom wave: Copy CH1 = one period of the captured
+CH1, Normalize, Invert, Edit point by point, Save / Load of the custom wave
+in GENWAVE.DAT on the disk, the label shows the result), PID.
 
 F3 automatic setup: V/div and position of CH1 / CH2 (the signal takes 4..6
 divisions in the middle), time base for 2.5..6 periods, rising edge

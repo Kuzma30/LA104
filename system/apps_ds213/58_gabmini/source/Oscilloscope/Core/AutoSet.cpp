@@ -30,7 +30,7 @@ namespace AutoSet
 	{
 #if defined(DS203)
 		static const uint32_t arrDiv[] = {1, 2, 3, 5, 12, 24, 48, 120, 240, 480, 1200, 2400, 4800,
-			12000, 24000, 48000, 120000, 240000, 480000, 1200000, 1000000};
+			12000, 24000, 48000, 120000, 240000, 480000, 1200000, 2400000};
 		if ( nRes >= (int)COUNT(arrDiv) )
 			nRes = COUNT(arrDiv) - 1;
 		return 72e6f / arrDiv[nRes];
