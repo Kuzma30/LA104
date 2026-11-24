@@ -104,6 +104,7 @@
 "Language" = "Мова"
 "Bright" = "Яскрав."
 "Volume" = "Гучність"
+"Battery" = "Батарея"
 "Double" = "Подв."
 
 # ---- меню Meas (MeasCore.cpp, MenuMeas.cpp)

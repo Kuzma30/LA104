@@ -165,6 +165,13 @@ void CMainWnd::AutoSet()
 	// battery icon of the toolbar (reads the voltage every 5 s)
 	if ( nMsg == WmTick && mWndToolBar.IsVisible() )
 		mWndToolBar.UpdateBattery();
+	// the battery voltage of the System tab, every 2 s
+	static long s_lSysPaint = 0;
+	if ( nMsg == WmTick && m_wndMenuSystem.IsVisible() && BIOS::SYS::GetTick() - s_lSysPaint > 2000 )
+	{
+		s_lSysPaint = BIOS::SYS::GetTick();
+		m_wndMenuSystem.m_itmSystem.Invalidate();
+	}
 	// trigger state label (Norm / Single), twice a second
 	static long s_lTrigPaint = 0;
 	if ( nMsg == WmTick && m_wndGraph.IsVisible() && BIOS::SYS::GetTick() - s_lTrigPaint > 500 )

@@ -36,7 +36,8 @@ public:
 class CItemSystem : public CWndMenuItem
 {
 public:
-	enum { Language, Brightness, Volume, SleepTime, Count };
+	// Battery: the voltage the SYS reports (read only)
+	enum { Language, Brightness, Volume, SleepTime, Battery, Count };
 	int m_nSel;
 	void Create( CWnd* pParent );
 	virtual void OnPaint() override;

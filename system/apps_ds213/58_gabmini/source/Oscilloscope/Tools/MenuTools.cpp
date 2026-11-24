@@ -676,7 +676,7 @@ void CItemTools::OnKey( int nKey )
 }
 
 // ---------------------------------------------------------------- system
-static const char* const s_arrSysIds[CItemSystem::Count] = { "Language", "Bright", "Volume", "Sleep" };
+static const char* const s_arrSysIds[CItemSystem::Count] = { "Language", "Bright", "Volume", "Sleep", "Battery" };
 static const char* const s_arrSleep[Sleep::Choices] = { "Off", "1 min", "2 min", "5 min", "10 min", "30 min" };
 static System::TLanguages s_langs;
 static char s_strLang[4];
@@ -726,7 +726,23 @@ void CItemSystem::OnPaint()
 				if ( System::Volume() <= 0 ) p = "Off";
 				else _Percent( str, System::Volume() );
 				break;
-			default: p = s_arrSleep[ Sleep::Choice() ]; break;
+			case SleepTime: p = s_arrSleep[ Sleep::Choice() ]; break;
+			default:
+			{
+				// BIOS attribute BatteryVoltage (SYS __Get(V_BATTERY)), mV
+				int mV = (int)BIOS::SYS::GetAttribute( BIOS::SYS::EAttribute::BatteryVoltage );
+				char* q = str;
+				if ( mV < 0 ) mV = 0;
+				if ( mV > 99999 ) mV = 99999;
+				*q++ = '0' + mV / 1000 % 10;
+				*q++ = '.';
+				*q++ = '0' + mV / 100 % 10;
+				*q++ = '0' + mV / 10 % 10;
+				*q++ = 'V';
+				*q = 0;
+				if ( mV >= 10000 ) strcpy( str, CUtils::itoa( mV ) );
+				break;
+			}
 		}
 		// the value with arrows when selected
 		int vx = x + 8;
@@ -748,7 +764,7 @@ void CItemSystem::OnKey( int nKey )
 		Invalidate();
 		return;
 	}
-	if ( nKey == BIOS::KEY::Down && m_nSel < Count - 1 )
+	if ( nKey == BIOS::KEY::Down && m_nSel < Count - 2 )   // Battery: not selectable
 	{
 		m_nSel++;
 		Invalidate();
