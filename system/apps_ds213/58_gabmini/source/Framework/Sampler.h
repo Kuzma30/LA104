@@ -26,6 +26,10 @@ namespace Sampler
 	// of CH1..CH4, rising / falling, level in ADC units) to the trigger
 	// position; returns the shift in samples
 	int AlignTrigger(int nSource, bool bRising, int nLevel);
+	// shift of the last AlignTrigger, AlignNone: not done, AlignNotFound: no
+	// crossing near the trigger position (diagnostic, shown next to TRIG)
+	enum { AlignNone = 0x7fff, AlignNotFound = 0x7ffe };
+	int LastAlign();
 	uint8_t* GetBuffer();
 	int GetValid();     // samples received by the last Copy()
 	uint32_t GetSequence(); // incremented by every new acquisition

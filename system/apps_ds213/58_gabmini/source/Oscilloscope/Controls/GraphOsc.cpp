@@ -253,6 +253,23 @@ void CWndOscGraph::PaintTrigState()
 	int x = m_rcClient.right - 4*8 - 4, y = m_rcClient.top + 2;
 	BIOS::LCD::Bar( x - 2, y, x + 4*8 + 2, y + 14, bWait ? RGB565(c0a000) : RGB565(00a000) );
 	UI::Print( x, y, RGB565(ffffff), RGBTRANS, bWait ? "WAIT" : "TRIG" );
+	// diagnostic: how far the edge was from the trigger mark of the FPGA
+	// (samples, "?" no crossing of the level near it)
+	int nAlign = Sampler::LastAlign();
+	if ( nAlign != Sampler::AlignNone )
+	{
+		char str[8];
+		if ( nAlign == Sampler::AlignNotFound )
+			strcpy( str, "  ?" );
+		else
+		{
+			str[0] = nAlign < 0 ? '-' : '+';
+			int a = nAlign < 0 ? -nAlign : nAlign;
+			if ( a > 999 ) a = 999;
+			str[1] = '0' + a / 100; str[2] = '0' + a / 10 % 10; str[3] = '0' + a % 10; str[4] = 0;
+		}
+		BIOS::LCD::Print( x - 6 * 8, y, RGB565(ffff00), RGB565(000000), str );
+	}
 }
 
 // X-Y (Lissajous figures): CH1 horizontal and CH2 vertical (Y-X swapped) in

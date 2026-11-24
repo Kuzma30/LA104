@@ -214,7 +214,15 @@ namespace Sampler
 	// (72 MS/s on the device). The edge itself is in the data: the crossing
 	// of the level nearest to the trigger position (at most TrigWindow
 	// samples away) is moved to the trigger position. Edge triggers only.
-	enum { TrigWindow = 24 };
+	// nearest crossing within the pretrigger part (half a period of the
+	// signal at most: a longer jump can not be told from the next edge)
+	enum { TrigWindow = 140 };
+	static int nLastAlign = AlignNone;
+
+	int LastAlign()
+	{
+		return nLastAlign;
+	}
 	static inline BIOS::ADC::TSample::SampleType _Raw(int i);
 
 	static inline int _Level(uint32_t v, int nSource)
@@ -230,8 +238,10 @@ namespace Sampler
 
 	int AlignTrigger(int nSource, bool bRising, int nLevel)
 	{
-		if ( nSource < 0 || nSource > 3 || nValid < Anchor + TrigWindow + 2 )
+		nLastAlign = AlignNone;
+		if ( nSource < 0 || nSource > 3 || nValid < Anchor + 2 )
 			return 0;
+		nLastAlign = AlignNotFound;
 		if ( nSource >= 2 )
 			nLevel = 127;
 		int nBest = -1;
@@ -246,9 +256,12 @@ namespace Sampler
 				if ( cross )
 					nBest = i;
 			}
-		if ( nBest < 0 || nBest == Anchor )
+		if ( nBest < 0 )
 			return 0;
 		int nShift = nBest - Anchor;
+		nLastAlign = nShift;
+		if ( nShift == 0 )
+			return 0;
 		if ( nShift > 0 )
 		{
 			// earlier: the end gets shorter
