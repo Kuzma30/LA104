@@ -27,7 +27,7 @@
 #include "gen.h"
 #include "../../65_minical/source/calib.h"
 #include "../../common/lang.h"
-#include "../../common/sleep.h"
+#include "../../common/system.h"
 
 using namespace BIOS;
 
@@ -2215,7 +2215,7 @@ int _main(void)
 {
   // the translation (scratch: the frames, empty at the start)
   Lang::Init("LOGIC", (uint8_t*)gFrames, sizeof(gFrames));
-  Sleep::Load();
+  System::Load();          // brightness, volume, sleep (SYSTEM.CFG)
   memset(gFrames, 0, sizeof(gFrames));
   LCD::Clear(clrBack);
   Text(8, 100, clrText, RGBTRANS, "Loading LAFPGA.BIN into the FPGA...");

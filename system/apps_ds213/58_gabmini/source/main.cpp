@@ -3,7 +3,7 @@
 #include "SettingsStore.h"
 #include "Oscilloscope/Meas/MeasCore.h"
 #include "Framework/UiText.h"
-#include "../../common/sleep.h"
+#include "../../common/system.h"
 
 // a signal in the last acquisition: CH1 / CH2 (on) vary by more than half
 // a division, or CH3 / CH4 (on) change
@@ -48,7 +48,7 @@ int _main(void)
         memset(scratch, 0, n);
     }
     SettingsStore::Load();
-    Sleep::Load();
+    System::Load();
     app.Create();
     // zero calibration of the channels (Tools: Zero cal)
     Tools::LoadCalibration();

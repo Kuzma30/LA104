@@ -1,5 +1,6 @@
 #ifndef __MESSAGEBOX_H__
 #define __MESSAGEBOX_H__
+#include "../../../common/system.h"
 
 class CWndMessageBox : public CWnd
 {
@@ -20,7 +21,7 @@ public:
 
 		CWnd::Create(strCaption, CWnd::WsVisible, CRect(40, 100, 360, 160), pParent);
 		StartModal();
-		BIOS::SYS::Beep(100);
+		System::Beep(100);
 		SetTimer(3000);
 	}
 

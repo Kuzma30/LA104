@@ -489,15 +489,14 @@ namespace Tools
 	}
 }
 
-#include "../../../../common/sleep.h"
+#include "../../../../common/system.h"
 
 // ---------------------------------------------------------------- item
 static const char* const s_arrMath[] = { "Off", "A+B", "A-B", "B-A", "A*B" };
 static const char* const s_arrFft[] = { "Off", "CH1", "CH2" };
-static const char* const s_arrIds[CItemTools::Count] = { "Math", "V/d", "FFT", "Ref", "Save CSV", "Save BMP", "Zero cal", "Sleep" };
-static const char* const s_arrSleep[Sleep::Choices] = { "Off", "1m", "2m", "5m", "10m", "30m" };
+static const char* const s_arrIds[CItemTools::Count] = { "Math", "V/d", "FFT", "Ref", "Save CSV", "Save BMP", "Zero cal" };
 // rows of a tool: label above the value, or both on one row
-static const uint8_t s_arrRows[CItemTools::Count] = { 2, 1, 1, 1, 2, 2, 2, 1 };
+static const uint8_t s_arrRows[CItemTools::Count] = { 2, 1, 1, 1, 2, 2, 2 };
 
 void CItemTools::Create( CWnd* pParent )
 {
@@ -532,7 +531,6 @@ void CItemTools::OnPaint()
 			case MathRes: p = CSettings::AnalogChannel::ppszTextResolution[ Settings.Extra.nMathRes ]; break;
 			case Fft: p = s_arrFft[ Settings.Extra.nFft ]; break;
 			case Ref: p = Settings.Extra.nRef ? "On" : "Off"; break;
-			case SleepTime: p = s_arrSleep[ Sleep::Choice() ]; break;
 			case Zero:
 				p = m_bArmed ? "sure? F4" : m_strInfo[2][0] ? m_strInfo[2] : "F4";
 				break;
@@ -602,19 +600,6 @@ void CItemTools::OnKey( int nKey )
 				bGraph = true;
 			}
 			break;
-		case SleepTime:
-			if ( bLeft || bRight )
-			{
-				int c = Sleep::Choice() + ( bRight ? 1 : -1 );
-				if ( c >= 0 && c < Sleep::Choices )
-				{
-					Sleep::SetChoice( c );
-					Sleep::Save();
-					Invalidate();
-				}
-				return;
-			}
-			break;
 		case Zero:
 			if ( bEnter )
 			{
@@ -673,6 +658,165 @@ void CItemTools::OnKey( int nKey )
 }
 
 /*virtual*/ void CWndMenuTools::OnMessage( CWnd* pSender, int code, uintptr_t data )
+{
+	if ( code == ToWord('L', 'D') )
+	{
+		MainWnd.m_wndGraph.ShowWindow( false );
+		MainWnd.m_wndLReferences.ShowWindow( false );
+		MainWnd.m_wndTReferences.ShowWindow( false );
+		return;
+	}
+	if ( code == ToWord('L', 'E') )
+	{
+		MainWnd.m_wndGraph.ShowWindow( true );
+		MainWnd.m_wndLReferences.ShowWindow( true );
+		MainWnd.m_wndTReferences.ShowWindow( true );
+		return;
+	}
+}
+
+// ---------------------------------------------------------------- system
+static const char* const s_arrSysIds[CItemSystem::Count] = { "Language", "Bright", "Volume", "Sleep" };
+static const char* const s_arrSleep[Sleep::Choices] = { "Off", "1 min", "2 min", "5 min", "10 min", "30 min" };
+static System::TLanguages s_langs;
+static char s_strLang[4];
+
+void CItemSystem::Create( CWnd* pParent )
+{
+	m_nSel = 0;
+	System::FindLanguages( s_langs );
+	System::CurrentLanguage( s_strLang );
+	CWndMenuItem::Create( NULL, RGB565(b0b0b0), Count * 2, pParent );
+}
+
+static char* _Percent( char* p, int v )
+{
+	if ( v >= 100 ) *p++ = '0' + v / 100;
+	if ( v >= 10 ) *p++ = '0' + v / 10 % 10;
+	*p++ = '0' + v % 10;
+	*p++ = '%';
+	*p = 0;
+	return p;
+}
+
+void CItemSystem::OnPaint()
+{
+	PaintGrayPanel( this, RGB565(b0b0b0) );
+	int x = m_rcClient.left + 12 + MarginLeft - 9;
+	int y = m_rcClient.top;
+	for ( int i = 0; i < Count; i++ )
+	{
+		ui16 clr = RGB565(000000);
+		if ( HasFocus() && i == m_nSel )
+		{
+			BIOS::LCD::Bar( x - 2, y, m_rcClient.right - 3, y + 33, RGB565(000000) );
+			clr = RGB565(ffffff);
+		}
+		UI::Print( x, y, clr, RGBTRANS, s_arrSysIds[i] );
+		char str[16];
+		const char* p = str;
+		switch ( i )
+		{
+			case Language: p = s_strLang; break;
+			case Brightness:
+				if ( Sleep::Brightness() <= 0 ) p = "SYS";
+				else _Percent( str, Sleep::Brightness() );
+				break;
+			case Volume:
+				if ( System::Volume() <= 0 ) p = "Off";
+				else _Percent( str, System::Volume() );
+				break;
+			default: p = s_arrSleep[ Sleep::Choice() ]; break;
+		}
+		// the value with arrows when selected
+		int vx = x + 8;
+		if ( HasFocus() && i == m_nSel )
+			vx += UI::Print( vx - 8, y + 16, clr, RGBTRANS, "\x11" );
+		vx += UI::Print( vx, y + 16, clr, RGBTRANS, p );
+		if ( HasFocus() && i == m_nSel )
+			UI::Print( vx, y + 16, clr, RGBTRANS, "\x10" );
+		y += 34;
+	}
+}
+
+void CItemSystem::OnKey( int nKey )
+{
+	bool bLeft = nKey == BIOS::KEY::Left, bRight = nKey == BIOS::KEY::Right;
+	if ( nKey == BIOS::KEY::Up && m_nSel > 0 )
+	{
+		m_nSel--;
+		Invalidate();
+		return;
+	}
+	if ( nKey == BIOS::KEY::Down && m_nSel < Count - 1 )
+	{
+		m_nSel++;
+		Invalidate();
+		return;
+	}
+	if ( !bLeft && !bRight )
+	{
+		CWndMenuItem::OnKey( nKey );
+		return;
+	}
+	int d = bRight ? 1 : -1;
+	switch ( m_nSel )
+	{
+		case Language:
+		{
+			int k = 0;
+			for ( int i = 0; i < s_langs.n; i++ )
+				if ( strcmp( s_langs.code[i], s_strLang ) == 0 )
+					k = i;
+			k = ( k + d + s_langs.n ) % s_langs.n;
+			if ( strcmp( s_langs.code[k], s_strLang ) == 0 )
+				return;
+			strcpy( s_strLang, s_langs.code[k] );
+			System::SetLanguage( s_strLang );
+			// the translation again (scratch: the sample memory, the
+			// acquisition starts again), then the whole screen
+			int n;
+			uint8_t* pScratch = Sampler::Scratch( n );
+			Lang::Init( "OSC", pScratch, n );
+			memset( pScratch, 0, n );
+			Sampler::SetLength( Sampler::Length() );
+			CCoreOscilloscope::ConfigureTrigger();
+			MainWnd.WindowMessage( CWnd::WmPaint );
+			return;
+		}
+		case Brightness:
+		{
+			int v = Sleep::Brightness() + d * 10;
+			if ( v < 0 ) v = 0;
+			if ( v > 100 ) v = 100;
+			if ( v == 0 && Sleep::Brightness() == 10 )
+				v = 10;     // SYS only at the start (the level of the SYS is not known)
+			Sleep::Brightness() = v;
+			System::ApplyBrightness();
+			break;
+		}
+		case Volume:
+		{
+			int v = System::Volume() + d * 10;
+			System::Volume() = v < 0 ? 0 : v > 100 ? 100 : v;
+			System::Beep( 60 );
+			break;
+		}
+		default:
+			Sleep::SetChoice( Sleep::Choice() + d );
+			break;
+	}
+	System::Save();
+	Invalidate();
+}
+
+/*virtual*/ void CWndMenuSystem::Create( CWnd* pParent, int dwFlags )
+{
+	CWnd::Create( "CWndMenuSystem", dwFlags, CRect( 320 - CWndMenuItem::MarginLeft, 20, 400, 240 ), pParent );
+	m_itmSystem.Create( this );
+}
+
+/*virtual*/ void CWndMenuSystem::OnMessage( CWnd* pSender, int code, uintptr_t data )
 {
 	if ( code == ToWord('L', 'D') )
 	{

@@ -1,8 +1,9 @@
 # Languages of the DS203 applications
 
-The language is chosen by the file `LANG.CFG` in the root of the disk: its
-first word is the language code (`UK`: Ukrainian). Without the file, or with
-`EN`, the applications are in English (built in).
+The language is chosen in the oscilloscope, tab System, row Language (EN
+and the directories of `LANG/`); it writes the file `LANG.CFG` in the root of
+the disk: its first word is the language code (`UK`: Ukrainian). Without the
+file, or with `EN`, the applications are in English (built in).
 
 The translations are text files on the disk, one per application:
 

@@ -18,14 +18,38 @@
 class CItemTools : public CWndMenuItem
 {
 public:
-	// Sleep: display off after minutes without keys and signal (SLEEP.CFG)
-	enum { Math, MathRes, Fft, Ref, Csv, Bmp, Zero, SleepTime, Count };
+	enum { Math, MathRes, Fft, Ref, Csv, Bmp, Zero, Count };
 	int m_nSel;
 	char m_strInfo[3][32];   // result of the last save (CSV, BMP), calibration
 	bool m_bArmed;           // Zero: first Enter asks, the second runs
 	void Create( CWnd* pParent );
 	virtual void OnPaint() override;
 	virtual void OnKey( int nKey ) override;
+};
+
+// LA104: tab System (system.h, shared with the logic analyzer)
+//   Language    EN or a directory of LANG/ (LANG.CFG), the texts change at once
+//   Brightness  SYS (as set at power up), 10..100 %
+//   Volume      of the beeper, Off, 10..100 % (a test beep)
+//   Sleep       Off, 1, 2, 5, 10, 30 minutes without keys and signal
+// brightness, volume, sleep: SYSTEM.CFG
+class CItemSystem : public CWndMenuItem
+{
+public:
+	enum { Language, Brightness, Volume, SleepTime, Count };
+	int m_nSel;
+	void Create( CWnd* pParent );
+	virtual void OnPaint() override;
+	virtual void OnKey( int nKey ) override;
+};
+
+class CWndMenuSystem : public CWnd
+{
+public:
+	CItemSystem m_itmSystem;
+
+	virtual void Create( CWnd* pParent, int dwFlags );
+	virtual void OnMessage( CWnd* pSender, int code, uintptr_t data ) override;
 };
 
 class CWndMenuTools : public CWnd

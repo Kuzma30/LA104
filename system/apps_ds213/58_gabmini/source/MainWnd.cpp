@@ -24,6 +24,7 @@ void CMainWnd::Create()
 	m_wndMenuDecode.Create( this, WsHidden );
 	m_wndMenuMeas.Create( this, WsHidden );
 	m_wndMenuTools.Create( this, WsHidden );
+	m_wndMenuSystem.Create( this, WsHidden );
 
 	// signal generator, the output keeps running in all tabs
 	m_wndSignalGraph.Create( this, WsHidden | WsNoActivate );

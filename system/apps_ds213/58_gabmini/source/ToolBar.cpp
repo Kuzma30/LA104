@@ -12,6 +12,7 @@
 		{ CBarItem::ISub,	(PSTR)"Decode", &MainWnd.m_wndMenuDecode},
 		{ CBarItem::ISub,	(PSTR)"Meas", &MainWnd.m_wndMenuMeas},
 		{ CBarItem::ISub,	(PSTR)"Tools", &MainWnd.m_wndMenuTools},
+		{ CBarItem::ISub,	(PSTR)"System", &MainWnd.m_wndMenuSystem},
 		{ CBarItem::IMain,	(PSTR)"Generator", nullptr},
 		{ CBarItem::ISub,	(PSTR)"Wave", &MainWnd.m_wndMenuGenerator},
 		{ CBarItem::ISub,	(PSTR)"Mod", &MainWnd.m_wndMenuGeneratorMod},

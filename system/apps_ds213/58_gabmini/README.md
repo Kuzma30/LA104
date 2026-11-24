@@ -117,12 +117,22 @@ An icon left of the first item of the toolbar shows the battery (SYS
 attribute BatteryVoltage, read every 5 s): 4 segments from 3.40 V (empty,
 a red line) to 4.10 V (full); green 3-4 segments, yellow 2, red 0-1.
 
-## Sleep of the display
+## System
 
-Tools, row `Sleep` (Off, 1m, 2m, 5m, 10m, 30m; default 5m, kept in
-`SLEEP.CFG`, used by the logic analyzer too): when no key was pressed and
-no signal was seen for that time, the backlight is switched off. A signal
-is CH1 / CH2 (on) varying by more than half a division or CH3 / CH4 (on)
-changing in an acquisition (checked every acquisition and every 2 s). Any
-key switches the backlight on again; that key does nothing else. The
-acquisition, the generator and the PID keep running.
+Tab `System` (after Tools; `common/system.h`, the logic analyzer uses the
+same settings):
+
+- Language: EN or a directory of `LANG/` (`LANG.CFG`); the texts change at
+  once (the acquisition starts again)
+- Bright: `SYS` (the level the SYS set at power up) or 10..100 % of the
+  backlight
+- Volume: Off or 10..100 % of the beeper (a test beep at a change)
+- Sleep: Off, 1, 2, 5, 10, 30 minutes (default 5): when no key was pressed
+  and no signal was seen for that time, the backlight is switched off; any
+  key switches it on again and does nothing else. A signal is CH1 / CH2 (on)
+  varying by more than half a division or CH3 / CH4 (on) changing (checked
+  every acquisition and every 2 s); the acquisition, the generator and the
+  PID keep running.
+
+Bright, Volume and Sleep are kept in `SYSTEM.CFG` (`sleep=5`, `bright=60`,
+`volume=50`).

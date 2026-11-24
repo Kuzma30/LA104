@@ -22,6 +22,7 @@ public:
 	CWndMenuDecode		m_wndMenuDecode;
 	CWndMenuMeas		m_wndMenuMeas;
 	CWndMenuTools		m_wndMenuTools;
+	CWndMenuSystem		m_wndMenuSystem;
 
 	CWndSigGraph		m_wndSignalGraph;
 	CWndMenuGenerator	m_wndMenuGenerator;

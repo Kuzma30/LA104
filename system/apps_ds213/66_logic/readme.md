@@ -241,9 +241,9 @@ with the decoders of the analyzer.
 keep the international units (S/s, Hz, s, V); protocol names, roles and the
 decoded frames stay as they are.
 
-## Sleep of the display
+## Brightness, volume, sleep
 
-As in the oscilloscope (the time is set there, Tools: `Sleep`, file
-`SLEEP.CFG`; default 5 minutes): no key and no capture with changes for
-that time switch the backlight off, any key switches it on (that key does
-nothing else).
+The settings of the System tab of the oscilloscope (`SYSTEM.CFG`) are used:
+brightness and volume at the start; sleep of the display: no key and no
+capture with changes for that time switch the backlight off, any key
+switches it on (that key does nothing else).

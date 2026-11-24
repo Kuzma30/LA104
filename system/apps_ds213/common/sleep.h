@@ -1,6 +1,6 @@
 #pragma once
 // Sleep of the display (DS203 applications): when no key was pressed and no
-// signal was seen for the time of SLEEP.CFG (minutes, 0: never), the
+// signal was seen for the time of SYSTEM.CFG (system.h; minutes, 0: never), the
 // backlight is switched off; any key switches it on again (the key is
 // used only for that).
 //
@@ -17,6 +17,8 @@
 namespace Sleep
 {
   enum { WakeLevel = 100 };
+  // the brightness set in the System menu (system.h), 0: not set (SYS)
+  inline int& Brightness() { static int n = 0; return n; }
   static const uint8_t arrMinutes[] = { 0, 1, 2, 5, 10, 30 };
   enum { Choices = sizeof(arrMinutes) };
 
@@ -81,8 +83,10 @@ namespace Sleep
       return false;
     s.bAsleep = false;
     // the SYS switches the backlight on (as it does it), the level of
-    // before comes from the compare registers
-    _Backlight(WakeLevel);
+    // before comes from the compare registers (or the brightness set)
+    _Backlight(Brightness() > 0 ? Brightness() : WakeLevel);
+    if (Brightness() > 0)
+      return true;
 #if defined(_ARM) && defined(DS203)
     for (int i = 0; i < s.nSaved; i++)
       *(volatile uint32_t*)s.arrAddr[i] = s.arrValue[i];
@@ -99,47 +103,6 @@ namespace Sleep
     int m = Minutes();
     if (!s.bAsleep && m > 0 && (int32_t)(BIOS::SYS::GetTick() - s.lLast) > m * 60000)
       Off();
-  }
-
-  // SLEEP.CFG: the minutes as text ("5"); the choice nearest to it
-  inline void Load()
-  {
-    uint8_t sector[512];
-    if (BIOS::FAT::Open("SLEEP.CFG", BIOS::FAT::IoRead) != BIOS::FAT::EOk)
-      return;
-    if (BIOS::FAT::Read(sector) == BIOS::FAT::EOk)
-    {
-      int v = 0, i = 0;
-      while (i < 8 && sector[i] >= '0' && sector[i] <= '9')
-        v = v * 10 + (sector[i++] - '0');
-      if (i > 0)
-      {
-        int best = 0;
-        for (int c = 1; c < Choices; c++)
-        {
-          int d1 = v - arrMinutes[c], d0 = v - arrMinutes[best];
-          if ((d1 < 0 ? -d1 : d1) < (d0 < 0 ? -d0 : d0)) best = c;
-        }
-        State().nChoice = best;
-      }
-    }
-    BIOS::FAT::Close();
-  }
-
-  inline bool Save()
-  {
-    uint8_t sector[512];
-    memset(sector, 0, sizeof(sector));
-    int m = Minutes(), n = 0;
-    if (m >= 10) sector[n++] = '0' + m / 10;
-    sector[n++] = '0' + m % 10;
-    sector[n++] = '\r';
-    sector[n++] = '\n';
-    if (BIOS::FAT::Open("SLEEP.CFG", BIOS::FAT::IoWrite) != BIOS::FAT::EOk)
-      return false;
-    bool ok = BIOS::FAT::Write(sector) == BIOS::FAT::EOk;
-    BIOS::FAT::Close(n);
-    return ok;
   }
 
   // the choice of the menus: 0..Choices-1
