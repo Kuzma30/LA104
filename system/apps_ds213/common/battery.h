@@ -6,10 +6,16 @@
 // typical), which does not depend on the supply of the ADC. ADC1 is not
 // used by the OS or the applications otherwise.
 #include <stdint.h>
+#include <stdlib.h>
 
 namespace Battery
 {
-  enum { VrefintMv = 1200, Divider = 2 };
+  // the internal reference measured against a voltmeter on the device of
+  // the author (1.20 V typical, +-3 %: 4.04 V shown for 4.12 V measured)
+  enum { VrefintMv = 1224, Divider = 2 };
+  // above it the node of PC2 is fed by the charger (USB), not the cell
+  enum { ExternalMv = 4350 };
+  inline bool External(int mV) { return mV > ExternalMv; }
 
 #if defined(_ARM) && defined(DS203)
   inline volatile uint32_t& _R(uint32_t a) { return *(volatile uint32_t*)a; }
@@ -71,6 +77,7 @@ namespace Battery
     return (int)((uint64_t)bat * VrefintMv * Divider / ref);
   }
 #else
-  inline int ReadMv() { return 3900; }
+  // PC renderers: OSC_BATT=mV (default 3900)
+  inline int ReadMv() { const char* e = getenv("OSC_BATT"); return e ? atoi(e) : 3900; }
 #endif
 }

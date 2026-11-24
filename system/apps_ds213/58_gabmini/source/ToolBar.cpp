@@ -39,10 +39,11 @@ static int _BatteryMv()
 #endif
 }
 
-// fill 0..4 segments: 3.40 V empty .. 4.10 V full
+// fill 0..4 segments: 3.40 V empty .. 4.10 V full, 5: USB (charger)
 static int _BatterySegments(int mV)
 {
 	if ( mV <= 0 ) return -1;
+	if ( Battery::External( mV ) ) return 5;
 	int n = ( mV - 3400 + 87 ) / 175;
 	return n < 0 ? 0 : n > 4 ? 4 : n;
 }
@@ -75,6 +76,12 @@ void CWndToolBar::PaintBattery()
 	// body 15 x 9 with a tip of 2 x 3, 4 segments of 2 px
 	uint16_t clrFrame = RGB565(ffffff);
 	uint16_t clrFill = nSeg >= 3 ? RGB565(00e000) : nSeg == 2 ? RGB565(e0e000) : RGB565(ff3030);
+	if ( nSeg == 5 )
+	{
+		// USB: full, cyan, with a plug in the middle
+		clrFill = RGB565(00c0ff);
+		nSeg = 4;
+	}
 	int bx = x + 1, by = y + 3;
 	BIOS::LCD::Bar( bx, by, bx + 15, by + 1, clrFrame );
 	BIOS::LCD::Bar( bx, by + 8, bx + 15, by + 9, clrFrame );
@@ -85,6 +92,11 @@ void CWndToolBar::PaintBattery()
 		BIOS::LCD::Bar( bx + 2, by + 2, bx + 3, by + 7, clrFill );   // empty: a red line
 	for ( int i = 0; i < nSeg; i++ )
 		BIOS::LCD::Bar( bx + 2 + i * 3, by + 2, bx + 4 + i * 3, by + 7, clrFill );
+	if ( clrFill == RGB565(00c0ff) )
+	{
+		BIOS::LCD::Bar( bx + 6, by + 1, bx + 7, by + 8, RGB565(000000) );
+		BIOS::LCD::Bar( bx + 4, by + 4, bx + 10, by + 5, RGB565(000000) );
+	}
 }
 
 /*virtual*/ void CWndToolBar::OnPaint()

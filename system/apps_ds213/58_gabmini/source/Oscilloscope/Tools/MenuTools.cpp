@@ -741,6 +741,8 @@ void CItemSystem::OnPaint()
 				*q++ = '0' + mV / 10 % 10;
 				*q++ = 'V';
 				*q = 0;
+				if ( Battery::External( mV ) )
+					strcpy( str + 3, "V USB" );    // "4.6V USB": fits the row
 				if ( mV >= 10000 ) strcpy( str, CUtils::itoa( mV ) );
 				break;
 			}

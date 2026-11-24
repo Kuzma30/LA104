@@ -118,6 +118,9 @@ An icon left of the first item of the toolbar shows the battery, read every
 segments, yellow 2, red 0-1. The voltage comes from PC2 (divider 1:2) with
 ADC1, channel 12, against the internal reference 1.20 V (common/battery.h); the SYS attribute
 V_BATTERY gives nothing under this OS. The System tab shows the voltage.
+The reference is calibrated on one device (1.224 V: 4.12 V measured, 4.04 V
+shown with 1.20 V). Above 4.35 V the node is fed by the charger (USB): the
+icon is full and cyan with a plug, the System tab shows "4.6V USB".
 
 ## System
 
