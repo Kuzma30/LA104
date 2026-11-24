@@ -1,5 +1,6 @@
 #include "ToolBar.h"
 #include "MainWnd.h"
+#include "../../common/battery.h"
 
 /*static*/ const CWndToolBar::CBarItem* CWndToolBar::GetMenuItems()
 {
@@ -24,15 +25,15 @@
 	return arrMenuItems;
 }
 
-// battery of the DS203 (one Li-ion cell): BIOS attribute BatteryVoltage (mV
-// from the SYS), 0 when the device does not report it
+// battery of the DS203 (one Li-ion cell): PC2 / ADC2 (common/battery.h; the
+// SYS attribute BatteryVoltage gives nothing under this OS)
 static int s_nBatteryMv = -1;
 static long s_lBatteryRead = 0;
 
 static int _BatteryMv()
 {
 #if defined(DS203)
-	return (int)BIOS::SYS::GetAttribute( BIOS::SYS::EAttribute::BatteryVoltage );
+	return Battery::ReadMv();
 #else
 	return 0;
 #endif

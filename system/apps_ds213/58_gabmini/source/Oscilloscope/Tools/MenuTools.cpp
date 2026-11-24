@@ -490,6 +490,7 @@ namespace Tools
 }
 
 #include "../../../../common/system.h"
+#include "../../../../common/battery.h"
 
 // ---------------------------------------------------------------- item
 static const char* const s_arrMath[] = { "Off", "A+B", "A-B", "B-A", "A*B" };
@@ -729,8 +730,8 @@ void CItemSystem::OnPaint()
 			case SleepTime: p = s_arrSleep[ Sleep::Choice() ]; break;
 			default:
 			{
-				// BIOS attribute BatteryVoltage (SYS __Get(V_BATTERY)), mV
-				int mV = (int)BIOS::SYS::GetAttribute( BIOS::SYS::EAttribute::BatteryVoltage );
+				// PC2 / ADC2 (common/battery.h), mV
+				int mV = Battery::ReadMv();
 				char* q = str;
 				if ( mV < 0 ) mV = 0;
 				if ( mV > 99999 ) mV = 99999;
