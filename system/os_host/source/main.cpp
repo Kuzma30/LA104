@@ -5,7 +5,7 @@
 
 // LA104: the last application starts at power up. Its name is kept in
 // LASTAPP.CFG on the disk, written only when it changes (no write for every
-// start). F2 / F3 held at power up (LA104: F2) starts the shell instead; an
+// start). F2 / F3 held while the OS starts (LA104: F2) starts the shell; an
 // application that does not load falls back to the shell. The flash is
 // written only when a section differs (Execute.cpp compares the ELF with
 // the flash before programming).
@@ -81,11 +81,20 @@ static void WriteLastApp(const char* name)
   BIOS::FAT::SetSharedBuffer(nullptr);
 }
 
-// F2 / F3 (LA104: F2) held at power up: no automatic start
+// F2 / F3 (LA104: F2) held when the OS starts: no automatic start. The
+// DS203 SYS takes keys held at power up itself (it stays on its screen and
+// beeps), so the key is pressed when the SYS screen is shown: the OS waits
+// 1.5 s for it, with a hint.
 static bool SkipAutostart()
 {
   uint32_t t0 = BIOS::SYS::GetTick();
-  while (BIOS::SYS::GetTick() - t0 < 100)
+#ifdef LA104
+  const uint32_t wait = 100;
+#else
+  const uint32_t wait = 1500;
+  BIOS::DBG::Print("F2: application list\n");
+#endif
+  while (BIOS::SYS::GetTick() - t0 < wait)
   {
     BIOS::KEY::EKey key = BIOS::KEY::GetKey();
 #ifdef LA104

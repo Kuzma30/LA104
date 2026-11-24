@@ -433,8 +433,10 @@ bool BIOS::OS::LoadExecutable(char* filename, uint32_t& entry, bool quiet)
                                           BIOS::DBG::Print("Symbol '");
                                           BIOS::DBG::Print(strSymbolName);
                                           BIOS::DBG::Print("' not found!\n");
+                                          // not started (the OS goes on: the shell
+                                          // after an automatic start, else F1 retries)
+                                          return false;
                                         }
-					_ASSERT(dwProcAddr);
 
 					// Execute only on ARM!
 					/*
