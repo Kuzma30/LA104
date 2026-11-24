@@ -116,7 +116,7 @@ bases (the FPGA mark moves by some samples at 72 MS/s).
 An icon left of the first item of the toolbar shows the battery, read every
 5 s: 4 segments from 3.40 V (empty, a red line) to 4.10 V (full); green 3-4
 segments, yellow 2, red 0-1. The voltage comes from PC2 (divider 1:2) with
-ADC2, channel 12, against VDDA 3.3 V (common/battery.h); the SYS attribute
+ADC1, channel 12, against the internal reference 1.20 V (common/battery.h); the SYS attribute
 V_BATTERY gives nothing under this OS. The System tab shows the voltage.
 
 ## System
