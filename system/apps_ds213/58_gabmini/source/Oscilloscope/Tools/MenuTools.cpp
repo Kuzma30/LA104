@@ -489,12 +489,15 @@ namespace Tools
 	}
 }
 
+#include "../../../../common/sleep.h"
+
 // ---------------------------------------------------------------- item
 static const char* const s_arrMath[] = { "Off", "A+B", "A-B", "B-A", "A*B" };
 static const char* const s_arrFft[] = { "Off", "CH1", "CH2" };
-static const char* const s_arrIds[CItemTools::Count] = { "Math", "V/d", "FFT", "Ref", "Save CSV", "Save BMP", "Zero cal" };
+static const char* const s_arrIds[CItemTools::Count] = { "Math", "V/d", "FFT", "Ref", "Save CSV", "Save BMP", "Zero cal", "Sleep" };
+static const char* const s_arrSleep[Sleep::Choices] = { "Off", "1m", "2m", "5m", "10m", "30m" };
 // rows of a tool: label above the value, or both on one row
-static const uint8_t s_arrRows[CItemTools::Count] = { 2, 1, 1, 1, 2, 2, 2 };
+static const uint8_t s_arrRows[CItemTools::Count] = { 2, 1, 1, 1, 2, 2, 2, 1 };
 
 void CItemTools::Create( CWnd* pParent )
 {
@@ -529,6 +532,7 @@ void CItemTools::OnPaint()
 			case MathRes: p = CSettings::AnalogChannel::ppszTextResolution[ Settings.Extra.nMathRes ]; break;
 			case Fft: p = s_arrFft[ Settings.Extra.nFft ]; break;
 			case Ref: p = Settings.Extra.nRef ? "On" : "Off"; break;
+			case SleepTime: p = s_arrSleep[ Sleep::Choice() ]; break;
 			case Zero:
 				p = m_bArmed ? "sure? F4" : m_strInfo[2][0] ? m_strInfo[2] : "F4";
 				break;
@@ -596,6 +600,19 @@ void CItemTools::OnKey( int nKey )
 				Tools::StoreRef();
 				e.nRef = 1;
 				bGraph = true;
+			}
+			break;
+		case SleepTime:
+			if ( bLeft || bRight )
+			{
+				int c = Sleep::Choice() + ( bRight ? 1 : -1 );
+				if ( c >= 0 && c < Sleep::Choices )
+				{
+					Sleep::SetChoice( c );
+					Sleep::Save();
+					Invalidate();
+				}
+				return;
 			}
 			break;
 		case Zero:

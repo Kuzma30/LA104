@@ -18,7 +18,8 @@
 class CItemTools : public CWndMenuItem
 {
 public:
-	enum { Math, MathRes, Fft, Ref, Csv, Bmp, Zero, Count };
+	// Sleep: display off after minutes without keys and signal (SLEEP.CFG)
+	enum { Math, MathRes, Fft, Ref, Csv, Bmp, Zero, SleepTime, Count };
 	int m_nSel;
 	char m_strInfo[3][32];   // result of the last save (CSV, BMP), calibration
 	bool m_bArmed;           // Zero: first Enter asks, the second runs

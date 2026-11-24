@@ -27,6 +27,7 @@
 #include "gen.h"
 #include "../../65_minical/source/calib.h"
 #include "../../common/lang.h"
+#include "../../common/sleep.h"
 
 using namespace BIOS;
 
@@ -222,6 +223,17 @@ namespace
     const char* t = Lang::T(key);
     return t == key ? en : t;
   }
+  // a key, with the sleep of the display (SLEEP.CFG, set in the
+  // oscilloscope): a key that wakes the display is used only for that
+  KEY::EKey Key()
+  {
+    Sleep::Tick();
+    KEY::EKey key = KEY::GetKey();
+    if (key != KEY::None && Sleep::Wake())
+      return KEY::None;
+    return key;
+  }
+
   // appends the translation of en, returns the end
   char* Put(char* p, const char* en)
   {
@@ -956,6 +968,9 @@ namespace
     gTrig = gPreWords > 0 && trig > 0 ? trig - 1 : 0;
     gRate = 72e6f / arrDiv[nRate];
     gHave = true;
+    // a signal: the display stays on
+    if (gEvents > 2)
+      Sleep::Activity();
     return true;
   }
 
@@ -1817,7 +1832,7 @@ namespace
     DrawSetup(sel, top);
     while (true)
     {
-      KEY::EKey key = KEY::GetKey();
+      KEY::EKey key = Key();
       if (key == KEY::None)
         continue;
       if (key == KEY::Escape || key == KEY::F3 || key == KEY::F4)
@@ -1945,7 +1960,7 @@ namespace
     DrawList(top, sel);
     while (true)
     {
-      KEY::EKey key = KEY::GetKey();
+      KEY::EKey key = Key();
       if (key == KEY::None)
         continue;
       if (key == KEY::Escape) break;
@@ -2200,6 +2215,7 @@ int _main(void)
 {
   // the translation (scratch: the frames, empty at the start)
   Lang::Init("LOGIC", (uint8_t*)gFrames, sizeof(gFrames));
+  Sleep::Load();
   memset(gFrames, 0, sizeof(gFrames));
   LCD::Clear(clrBack);
   Text(8, 100, clrText, RGBTRANS, "Loading LAFPGA.BIN into the FPGA...");
@@ -2244,7 +2260,7 @@ int _main(void)
 
   while (true)
   {
-    KEY::EKey key = KEY::GetKey();
+    KEY::EKey key = Key();
     if (key != KEY::None && !OnKey(key))
       break;
     if (eRun != Idle)

@@ -116,3 +116,13 @@ bases (the FPGA mark moves by some samples at 72 MS/s).
 An icon left of the first item of the toolbar shows the battery (SYS
 attribute BatteryVoltage, read every 5 s): 4 segments from 3.40 V (empty,
 a red line) to 4.10 V (full); green 3-4 segments, yellow 2, red 0-1.
+
+## Sleep of the display
+
+Tools, row `Sleep` (Off, 1m, 2m, 5m, 10m, 30m; default 5m, kept in
+`SLEEP.CFG`, used by the logic analyzer too): when no key was pressed and
+no signal was seen for that time, the backlight is switched off. A signal
+is CH1 / CH2 (on) varying by more than half a division or CH3 / CH4 (on)
+changing in an acquisition (checked every acquisition and every 2 s). Any
+key switches the backlight on again; that key does nothing else. The
+acquisition, the generator and the PID keep running.
