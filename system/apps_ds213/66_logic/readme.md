@@ -7,6 +7,10 @@ changes, at the sample rate of the time base up to **72 MS/s**:
 
 - 4095 changes per capture; a quiet line takes no space (one word covers
   up to 16384 samples, longer runs take more words)
+- A and B (the ADC against a threshold) work up to 36 MS/s; at 72 MS/s
+  only C and D are captured: the channels on are those of the setting
+  without A, B (C and D when none is left), the item `ABCD` offers only
+  CD, C, D, and the setting comes back at the lower rates
 - **channels on** (item `ABCD`, FPGA image 9.02): 1 to 4 channels; a
   channel that is off takes no words, so all 4095 words hold the changes
   of the channels that are on (with 1 channel of 4 equally busy ones about

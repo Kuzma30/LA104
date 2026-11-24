@@ -123,6 +123,22 @@ namespace
   const uint8_t arrLanes[] = { 15, 7, 11, 13, 14, 3, 12, 5, 6, 9, 10, 1, 2, 4, 8 };
   const int LaneSets = sizeof(arrLanes);
   int nLanes = 0;                       // index of arrLanes
+  // A, B (the ADC against a threshold) do not work at 72 MS/s, only C, D:
+  // at that rate the channels on are those of the setting without A, B
+  // (C and D when none is left), the setting itself is kept for the
+  // lower rates
+  const uint8_t MaskCD = 3;             // C | D (bitLane)
+  bool Fast() { return arrDiv[nRate] == 1; }
+  uint8_t LanesOn()
+  {
+    uint8_t m = arrLanes[nLanes];
+    if (Fast())
+    {
+      m &= MaskCD;
+      if (!m) m = MaskCD;
+    }
+    return m;
+  }
   enum { LaVersion = 901, LaVersionMask = 902 };
   int gLaVersion = 0;                   // of the loaded image
   uint8_t gCapMask = 15;                // channels on in the capture shown
@@ -460,7 +476,7 @@ namespace
   uint8_t ShownMask()
   {
     if (gHave) return gCapMask;
-    return gLaVersion >= LaVersionMask ? arrLanes[nLanes] : 15;
+    return gLaVersion >= LaVersionMask ? LanesOn() : 15;
   }
 
   // top and height of a lane, false when hidden
@@ -674,8 +690,9 @@ namespace
       {
         // the letters of the channels on: A B C D
         static const uint8_t bit[4] = { 4, 8, 1, 2 };
+        uint8_t m = gLaVersion >= LaVersionMask ? LanesOn() : 15;
         for (int l = 0; l < 4; l++)
-          if (arrLanes[nLanes] & bit[l]) *p++ = "ABCD"[l];
+          if (m & bit[l]) *p++ = "ABCD"[l];
         *p = 0;
         break;
       }
@@ -883,8 +900,8 @@ namespace
     gCapMask = 15;
     if (gLaVersion >= LaVersionMask)
     {
-      Fpga::SetParam(0x16, arrLanes[nLanes]);
-      gCapMask = arrLanes[nLanes];
+      Fpga::SetParam(0x16, LanesOn());
+      gCapMask = LanesOn();
     }
     ADC::Restart(0);
     // the shot of the generator when the trigger is armed: after the
@@ -1996,7 +2013,20 @@ namespace
   {
     switch (nItem)
     {
-      case ItRate: nRate = max(0, min(Rates - 1, nRate - d)); break;   // right: faster
+      case ItRate:
+      {
+        bool wasFast = Fast();
+        nRate = max(0, min(Rates - 1, nRate - d));   // right: faster
+        if (Fast() && !wasFast)
+        {
+          if (gLaVersion < LaVersionMask)
+            Status(clrWarn, "A, B: max 36MS/s");
+          else if (arrLanes[nLanes] & ~MaskCD)
+            Status(clrWarn, "72MS/s: only C, D");
+        }
+        if (!gHave) DrawPlot();
+        break;
+      }
       case ItTrig: nTrig = (nTrig + d + Trigs) % Trigs; break;
       case ItPre: nPre = max(0, min(4, nPre + d)); break;
       case ItThrA: case ItThrB:
@@ -2008,7 +2038,16 @@ namespace
       case ItMode: bRepeat = !bRepeat; break;
       case ItLanes:
         if (gLaVersion < LaVersionMask) { Status(clrWarn, "needs LAFPGA.BIN 9.02"); return; }
-        nLanes = (nLanes + d + LaneSets) % LaneSets;
+        // at 72 MS/s only the sets of C, D (and a different one)
+        {
+          uint8_t before = LanesOn();
+          for (int i = 0; i < LaneSets; i++)
+          {
+            nLanes = (nLanes + d + LaneSets) % LaneSets;
+            if (!Fast() || (!(arrLanes[nLanes] & ~MaskCD) && LanesOn() != before))
+              break;
+          }
+        }
         if (!gHave) DrawPlot();
         break;
       case ItView:

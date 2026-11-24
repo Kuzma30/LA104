@@ -57,6 +57,8 @@
 "decoder off" = "декодер вимкнено"
 "no frames" = "немає кадрів"
 "needs LAFPGA.BIN 9.02" = "потрібен LAFPGA.BIN 9.02"
+"72MS/s: only C, D" = "72MS/s: лише C, D"
+"A, B: max 36MS/s" = "A, B: макс. 36MS/s"
 "settings repaired" = "налаштування виправлено"
 "stack overflow!" = "переповнення стека!"
 "square off" = "меандр вимкнено"
