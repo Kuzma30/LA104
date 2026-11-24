@@ -100,3 +100,13 @@ controls (gui/Controls.h, `GUI_TEXT`) are translated as whole strings.
 Values keep the international units; protocol names and decoded frames stay
 as they are. Flash: the program up to 144 KB at 0x08040000, the compiled
 translation 16 KB at 0x08064000.
+
+## Trigger
+
+The edge trigger of the FPGA has a hysteresis of 12 ADC steps (about half a
+division at 25 steps / div): the level must be at least that far from the
+top and the bottom of the signal, otherwise the trigger fires anywhere on
+the flat part and the trace moves. After a triggered capture the crossing of
+the level nearest to the trigger position (at most 24 samples away) is moved
+to the trigger position, so the trace does not jitter at the fastest time
+bases (the FPGA mark moves by some samples at 72 MS/s).

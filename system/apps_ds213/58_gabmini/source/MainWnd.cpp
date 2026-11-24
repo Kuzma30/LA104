@@ -214,6 +214,9 @@ void CMainWnd::AutoSet()
 		{
 			m_lLastAcquired = lNow;
 			Sampler::Copy();
+			// the edge at the trigger position (the FPGA mark moves at 72 MS/s)
+			if ( Settings.Trig.Type == CSettings::Trigger::_EdgeLH || Settings.Trig.Type == CSettings::Trigger::_EdgeHL )
+				Sampler::AlignTrigger( (int)Settings.Trig.Source, Settings.Trig.Type == CSettings::Trigger::_EdgeLH, Settings.Trig.nLevel );
 			if ( Settings.Trig.Sync == CSettings::Trigger::_Single )
 			{
 				// keep the captured waveform, any trigger change re-arms

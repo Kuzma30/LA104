@@ -22,6 +22,10 @@ namespace Sampler
 	void Copy(bool bNew = true);
 	// sample in the BIOS::ADC::TSample layout, NoData after the valid part
 	BIOS::ADC::TSample::SampleType GetAt(int);
+	// moves the level crossing nearest to the trigger position (edge trigger
+	// of CH1..CH4, rising / falling, level in ADC units) to the trigger
+	// position; returns the shift in samples
+	int AlignTrigger(int nSource, bool bRising, int nLevel);
 	uint8_t* GetBuffer();
 	int GetValid();     // samples received by the last Copy()
 	uint32_t GetSequence(); // incremented by every new acquisition

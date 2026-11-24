@@ -209,6 +209,63 @@ namespace Sampler
 		}
 	}
 
+	// The FPGA marks the trigger in its sample clock, but at the fastest
+	// time bases the mark moves by some samples from capture to capture
+	// (72 MS/s on the device). The edge itself is in the data: the crossing
+	// of the level nearest to the trigger position (at most TrigWindow
+	// samples away) is moved to the trigger position. Edge triggers only.
+	enum { TrigWindow = 24 };
+	static inline BIOS::ADC::TSample::SampleType _Raw(int i);
+
+	static inline int _Level(uint32_t v, int nSource)
+	{
+		switch ( nSource )
+		{
+			case 0: return v & 0xff;
+			case 1: return (v >> 8) & 0xff;
+			case 2: return (v >> 16) & 1 ? 255 : 0;
+			default: return (v >> 17) & 1 ? 255 : 0;
+		}
+	}
+
+	int AlignTrigger(int nSource, bool bRising, int nLevel)
+	{
+		if ( nSource < 0 || nSource > 3 || nValid < Anchor + TrigWindow + 2 )
+			return 0;
+		if ( nSource >= 2 )
+			nLevel = 127;
+		int nBest = -1;
+		for ( int d = 0; d <= TrigWindow && nBest < 0; d++ )
+			for ( int sgn = 0; sgn < 2 && nBest < 0; sgn++ )
+			{
+				int i = Anchor + ( sgn ? -d : d );
+				if ( i < 1 || i >= nValid )
+					continue;
+				int a = _Level( _Raw( i - 1 ), nSource ), b = _Level( _Raw( i ), nSource );
+				bool cross = bRising ? ( a <= nLevel && b > nLevel ) : ( a >= nLevel && b < nLevel );
+				if ( cross )
+					nBest = i;
+			}
+		if ( nBest < 0 || nBest == Anchor )
+			return 0;
+		int nShift = nBest - Anchor;
+		if ( nShift > 0 )
+		{
+			// earlier: the end gets shorter
+			memmove( memory, memory + nShift * BytesPerSample, (nValid - nShift) * BytesPerSample );
+			nValid -= nShift;
+		} else
+		{
+			// later: the first samples repeat the first one
+			int n = -nShift;
+			int nKeep = nValid - n;
+			memmove( memory + n * BytesPerSample, memory, nKeep * BytesPerSample );
+			for ( int i = 0; i < n; i++ )
+				memcpy( memory + i * BytesPerSample, memory + n * BytesPerSample, BytesPerSample );
+		}
+		return nShift;
+	}
+
 	uint8_t* GetBuffer()
 	{
 		return memory;
