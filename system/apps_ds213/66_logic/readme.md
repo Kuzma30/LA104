@@ -30,12 +30,12 @@ changes, at the sample rate of the time base up to **72 MS/s**:
   (`LA000.BMP` ..)
 - **protocol decoders** (as in the oscilloscope): UART, LIN, I2C, SPI,
   1-Wire, CAN, WS2812, NEC IR, PS/2, pulse width, edge counter, quadrature
-  encoder on any lanes; the frames under the waveform, a list of them, CSV
+  encoder, USB (low / full speed) on any lanes; the frames under the waveform, a list of them, CSV
   files (`LA000.CSV` ..)
 - **generator** on the Wave Out connector (3.3 V logic): single pulse of a
   set width (a reset), square wave, burst of pulses, test signals for the
-  decoders (UART, LIN, CAN, 1-Wire, NEC IR, pulses), also fired with every
-  capture
+  decoders (UART, LIN, CAN, 1-Wire, NEC IR, WS2812, pulses), also fired with
+  every capture
 - **protocol trigger**: a condition on the decoded frames (value / mask,
   I2C write or read address, SPI command, CAN ID, error, NACK, pulse
   width ...), followed by a value, n-th occurrence; captures again until
@@ -54,7 +54,7 @@ changes, at the sample rate of the time base up to **72 MS/s**:
   used for the thresholds of A and B.
 
 Needs the STM32F103VE (512 KB flash, 64 KB RAM) of the DS203 HW 2.6x / 2.7x:
-code at 0x08068000 (52 KB, then 12 KB for the compiled translation), the
+code at 0x08068000 (56 KB, then 8 KB for the compiled translation), the
 capture (16 KB) in the RAM at 0x2000C000.
 
 ## Screen and keys
@@ -119,8 +119,41 @@ against their thresholds), C, D; optional ones can be "-".
 | Pulse | In (C) | high or low pulses: width, period, frequency, duty cycle | mean frequency, duty cycle |
 | Counter | In (C) | rising, falling or both edges, numbered | number of edges |
 | Encoder | A (C), B (D), Z (optional) | x4 / x2 / x1, direction, Z polarity: runs of steps, Z with the steps per revolution, A / B errors | steps, per revolution, speed |
+| USB | D+ (C), D- (D) | speed auto / full 12 Mbit/s / low 1.5 Mbit/s; PID, address.endpoint of tokens, SOF frame number, data, CRC5 / CRC16, handshakes, the setup request (type, name, value, index, length), reset, keep-alive, errors | bit rate, FS / LS |
 
 All protocols with values: hex, decimal or ASCII (Format).
+
+### USB
+
+After the USB analyzer of Petteri Aimonen for the DSO Quad
+(github.com/PetteriAimonen/dso-quad-usb-analyzer): there an FPGA image
+decoded the packets at 72 MHz, here the decoder runs on the captured
+changes of the lines (the code is shared with the oscilloscope:
+`../common/usbdecode.h`, host test `../common/test/usb_test.cpp`).
+
+- Connect D+ to C and D- to D (C and D work at 72 MS/s; 3.3 V lines, C / D
+  take at most 5 V) and the ground. Full speed: **72 MS/s** (6 samples per
+  bit; 36 MS/s works with 3, less is `rate too low`); low speed: 12 MS/s or
+  more.
+- Speed auto: the idle state of the lines (J: D+ high = full speed, D-
+  high = low speed) and the length of the bits; `D+/D-?` when they look
+  swapped (it is decoded anyway).
+- Frames: the PID (the box covers SYNC and PID; `PID!` when its check
+  nibble is wrong), `A5.1` address 5 endpoint 1 of IN / OUT / SETUP / PING,
+  `F1234` the frame number of SOF, data bytes, `CRC` / `CRC!` (CRC5 of
+  tokens, CRC16 of data), ACK / NAK / STALL / NYET. The 8 data bytes after
+  SETUP are the request: `IN std dev`, `GET_DESCRIPTOR`, `DEVICE 0`,
+  `I:0409`, `L:18` (standard, HID, CDC and mass storage names). `RESET`:
+  SE0 of 2.5 us or more (the list shows its length), `EOP`: keep-alive of
+  low speed. Errors: `SYNC!`, `STUFF!` (7 ones), `LEN!` (wrong length for
+  the PID), `BITS!` (incomplete byte before EOP), `EOP!` (no EOP), `SE1!`.
+- A capture of 4095 changes at 72 MS/s holds a few hundred bytes of full
+  speed traffic (an idle bus takes no space: SOF packets 1 ms apart fit).
+  For one transfer use the protocol trigger, e.g. "setup request" 0x06
+  (GET_DESCRIPTOR) or "PID" 0xD (SETUP) then next 0x000 (address 0).
+- The trigger edge while waiting for the protocol trigger is the start of
+  a packet on D+: falling (full speed, auto), rising (low speed: set the
+  speed to low).
 
 - A decoded lane shows the waveform in its upper half and the frames below
   it: a box from the first to the last bit with the text inside when it
@@ -165,6 +198,7 @@ the setup page of the decoder, part "Trigger":
 | Pulse | width > t, width < t, period > t (t in us) |
 | Counter | edge number n |
 | Encoder | index Z, A / B error |
+| USB | PID (4 bits / mask), token address (address \| endpoint << 7 / mask: 0x7F for the address only), setup request (bRequest / mask), data, reset, error (CRC, PID, stuffing, length ...) |
 
 - **Value / Mask**: the bits of the mask are compared (mask 0x7F with an
   I2C address, 0xF0 for a group of values ...).
@@ -203,7 +237,7 @@ The setup is kept in `LOGICGEN.CFG`.
 | single pulse | width 1 us .. 59 s (in us), active high or low | the level changes at once, back after the width (TIM7, exact to 1/72 us); e.g. the reset of a circuit |
 | square wave | frequency 1 Hz .. 18 MHz, duty 1 .. 99 % | TIM4 PWM, runs until F4 again or another mode; the real frequency is shown |
 | burst | 1 .. 1000 pulses, frequency, duty, polarity | n pulses, then idle (tests of counters, the Counter / Pulse decoders) |
-| test of the decoder | the protocol and settings of the decoder (Dec); the interface settings (baud / bit rate, bits, parity, stop bits, polarity) are also on the page of the generator: the same values | one frame or message: UART (text "Hello DS203!" or the 4 bytes of Value, bits, parity, stop, polarity and baud rate of the decoder; auto: 115200), LIN (break, sync, PID = Value & 3F, 2 data bytes from Value, enhanced checksum), CAN (ID = Value, 29 bit when > 7FF, 4 data bytes, CRC, stuffing, ACK; auto: 125 k), 1-Wire (reset, presence, Skip ROM, function command = Value), NEC IR (address, command from Value), Pulse / Counter (burst) |
+| test of the decoder | the protocol and settings of the decoder (Dec); the interface settings (baud / bit rate, bits, parity, stop bits, polarity) are also on the page of the generator: the same values | one frame or message: UART (text "Hello DS203!" or the 4 bytes of Value, bits, parity, stop, polarity and baud rate of the decoder; auto: 115200), LIN (break, sync, PID = Value & 3F, 2 data bytes from Value, enhanced checksum), CAN (ID = Value, 29 bit when > 7FF, 4 data bytes, CRC, stuffing, ACK; auto: 125 k), 1-Wire (reset, presence, Skip ROM, function command = Value), NEC IR (address, command from Value), WS2812 (1 .. 14 LEDs: 7 test colors or Value 0xRRGGBB for all, color order of the decoder), Pulse / Counter (burst) |
 
 The line at the bottom of the generator page shows what will be generated
 and, when the sample rate of the analyzer is too low to see it, the rate
@@ -217,9 +251,21 @@ armed, so a trigger on the edge of the generated signal catches it: a
 self test of the decoders and of the protocol trigger without any other
 device. The title shows `+Gen` then.
 
-Protocols with two or more lines (I2C, SPI, PS/2, encoder) cannot be
-generated with one output; WS2812 is too fast for the DMA (at most 4 M
-changes per second). One shot is a table of at most 1024 levels written by
+Protocols with two or more lines (I2C, SPI, PS/2, encoder, USB) cannot be
+generated with one output.
+
+**WS2812** is made as in the LED strip tester (`apps_featured/test63_ws2812`):
+every bit is 3 slots of a stream, 1 = `110`, 0 = `100` (there SPI bytes
+from a table, bit-banged with the interrupts off at 444 ns per slot). Here
+the slots are the DMA table at 2.4 MHz: 0.417 us per slot, T0H 0.42 us,
+T1H 0.83 us, 1.25 us per bit (800 kbit/s), timed by TIM7, so the CPU and
+the interrupts keep running. 72 slots per LED: at most 14 LEDs. The line
+is low before the frame (the idle level: a reset for a strip that was
+quiet 50 us) and after it (latch). Test colors at 1/4 brightness: red,
+green, blue, yellow, cyan, magenta, white, again from the 8th LED. Wave Out
+can drive the DIN of a strip directly (3.3 V; most WS2812B take it, a 5 V
+strip may need a level shifter) and lane C at the same time; the analyzer
+at 9 MS/s or more shows the colors (`rate>=6.40MS/s` on the setup page). One shot is a table of at most 1024 levels written by
 DMA2 to GPIOB_BSRR at a TIM7 rate; the samples per bit are chosen so that
 the bit rate is exact or the error is the smallest (shown on the setup
 page). Host test: `test/test_gen.cpp` decodes every generated test signal

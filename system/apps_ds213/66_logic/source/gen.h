@@ -2,7 +2,7 @@
 // Generator of the logic analyzer: the Wave Out connector as a logic output
 // (PB6, 3.3 V push-pull, tied to the DAC pin on the board). Single pulse,
 // square wave (TIM4 PWM), burst of pulses and test signals of the decoders
-// (UART, LIN, CAN, 1-Wire, NEC IR, pulses) built as a table of levels that
+// (UART, LIN, CAN, 1-Wire, NEC IR, WS2812, pulses) built as a table of levels that
 // DMA2 channel 4 writes to GPIOB_BSRR, paced by TIM7 (main.cpp). This file
 // builds the tables only (host test: test/test_gen.cpp).
 
@@ -20,12 +20,13 @@ namespace Gen
     int8_t mode;
     int8_t pol;               // 0: active high (idle low), 1: active low (idle high)
     int8_t autoFire;          // fire after every start of a capture
-    int8_t payload;           // UART test: 0 text, 1 the 4 bytes of value
+    int8_t payload;           // UART test: 0 text, 1 the 4 bytes of value;
+                              // WS2812: 0 test colors, 1 the color value for all LEDs
     int8_t duty;              // %, square and burst
     int8_t pad[3];
     uint32_t pulseUs;         // single pulse
     uint32_t freqHz;          // square, burst
-    uint32_t count;           // burst
+    uint32_t count;           // burst; WS2812: LEDs
     uint32_t value;           // test: UART bytes, LIN id / data, CAN id, 1-Wire function, NEC address / command
   };
   const uint32_t CfgMagic = 0x4c474e31;   // "LGN1"
@@ -259,6 +260,47 @@ namespace Gen
     return !w.ovf;
   }
 
+  // WS2812 as the LED strip tester (apps_featured/test63_ws2812): every bit
+  // is 3 slots of a stream, 1 = 110, 0 = 100 (there: SPI bytes from a table,
+  // bit-banged to PB6 with the interrupts off, 444 ns per slot). Here the
+  // slots are the table of the DMA at 2.4 MHz (72 MHz / 30): 0.417 us per
+  // slot, T0H 0.42 us, T1H 0.83 us, 1.25 us per bit (800 kbit/s), exact by
+  // TIM7. 24 bits per LED in the order of the decoder (GRB / RGB), at most
+  // 14 LEDs (72 slots each, table of 1024); the line is low before (the
+  // idle level, a reset for a strip that was quiet 50 us) and after the
+  // frame (latch). Colors: value (0xRRGGBB) for all LEDs or 7 test colors
+  // of 1/4 brightness (red, green, blue, yellow, cyan, magenta, white).
+  enum { WsSlotDiv = 30, WsMaxLeds = (MaxTab - 1) / 72 };
+  inline uint32_t WsColor(const TCfg& g, int i)
+  {
+    static const uint32_t test[7] = { 0x400000, 0x004000, 0x000040, 0x404000, 0x004040, 0x400040, 0x404040 };
+    return g.payload ? (g.value & 0xffffff) : test[i % 7];
+  }
+  inline bool Ws2812(const TCfg& g, const Dec::TCfg& d, uint32_t* tab, TSeq& s)
+  {
+    if (g.count < 1 || g.count > WsMaxLeds) { s.err = "LEDs: 1 .. 14"; return false; }
+    s.div = WsSlotDiv;
+    s.perBit = 3;
+    s.real = Clock / (float)(WsSlotDiv * 3);
+    TWriter w{ tab };
+    for (uint32_t i = 0; i < g.count; i++)
+    {
+      uint32_t c = WsColor(g, (int)i);
+      uint32_t r = (c >> 16) & 0xff, gr = (c >> 8) & 0xff, b = c & 0xff;
+      uint32_t v = d.wsOrder ? (r << 16 | gr << 8 | b) : (gr << 16 | r << 8 | b);
+      for (int k = 23; k >= 0; k--)
+      {
+        w.Put(1, 1);
+        w.Put((v >> k) & 1, 1);
+        w.Put(0, 1);
+      }
+    }
+    w.Put(0, 1);
+    s.n = w.n;
+    s.first = 0;
+    return !w.ovf;
+  }
+
   // ------------------------------------------------------------ pulses
   inline bool Pulse(const TCfg& g, uint32_t* tab, TSeq& s)
   {
@@ -322,7 +364,7 @@ namespace Gen
           case Dec::PNec: return Nec(g, d, tab, s);
           case Dec::PPulse: case Dec::PCounter: return Burst(g, tab, s);
           case Dec::POff: s.err = "decoder off"; return false;
-          case Dec::PWs2812: s.err = "WS2812: too fast"; return false;
+          case Dec::PWs2812: return Ws2812(g, d, tab, s);
           default: s.err = "needs 2+ lines"; return false;
         }
       default:

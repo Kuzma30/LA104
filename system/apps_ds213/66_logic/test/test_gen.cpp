@@ -126,6 +126,37 @@ int main()
     sprintf(s, "nec frames %d", n);
     Check(n == 3 && frames[1].kind == Dec::NecAddr && frames[1].v == 4 && frames[2].kind == Dec::NecCmd && frames[2].v == 8 && !frames[2].flags, s);
   }
+  // WS2812: test colors (GRB and RGB order), one value for all; sampled at
+  // 9 MS/s and 4 MS/s; too many LEDs
+  for (int order = 0; order < 2; order++)
+    for (double rate : { 9e6, 4e6 })
+    {
+      Dec::TCfg d = Dc(Dec::PWs2812);
+      d.wsOrder = (int8_t)order;
+      g.count = 14; g.payload = 0;
+      Gen::TSeq q;
+      bool ok = Gen::Build(g, d, tab, q);
+      int n = ok ? Decode(q, d, rate) : 0;
+      bool same = n == 14;
+      for (int i = 0; same && i < 14; i++)
+        same = frames[i].kind == Dec::Color && frames[i].v == Gen::WsColor(g, i) && frames[i].aux == i && !frames[i].flags;
+      sprintf(s, "ws2812 order %d at %.0f: ok %d n %d frames %d first #%06X real %.0f", order, rate, ok, q.n, n,
+        n ? frames[0].v : 0, q.real);
+      Check(ok && same && q.div == 30 && q.real == 800000 && q.n == 14 * 72 + 1, s);
+    }
+  {
+    Dec::TCfg d = Dc(Dec::PWs2812);
+    g.count = 3; g.payload = 1; g.value = 0xA1B2C3;
+    Gen::TSeq q;
+    Gen::Build(g, d, tab, q);
+    int n = Decode(q, d, 12e6);
+    Check(n == 3 && frames[0].v == 0xA1B2C3 && frames[2].v == 0xA1B2C3, "ws2812 value for all LEDs");
+    // the bits of the first LED: 1 = 110, 0 = 100 (G = A2 first)
+    Check(tab[0] == 1 && tab[1] == 1 && tab[2] == 0 && tab[3] == 1 && tab[4] == 0 && tab[5] == 0, "ws2812 slots");
+    g.count = 15;
+    Check(!Gen::Build(g, d, tab, q) && q.err, "ws2812: 15 LEDs too many");
+    g.payload = 0;
+  }
   // burst: counter and pulse decoders
   {
     Dec::TCfg d = Dc(Dec::PCounter);
