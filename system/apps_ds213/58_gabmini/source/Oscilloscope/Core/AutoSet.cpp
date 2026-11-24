@@ -288,7 +288,7 @@ namespace AutoSet
 			// smallest time base with at least 2.5 periods on the 10 divisions
 			int nTime = CSettings::TimeBase::_ResolutionMax;
 			for ( int r = 0; r <= CSettings::TimeBase::_ResolutionMax; r++ )
-				if ( CSettings::TimeBase::pfValueResolution[r] * 10.0f >= fPeriod * 2.5f )
+				if ( CSettings::TimeBase::TimePerDiv( r ) * 10.0f >= fPeriod * 2.5f )
 				{
 					nTime = r;
 					break;

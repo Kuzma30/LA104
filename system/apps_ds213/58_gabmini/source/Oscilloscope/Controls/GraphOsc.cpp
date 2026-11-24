@@ -253,23 +253,6 @@ void CWndOscGraph::PaintTrigState()
 	int x = m_rcClient.right - 4*8 - 4, y = m_rcClient.top + 2;
 	BIOS::LCD::Bar( x - 2, y, x + 4*8 + 2, y + 14, bWait ? RGB565(c0a000) : RGB565(00a000) );
 	UI::Print( x, y, RGB565(ffffff), RGBTRANS, bWait ? "WAIT" : "TRIG" );
-	// diagnostic: how far the edge was from the trigger mark of the FPGA
-	// (samples, "?" no crossing of the level near it)
-	int nAlign = Sampler::LastAlign();
-	if ( nAlign != Sampler::AlignNone )
-	{
-		char str[8];
-		if ( nAlign == Sampler::AlignNotFound )
-			strcpy( str, "  ?" );
-		else
-		{
-			str[0] = nAlign < 0 ? '-' : '+';
-			int a = nAlign < 0 ? -nAlign : nAlign;
-			if ( a > 999 ) a = 999;
-			str[1] = '0' + a / 100; str[2] = '0' + a / 10 % 10; str[3] = '0' + a % 10; str[4] = 0;
-		}
-		BIOS::LCD::Print( x - 6 * 8, y, RGB565(ffff00), RGB565(000000), str );
-	}
 }
 
 // X-Y (Lissajous figures): CH1 horizontal and CH2 vertical (Y-X swapped) in
@@ -467,6 +450,9 @@ void CWndOscGraph::OnPaintTY()
 
 	ui8 bTrigger = (BIOS::SYS::GetTick() - Settings.Trig.nLastChange) < 5000;
 	ui16 nTriggerTime = (CSettings::Trigger::Position - Settings.Time.Shift);
+	// the trigger position is always marked by a small triangle at the top
+	// (the dotted line only for 5 s after a change of the trigger)
+	int nTrigMark = CSettings::Trigger::Position - Settings.Time.Shift;
 	if (!bTrigger)
 		nTriggerTime = -1;
 
@@ -777,6 +763,15 @@ void CWndOscGraph::OnPaintTY()
 		{
 			ui16 y = (Settings.Trig.nLevel*(DivsY*BlkY))>>8;
 			column[y] = RGB565(ffffff);
+		}
+		{
+			int d = (int)x - nTrigMark;
+			if ( d >= -3 && d <= 3 )
+			{
+				int h = 4 - ( d < 0 ? -d : d );
+				for ( int k = 0; k < h; k++ )
+					column[DivsY*BlkY - 1 - k] = RGB565(ffffff);
+			}
 		}
 		if ( nTriggerTime == x )
 		{

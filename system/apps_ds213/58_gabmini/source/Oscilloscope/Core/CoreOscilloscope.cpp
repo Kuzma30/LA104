@@ -114,7 +114,7 @@ static uint32_t s_nConfigGeneration = 0;
 
 /*static*/ void CCoreOscilloscope::UpdateConstants()
 {
-	Settings.Runtime.m_fTimeRes = CSettings::TimeBase::pfValueResolution[ Settings.Time.Resolution ];
+	Settings.Runtime.m_fTimeRes = CSettings::TimeBase::TimePerDiv( Settings.Time.Resolution );
 	Settings.Runtime.m_nScreenDuration = (int)(Settings.Runtime.m_fTimeRes*1000*10);
 
 	Settings.Runtime.m_fCH1Res  = 

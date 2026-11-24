@@ -98,7 +98,11 @@ class AnalogChannel : public CSerialize
 			_1, _2, _4, _FULL}
 			Range;
 
+		// the value the BIOS knows the time base by (ConfigureTimebase)
 		static const float pfValueResolution[];
+		// the real time per division (30 samples): on the DS203 the fastest
+		// time bases are limited by the 72 MHz clock (200ns: 417 ns/div)
+		static float TimePerDiv(int nRes);
 		static const int pfValueResolutionCorrection[]; // florian
 
 		si16 Shift;

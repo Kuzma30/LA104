@@ -25,8 +25,14 @@ CSettings* CSettings::m_pInstance = NULL;
 /*static*/ const char* const CSettings::DigitalChannel::ppszTextPolarity[] =
 		{"Positive", "Negative"};
 /*static*/ const char* const CSettings::TimeBase::ppszTextResolution[] =
+#if defined(DS203)
+		// the real time per division: 30 samples at 72 MHz / 1, 2, 3, 5
+		{ "417ns", "833ns", 
+		"1.25us", "2.08us", "5us",
+#else
 		{/*"100ns",*/ "200ns", "500ns", 
 		"1us", "2us", "5us",
+#endif
 		"10us", "20us", "50us", "100us", "200us", "500us",
 		"1ms", "2ms", "5ms",
 		"10ms", "20ms", "50ms", "100ms", "200ms", "500ms", 
@@ -52,6 +58,20 @@ CSettings* CSettings::m_pInstance = NULL;
 		1e-3f, 2e-3f, 5e-3f,
 		10e-3f, 20e-3f, 50e-3f, 100e-3f, 200e-3f, 500e-3f,
 		1.0f};
+
+/*static*/ float CSettings::TimeBase::TimePerDiv(int nRes)
+{
+	if ( nRes < 0 ) nRes = 0;
+	if ( nRes > _ResolutionMax ) nRes = _ResolutionMax;
+#if defined(DS203)
+	// FPGA sampling clock 72 MHz / (PSC+1) / (ARR+1), 30 samples per division
+	static const uint32_t arrDiv[] = {1, 2, 3, 5, 12, 24, 48, 120, 240, 480, 1200, 2400, 4800,
+		12000, 24000, 48000, 120000, 240000, 480000, 1200000, 2400000};
+	return 30.0f * arrDiv[nRes] / 72e6f;
+#else
+	return pfValueResolution[nRes];
+#endif
+}
 		
 ///*static*/ const char* const CSettings::Generator::ppszTextWave[] =
 //		{"DC", "Sin HQ", "Sin LQ", "Triangle", "Sawtooth", "Square", "Cardiac", "Volatile"};
