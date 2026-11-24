@@ -33,7 +33,8 @@ static uint32_t s_nConfigGeneration = 0;
 	// one screen: the FPGA stops writing (Full) after the screen
 	int nLength = BufferLength();
 	Sampler::SetLength( nLength );
-	FpgaBus::SetDepth( nLength >= Sampler::Samples ? 4095 : nLength );
+	int nCapture = Sampler::CaptureLength();
+	FpgaBus::SetDepth( nCapture >= Sampler::Samples ? 4095 : nCapture );
 	int nMaxShift = nLength - CWndGraph::MaxX;
 	if ( Settings.Time.Shift > nMaxShift )
 		Settings.Time.Shift = nMaxShift;

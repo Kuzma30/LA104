@@ -15,6 +15,9 @@ namespace Sampler
 	// memory after them is free for the persistence history
 	void SetLength(int nLength);
 	int Length();
+	// samples the FPGA writes for one acquisition (Length and a margin for
+	// AlignTrigger)
+	int CaptureLength();
 	uint8_t* HistoryArea(int& nBytes);
 
 	// bNew: a new acquisition, false when the same (unfinished) acquisition

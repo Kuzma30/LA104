@@ -13,6 +13,11 @@ namespace Sampler
 	static int nValid = 0;
 	static uint32_t nSequence = 0;
 	static int nLength = Samples;
+	// a screen buffer is captured a little longer: AlignTrigger moves the
+	// samples to the left, the end of the screen stays filled
+	enum { AlignMargin = 48 };
+	static int nValidAll = 0;       // samples read by the last Copy (with the margin)
+	static inline int _CaptureLen() { return nLength + AlignMargin < Samples ? nLength + AlignMargin : Samples; }
 	static int nCapRes = -1;        // time base of the samples (-1: not known)
 	// V/div and position of CH1 / CH2 when the samples were taken
 	static int arrCapVRes[2] = { -1, -1 }, arrCapPos[2] = { 0, 0 };
@@ -153,10 +158,16 @@ namespace Sampler
 		return nLength;
 	}
 
+	int CaptureLength()
+	{
+		return _CaptureLen();
+	}
+
 	uint8_t* HistoryArea(int& nBytes)
 	{
-		nBytes = (Samples - nLength) * BytesPerSample;
-		return memory + nLength * BytesPerSample;
+		int n = _CaptureLen();
+		nBytes = (Samples - n) * BytesPerSample;
+		return memory + n * BytesPerSample;
 	}
 
 	void RollStart(int nFirst)
@@ -197,16 +208,20 @@ namespace Sampler
 	{
 		_Captured();
 		uint8_t* p = memory;
-		nValid = nLength;
+		int nCap = _CaptureLen();
+		nValid = nCap;
 		if ( bNew )
 			nSequence++;
-		for (int i=0; i<nLength; i++, p += BytesPerSample)
+		for (int i=0; i<nCap; i++, p += BytesPerSample)
 		{
 			uint32_t value = BIOS::ADC::Get();
-			if ( value == BIOS::ADC::NoData && nValid == nLength )
+			if ( value == BIOS::ADC::NoData && nValid == nCap )
 				nValid = i;
 			_Store( p, value );
 		}
+		nValidAll = nValid;
+		if ( nValid > nLength )
+			nValid = nLength;
 	}
 
 	// The FPGA marks the trigger in its sample clock, but at the fastest
@@ -239,7 +254,9 @@ namespace Sampler
 	int AlignTrigger(int nSource, bool bRising, int nLevel)
 	{
 		nLastAlign = AlignNone;
-		if ( nSource < 0 || nSource > 3 || nValid < Anchor + 2 )
+		if ( nValidAll < nValid )
+			nValidAll = nValid;
+		if ( nSource < 0 || nSource > 3 || nValidAll < Anchor + 2 )
 			return 0;
 		nLastAlign = AlignNotFound;
 		if ( nSource >= 2 )
@@ -249,7 +266,7 @@ namespace Sampler
 			for ( int sgn = 0; sgn < 2 && nBest < 0; sgn++ )
 			{
 				int i = Anchor + ( sgn ? -d : d );
-				if ( i < 1 || i >= nValid )
+				if ( i < 1 || i >= nValidAll )
 					continue;
 				int a = _Level( _Raw( i - 1 ), nSource ), b = _Level( _Raw( i ), nSource );
 				bool cross = bRising ? ( a <= nLevel && b > nLevel ) : ( a >= nLevel && b < nLevel );
@@ -265,13 +282,14 @@ namespace Sampler
 		if ( nShift > 0 )
 		{
 			// earlier: the end gets shorter
-			memmove( memory, memory + nShift * BytesPerSample, (nValid - nShift) * BytesPerSample );
-			nValid -= nShift;
+			memmove( memory, memory + nShift * BytesPerSample, (nValidAll - nShift) * BytesPerSample );
+			nValidAll -= nShift;
+			nValid = nValidAll < nLength ? nValidAll : nLength;
 		} else
 		{
 			// later: the first samples repeat the first one
 			int n = -nShift;
-			int nKeep = nValid - n;
+			int nKeep = nValidAll - n;
 			memmove( memory + n * BytesPerSample, memory, nKeep * BytesPerSample );
 			for ( int i = 0; i < n; i++ )
 				memcpy( memory + i * BytesPerSample, memory + n * BytesPerSample, BytesPerSample );
