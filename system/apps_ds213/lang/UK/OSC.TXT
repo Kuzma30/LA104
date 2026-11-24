@@ -7,7 +7,7 @@
 # меню Generator: 13 знаків; значення в списках 7-10 знаків.
 
 # ---- верхній рядок (ToolBar.cpp)
-"Oscilloscope" = "Осцилограф"
+"Oscilloscope" = "Осцил."
 "Input" = "Вхід"
 "Cursor" = "Курсор"
 "Disp" = "Дисп"

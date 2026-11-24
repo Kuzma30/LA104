@@ -45,5 +45,10 @@ public:
 
 public:
 	static const CBarItem* GetMenuItems();
+	// battery: icon left of the first item, the voltage is read every 5 s,
+	// the icon is drawn again when its level changes
+	enum { BatteryW = 20 };
+	void UpdateBattery();
+	void PaintBattery();
 	static int Find( const char* strId );
 };

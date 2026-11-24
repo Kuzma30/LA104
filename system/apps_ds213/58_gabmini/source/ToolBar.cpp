@@ -23,8 +23,71 @@
 	return arrMenuItems;
 }
 
+// battery of the DS203 (one Li-ion cell): BIOS attribute BatteryVoltage (mV
+// from the SYS), 0 when the device does not report it
+static int s_nBatteryMv = -1;
+static long s_lBatteryRead = 0;
+
+static int _BatteryMv()
+{
+#if defined(DS203)
+	return (int)BIOS::SYS::GetAttribute( BIOS::SYS::EAttribute::BatteryVoltage );
+#else
+	return 0;
+#endif
+}
+
+// fill 0..4 segments: 3.40 V empty .. 4.10 V full
+static int _BatterySegments(int mV)
+{
+	if ( mV <= 0 ) return -1;
+	int n = ( mV - 3400 + 87 ) / 175;
+	return n < 0 ? 0 : n > 4 ? 4 : n;
+}
+
+void CWndToolBar::UpdateBattery()
+{
+	long lNow = BIOS::SYS::GetTick();
+	if ( s_nBatteryMv >= 0 && lNow - s_lBatteryRead < 5000 )
+		return;
+	s_lBatteryRead = lNow;
+	int mV = _BatteryMv();
+	bool bChanged = s_nBatteryMv < 0 || _BatterySegments( mV ) != _BatterySegments( s_nBatteryMv );
+	s_nBatteryMv = mV;
+	if ( bChanged && IsVisible() )
+		PaintBattery();
+}
+
+void CWndToolBar::PaintBattery()
+{
+	if ( s_nBatteryMv < 0 )
+	{
+		s_lBatteryRead = BIOS::SYS::GetTick();
+		s_nBatteryMv = _BatteryMv();
+	}
+	int x = m_rcClient.left, y = m_rcClient.top;
+	BIOS::LCD::Bar( x, y, x + BatteryW, m_rcClient.bottom, RGB565(000000) );
+	int nSeg = _BatterySegments( s_nBatteryMv );
+	if ( nSeg < 0 )
+		return;
+	// body 15 x 9 with a tip of 2 x 3, 4 segments of 2 px
+	uint16_t clrFrame = RGB565(ffffff);
+	uint16_t clrFill = nSeg >= 3 ? RGB565(00e000) : nSeg == 2 ? RGB565(e0e000) : RGB565(ff3030);
+	int bx = x + 1, by = y + 3;
+	BIOS::LCD::Bar( bx, by, bx + 15, by + 1, clrFrame );
+	BIOS::LCD::Bar( bx, by + 8, bx + 15, by + 9, clrFrame );
+	BIOS::LCD::Bar( bx, by, bx + 1, by + 9, clrFrame );
+	BIOS::LCD::Bar( bx + 14, by, bx + 15, by + 9, clrFrame );
+	BIOS::LCD::Bar( bx + 15, by + 3, bx + 17, by + 6, clrFrame );
+	if ( nSeg == 0 )
+		BIOS::LCD::Bar( bx + 2, by + 2, bx + 3, by + 7, clrFill );   // empty: a red line
+	for ( int i = 0; i < nSeg; i++ )
+		BIOS::LCD::Bar( bx + 2 + i * 3, by + 2, bx + 4 + i * 3, by + 7, clrFill );
+}
+
 /*virtual*/ void CWndToolBar::OnPaint()
 {
+	PaintBattery();
 	const CWndToolBar::CBarItem* pItems = GetMenuItems();
 	int nFocus = m_nFocus;
 
@@ -35,7 +98,7 @@
 
 	_ASSERT( pItems[nMenu].m_eType == CBarItem::IMain );
 
-	int x = m_rcClient.left;
+	int x = m_rcClient.left + BatteryW;
 	int nExtentx = UI::Width(pItems[nMenu].m_pName);
 
 	if ( nFocus == nMenu && HasFocus() )

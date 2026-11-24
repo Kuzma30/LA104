@@ -110,3 +110,9 @@ the flat part and the trace moves. After a triggered capture the crossing of
 the level nearest to the trigger position (at most 24 samples away) is moved
 to the trigger position, so the trace does not jitter at the fastest time
 bases (the FPGA mark moves by some samples at 72 MS/s).
+
+## Battery
+
+An icon left of the first item of the toolbar shows the battery (SYS
+attribute BatteryVoltage, read every 5 s): 4 segments from 3.40 V (empty,
+a red line) to 4.10 V (full); green 3-4 segments, yellow 2, red 0-1.
