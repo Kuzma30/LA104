@@ -14,7 +14,9 @@
 // into a table (sorted FNV-1a hashes of the keys, the UTF-8 texts) in an
 // own flash area of the application: zero RAM at run time and stable
 // pointers. The area is written only when the file changed (its size and
-// checksum are kept in the header), so the flash is not worn.
+// checksum are kept in the header; a page is erased only when its contents
+// differ), so the flash is not worn. The flash is written by own code (the
+// OS of the DS203 does not export its flash functions).
 //
 // T("text") returns the translation or the text itself. Len() counts the
 // characters of UTF-8 text the way the OS draws it (8 pixels each).
@@ -127,12 +129,65 @@ namespace Lang
     return dst + n;
   }
 
+  // ------------------------------------------------------------ flash
+  // own writer of the area (the OS of the DS203 does not export its flash
+  // functions): a page (2 KB) is buffered in RAM and written back only
+  // when its contents differ from the flash (erase + program)
+  enum { PageSize = 2048 };
+#ifdef _ARM
+  inline volatile uint32_t& FlashReg(int off) { return *(volatile uint32_t*)(0x40022000 + off); }
+  inline void FlashWait() { while (FlashReg(0x0c) & 1) {} }   // SR.BSY
+  inline void FlashUnlock()
+  {
+    if (FlashReg(0x10) & 0x80)          // CR.LOCK
+    {
+      FlashReg(0x04) = 0x45670123;
+      FlashReg(0x04) = 0xcdef89ab;
+    }
+  }
+  inline void FlashLock() { FlashReg(0x10) |= 0x80; }
+  inline void FlashErase(uint8_t* page)
+  {
+    FlashWait();
+    FlashReg(0x0c) = 0x34;              // clear EOP, WRPRTERR, PGERR
+    FlashReg(0x10) |= 0x02;             // PER
+    FlashReg(0x14) = (uint32_t)page;
+    FlashReg(0x10) |= 0x40;             // STRT
+    FlashWait();
+    FlashReg(0x10) &= ~0x02u;
+  }
+  inline void FlashProgram(uint8_t* dst, const uint8_t* src, int len)
+  {
+    FlashWait();
+    FlashReg(0x10) |= 0x01;             // PG
+    for (int i = 0; i < len; i += 2)
+    {
+      uint16_t v = src[i] | (src[i + 1] << 8);
+      if (v != 0xffff)
+      {
+        *(volatile uint16_t*)(dst + i) = v;
+        FlashWait();
+      }
+    }
+    FlashReg(0x10) &= ~0x01u;
+  }
+#else
+  inline void FlashUnlock() {}
+  inline void FlashLock() {}
+  inline void FlashErase(uint8_t* page) { memset(page, 0xff, PageSize); }
+  inline void FlashProgram(uint8_t* dst, const uint8_t* src, int len)
+  {
+    for (int i = 0; i < len; i++) dst[i] &= src[i];
+  }
+#endif
+
   // ------------------------------------------------------------ loading
-  // scratch (RAM free at the start): the flash page buffer of the OS
-  // (BIOS::MEMORY::SharedBufferSize), a sector, a line and the entries
+  // scratch (RAM free at the start): a flash page, a sector, a line and the
+  // entries
   struct TLoader
   {
-    uint8_t* flashBuf;                  // SharedBufferSize
+    uint8_t* flashBuf;                  // PageSize + 128
+    int page;                           // page in flashBuf, -1: none
     uint8_t* sector;                    // 512
     char* line; int lineMax;
     TEntry* ent; int entMax; int n;
@@ -140,14 +195,41 @@ namespace Lang
     bool ok;
   };
 
+  // writes the buffered page if it differs from the flash
+  inline void Flush(TLoader& L)
+  {
+    if (L.page < 0)
+      return;
+    uint8_t* f = Area() + L.page * PageSize;
+    if (memcmp(f, L.flashBuf, PageSize) != 0)
+    {
+      FlashUnlock();
+      FlashErase(f);
+      FlashProgram(f, L.flashBuf, PageSize);
+      FlashLock();
+      if (memcmp(f, L.flashBuf, PageSize) != 0)
+        L.ok = false;
+    }
+    L.page = -1;
+  }
+
   inline bool Program(TLoader& L, uint32_t pos, const void* data, int len)
   {
     if (pos + len > AreaSize()) { L.ok = false; return false; }
-#ifdef _ARM
-    if (!BIOS::MEMORY::LinearProgram((uint32_t)(Area() + pos), (unsigned char*)data, len)) L.ok = false;
-#else
-    memcpy(Area() + pos, data, len);
-#endif
+    const uint8_t* d = (const uint8_t*)data;
+    while (len > 0)
+    {
+      int page = pos / PageSize, off = pos % PageSize;
+      if (page != L.page)
+      {
+        Flush(L);
+        memcpy(L.flashBuf, Area() + page * PageSize, PageSize);
+        L.page = page;
+      }
+      int n = PageSize - off < len ? PageSize - off : len;
+      memcpy(L.flashBuf + off, d, n);
+      pos += n; d += n; len -= n;
+    }
     return L.ok;
   }
 
@@ -275,6 +357,7 @@ namespace Lang
       return false;
     TLoader L;
     L.flashBuf = scratch;
+    L.page = -1;
     L.sector = scratch + 2176;
     L.line = (char*)scratch + 2176 + 512;
     L.lineMax = 400;
@@ -306,10 +389,6 @@ namespace Lang
       return true;
     }
     // compile: the texts first (after the header), then the entries
-#ifdef _ARM
-    BIOS::MEMORY::SetSharedBuffer(L.flashBuf);
-    BIOS::MEMORY::LinearStart();
-#endif
     L.poolPos = sizeof(THeader);
     uint32_t size2, sum2;
     bool read = ReadFile(L, path, true, size2, sum2);
@@ -343,23 +422,13 @@ namespace Lang
     // the checksum of the image as written: from the flash after LinearFinish
     hd.sum = 0;
     Program(L, 0, &hd, sizeof(hd));
-#ifdef _ARM
-    BIOS::MEMORY::LinearFinish();
-#endif
+    Flush(L);
     if (read && L.ok)
     {
       hd.sum = ImageSum(h);
-#ifdef _ARM
-      BIOS::MEMORY::LinearStart();
-#endif
       Program(L, 0, &hd, sizeof(hd));
-#ifdef _ARM
-      BIOS::MEMORY::LinearFinish();
-#endif
+      Flush(L);
     }
-#ifdef _ARM
-    BIOS::MEMORY::SetSharedBuffer(nullptr);
-#endif
     if (!read || !L.ok || !Valid(h))
     {
       strcpy(Status(), L.n >= L.entMax ? "translation too long" : "translation error");
