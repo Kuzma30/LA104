@@ -31,9 +31,28 @@ Keys: F1 run / stop, F2 back, F3 automatic setup (oscilloscope tabs), F4 enter.
 - **Disp**: T-Y or X-Y (Lissajous), Dots / Lines / Fill (the area between
   the trace and its 0 V level), averaging, Persist No / Yes / Phosph, grid.
 - **Decode**: UART, SPI, I2C, CAN, LIN, 1-Wire, WS2812, NEC, PS/2, pulses,
-  pulse counter, quadrature encoder (FPGA) ... With Counter and with
+  pulse counter, quadrature encoder (FPGA), USB ... With Counter and with
   Encoder on the hardware counter the item List becomes Reset (the counted
   value back to 0).
+- **USB decoder** (low speed 1.5 Mbit/s, full speed 12 Mbit/s, after the
+  USB analyzer of Petteri Aimonen for the DSO Quad,
+  github.com/PetteriAimonen/dso-quad-usb-analyzer; there the FPGA decoded
+  the packets, here the decoder works on the captured samples, the code is
+  shared with the logic analyzer: `../common/usbdecode.h`). D+ on CH3, D- on
+  CH4 by default (any two inputs; CH1 / CH2 get the automatic threshold).
+  Setup: Speed Auto (the idle state and the length of the bits) / Full /
+  Low. Shown: the PID (the box covers SYNC and PID), address.endpoint of
+  tokens (`A5.1`), frame number of SOF (`F1234`), data bytes, CRC5 / CRC16
+  (`CRC!` when wrong), handshakes; the 8 bytes after SETUP as the request
+  (`IN std dev`, `GET_DESCRIPTOR`, `DEVICE 0`, `I:0409`, `L:18`), reset (SE0
+  of 2.5 us or more), keep-alive / lone EOP, errors (bad SYNC, bit
+  stuffing, wrong length, incomplete byte, no EOP, `D+/D-?` when the lines
+  look swapped). Info: the bit rate and FS / LS. At least 3 samples per
+  bit: full speed needs 36 or 72 MS/s (200 ns/div = 72 MS/s, 6 samples per
+  bit), low speed 6 MS/s or more (12 .. 24 MS/s is better, its edges are
+  slow); 4096 samples at 72 MS/s are 57 us (about 80 bytes of full speed
+  traffic). Connect the inputs with short ground leads; C / D take at most
+  5 V, USB lines are 3.3 V.
 - **Meas**: four automatic measurements and statistics.
   Up / Down selects M1..M4 or Stat, Left / Right the type, F4 the source.
   Types: Vpp, Vmax, Vmin, Vavg, Vrms (CH1 / CH2), Freq, Period, Duty,
@@ -76,8 +95,8 @@ F3 automatic setup: V/div and position of CH1 / CH2 (the signal takes 4..6
 divisions in the middle), time base for 2.5..6 periods, rising edge
 trigger in the middle of the larger signal (Auto).
 
-Settings are kept in MINIOSC.CFG (format 7; format 6 loads, older files are
-ignored once).
+Settings are kept in MINIOSC.CFG (format 8; formats 6 and 7 load, older
+files are ignored once).
 
 ## Build
 

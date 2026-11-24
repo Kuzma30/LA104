@@ -1,6 +1,7 @@
 // PC test of the protocol decoders with synthetic signals.
-//   g++ -O1 -Wall -Isource tests/decode_test.cpp source/Oscilloscope/Decode/DecoderCore.cpp
-//       source/Oscilloscope/Decode/DecodeBand.cpp && ./a.out [screenshot dir]
+//   g++ -O1 -Wall -Itests/stub -Isource -I../common tests/decode_test.cpp
+//       source/Oscilloscope/Decode/DecoderCore.cpp source/Oscilloscope/Decode/DecodeBand.cpp
+//       && ./a.out [screenshot dir]
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,8 +9,16 @@
 #include <vector>
 #include "Oscilloscope/Decode/DecoderCore.h"
 #include "Oscilloscope/Decode/DecodeBand.h"
+#include "../../common/test/usbsignal.h"
 
 using namespace Decoder;
+
+// the raw buffer is shown at its own time base
+namespace Sampler
+{
+    bool Scaled() { return false; }
+    int PhysToVirt(int p) { return p; }
+}
 
 static const int N = 4096;
 static float fs;
@@ -438,6 +447,69 @@ static void TestWs2812()
     Shot("ws2812", cfg, 500);
 }
 
+// USB on CH3 (D+) and CH4 (D-), the signals of common/test/usbsignal.h
+static void UsbToBuf(const UsbSig& u, int from)
+{
+    for (int i = 0; i < N; i++)
+    {
+        int k = i - from;
+        int st = k < 0 ? u.st.front() : k < (int)u.st.size() ? u.st[k] : u.st.back();
+        buf[i] = (buf[i] & ~(3u << 16)) | ((uint32_t)st << 16);
+    }
+}
+
+static void TestUsb()
+{
+    Clear();
+    fs = 72e6f; // 200 ns/div
+    TConfig cfg; SetDefaults(cfg);
+    cfg.protocol = Decoder::Usb;
+    UsbSig u(fs, 12e6, 1);
+    u.Idle(8);
+    u.Token(::Usb::PidSetup, 0, 0);
+    u.Idle(4);
+    u.Data(::Usb::PidData0, {0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 0x12, 0x00});
+    u.Idle(4);
+    u.Handshake(::Usb::PidAck);
+    u.Idle(6);
+    u.Token(::Usb::PidIn, 0, 0);
+    u.Idle(4);
+    u.Data(::Usb::PidData1, {0x12, 0x01, 0x10, 0x01});
+    u.Idle(6);
+    UsbToBuf(u, 100);
+    Expect("usb fs", cfg, {"SETUP", "A0.0", "CRC", "DATA0", "IN std dev", "GET_DESCRIPTOR", "DEVICE 0",
+        "I:0000", "L:18", "CRC", "ACK", "IN", "A0.0", "CRC", "DATA1", "12", "01", "10", "01", "CRC"});
+    Shot("usb", cfg, 80);
+
+    // low speed at 18 MHz (1 us/div ... ), forced speed, lines on CH4 / CH3
+    Clear();
+    fs = 18e6f;
+    cfg.usbSpeed = UsbLow;
+    cfg.ch[Decoder::Usb][0] = Ch4;
+    cfg.ch[Decoder::Usb][1] = Ch3;
+    UsbSig l(fs, 1.5e6, 1, true);
+    l.Idle(4);
+    l.Token(::Usb::PidIn, 5, 1);
+    l.Idle(4);
+    l.Handshake(::Usb::PidNak);
+    l.Idle(4);
+    l.KeepAlive();
+    l.Idle(4);
+    for (auto& x : l.st) x = (uint8_t)(((x & 1) << 1) | (x >> 1));
+    UsbToBuf(l, 50);
+    Expect("usb ls", cfg, {"IN", "A5.1", "CRC", "NAK", "EOP"});
+
+    // too slow for full speed
+    Clear();
+    fs = 72e6f / 3;
+    cfg.usbSpeed = UsbFull;
+    UsbSig f(fs, 12e6, 0);
+    f.Idle(8);
+    f.Handshake(::Usb::PidAck);
+    UsbToBuf(f, 10);
+    Expect("usb slow", cfg, {"Sample rate too low"});
+}
+
 static void TestNec()
 {
     Clear();
@@ -749,6 +821,7 @@ int main(int argc, char** argv)
     TestPulse();
     TestCounter();
     TestEncoder();
+    TestUsb();
     TestWarnings();
     TestOverflow();
     char tmp[32];

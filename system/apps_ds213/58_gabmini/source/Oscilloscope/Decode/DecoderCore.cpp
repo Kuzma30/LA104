@@ -1,4 +1,5 @@
 #include "DecoderCore.h"
+#include "../../../../common/usbdecode.h"
 
 namespace Decoder
 {
@@ -23,7 +24,8 @@ namespace Decoder
     const char* const BitsSpiText[] = {"4", "8", "9", "10", "12", "16", "24", "32"};
 
     const char* const ProtocolText[] = {"Off", "UART", "LIN", "I2C", "SPI", "1-Wire", "CAN",
-        "WS2812", "NEC IR", "PS/2", "Pulse", "Counter", "Encoder"};
+        "WS2812", "NEC IR", "PS/2", "Pulse", "Counter", "Encoder", "USB"};
+    const char* const UsbSpeedText[] = {"Auto", "Full 12M", "Low 1.5M"};
     const char* const ChannelText[] = {"CH1", "CH2", "CH3", "CH4", "Off"};
 
     static const char* const g_roles[ProtocolCount][MaxRoles] = {
@@ -40,6 +42,7 @@ namespace Decoder
         {"Input", nullptr, nullptr, nullptr},
         {"Input", nullptr, nullptr, nullptr},
         {"A", "B", "Z", nullptr},
+        {"D+", "D-", nullptr, nullptr},
     };
 
     const char* RoleName(int protocol, int role)
@@ -86,6 +89,7 @@ namespace Decoder
         cfg.ch[Encoder][2] = Ch1;
         cfg.quadRes = QuadX4;
         cfg.quadDir = 0;
+        cfg.usbSpeed = UsbAuto;
     }
 
     // ------------------------------------------------------------------
@@ -1265,6 +1269,55 @@ namespace Decoder
 
     // ------------------------------------------------------------------
 
+    // ------------------------------------------------------------------
+    // USB (common/usbdecode.h), D+ and D- on any two inputs
+
+    struct TUsbIn
+    {
+        TLine dp, dm;
+        uint32_t Begin() { return (uint32_t)s_first; }
+        uint32_t End() { return (uint32_t)s_count; }
+        int State(uint32_t t) { return dp.L((int)t) | (dm.L((int)t) << 1); }
+        uint32_t Next(uint32_t t)
+        {
+            int st = State(t);
+            uint32_t i = t + 1;
+            while (i < (uint32_t)s_count && State(i) == st)
+                i++;
+            return i;
+        }
+    };
+
+    struct TUsbOut
+    {
+        bool Add(const ::Usb::TItem& it)
+        {
+            if (it.kind == ::Usb::KData)
+                return Decoder::Add((int)it.t0, (int)it.t1, TData, it.v, 0, 8);
+            return Decoder::Add((int)it.t0, (int)it.t1, TUsb, it.v, it.err ? FError : 0, it.kind);
+        }
+    };
+
+    static void DecodeUsb(const TConfig& cfg)
+    {
+        TUsbIn in;
+        in.dp.Set(cfg.ch[Usb][0], false);
+        in.dm.Set(cfg.ch[Usb][1], false);
+        if (!in.dp.valid || !in.dm.valid || cfg.ch[Usb][0] == cfg.ch[Usb][1])
+        {
+            Warn(WNoChannel);
+            return;
+        }
+        TUsbOut out;
+        ::Usb::CDecoder<TUsbIn, TUsbOut> dec(in, out, s_fs);
+        static const uint8_t speed[3] = {::Usb::SpeedAuto, ::Usb::SpeedFull, ::Usb::SpeedLow};
+        ::Usb::TResult r = dec.Run(speed[cfg.usbSpeed <= UsbSpeedMax ? cfg.usbSpeed : 0]);
+        if (r.slow)
+            Warn(WSampleRate);
+        else if (Count > 0)
+            DetectedRate = r.rate;
+    }
+
     static void Sort()
     {
         // insertion sort by begin, stable
@@ -1330,6 +1383,7 @@ namespace Decoder
         case Pulse: DecodePulse(cfg); break;
         case Counter: DecodeCounter(cfg); break;
         case Encoder: DecodeEncoder(cfg); break;
+        case Usb: DecodeUsb(cfg); break;
         }
         Sort();
         if (Overflow)
@@ -1778,6 +1832,15 @@ namespace Decoder
         }
         case TQuadError:
             w.S(longForm ? "A and B changed together" : "AB!");
+            break;
+        case TUsb:
+            ::Usb::Text(w, a.aux, a.value, bErr, longForm, (uint32_t)(a.end - a.begin + 1),
+                [sampleRate](TWriter& ww, uint32_t n)
+                {
+                    char tmp[16];
+                    FormatTime(n / sampleRate, tmp);
+                    ww.S(tmp);
+                });
             break;
         case TWarning:
             if (a.value < sizeof(g_warnings) / sizeof(g_warnings[0]))

@@ -1,5 +1,6 @@
 #include "DecodeBand.h"
 #include "Font5x7.h"
+#include "../../../../common/usbdecode.h"
 #include <library.h>
 #include <Framework/Sampler.h>
 
@@ -98,6 +99,25 @@ namespace DecodeBand
         case TPulse:
             fill = Rgb(0x382058);
             border = Rgb(0xc080ff);
+            break;
+        case TUsb:
+            if ( a.aux == ::Usb::KPid || a.aux == ::Usb::KReset || a.aux == ::Usb::KKeepAlive )
+            {
+                fill = Rgb(0x184818);       // packet start: green
+                border = Rgb(0x60e060);
+            } else if ( a.aux == ::Usb::KAddr || a.aux == ::Usb::KFrame || a.aux == ::Usb::KRequest )
+            {
+                fill = Rgb(0x583810);       // address, frame, request: orange
+                border = Rgb(0xffa030);
+            } else if ( a.aux == ::Usb::KCrc5 || a.aux == ::Usb::KCrc16 )
+            {
+                fill = Rgb(0x484818);
+                border = Rgb(0xe0e060);
+            } else
+            {
+                fill = Rgb(0x183868);
+                border = Rgb(0x60a0ff);
+            }
             break;
         case TColor:
             fill = Rgb(a.value);

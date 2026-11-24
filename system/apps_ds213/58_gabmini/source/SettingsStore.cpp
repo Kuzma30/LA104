@@ -5,7 +5,8 @@
 namespace SettingsStore
 {
     static const char* const FileName = "MINIOSC.CFG";
-    enum { Magic = 0x46434d47, Version = 7 };   // "GMCF", 6: without the beam width
+    enum { Magic = 0x46434d47, Version = 8 };   // "GMCF", 6: without the beam width,
+                                                // 7: without the USB decoder
     static int s_nFileVersion = Version;
     enum { SectorSize = BIOS::FAT::SectorSize };
     typedef TSettingsIo<SectorSize> TIo;
@@ -55,8 +56,10 @@ namespace SettingsStore
     static void Decode(TIo& io, Decoder::TConfig& c)
     {
         using namespace Decoder;
-        io.Enum(c.protocol, ProtocolMax);
-        for ( int p = 0; p < ProtocolCount; p++ )
+        // the USB decoder (version 8) is the last protocol
+        int nProtocols = s_nFileVersion >= 8 ? ProtocolCount : Usb;
+        io.Enum(c.protocol, nProtocols - 1);
+        for ( int p = 0; p < nProtocols; p++ )
         {
             for ( int r = 0; r < MaxRoles; r++ )
                 io.Enum(c.ch[p][r], ChMax);
@@ -78,6 +81,8 @@ namespace SettingsStore
         io.Enum(c.cntSource, SourceMax);
         io.Enum(c.quadRes, QuadResMax);
         io.Enum(c.quadDir, 1);
+        if ( s_nFileVersion >= 8 )
+            io.Enum(c.usbSpeed, UsbSpeedMax);
     }
 
     static void Generator(TIo& io, CSettings::Generator& g)
@@ -250,7 +255,7 @@ namespace SettingsStore
         io.Raw(nVersion);
         io.Raw(nLen);
         io.Raw(nSum);
-        bool bHeader = io.bOk && nMagic == Magic && ( nVersion == Version || nVersion == 6 );
+        bool bHeader = io.bOk && nMagic == Magic && ( nVersion >= 6 && nVersion <= Version );
         if ( bHeader )
         {
             s_nFileVersion = nVersion;

@@ -765,10 +765,12 @@ void CItemDecodeInfo::Create(CWnd* pParent)
     {
         strcpy( text, CUtils::itoa(DetectedRate) );
         strcat( text, "Bd" );
-    } else if ( proto == Can && DetectedRate )
+    } else if ( (proto == Can || proto == Usb) && DetectedRate )
     {
         FormatFreq( (float)DetectedRate, text );
         strcat( text, "b/s" );
+        if ( proto == Usb )
+            strcat( text, DetectedRate > 2000000 ? " FS" : " LS" );
     }
     float fFreq, fDuty, fWidth;
     if ( proto == Pulse && Decoder::PulseStats( DecodeUi::SampleRate(), fFreq, fDuty, fWidth ) )
@@ -817,7 +819,7 @@ void CWndListDecode::Create(CWnd* pParent)
     for ( int r = 0; r < MaxRoles; r++ )
         if ( RoleName(p, r) )
             nItems++;
-    static const uint8_t arrParams[ProtocolCount] = {0, 5, 2, 0, 3, 0, 2, 1, 1, 0, 1, 2, 3};
+    static const uint8_t arrParams[ProtocolCount] = {0, 5, 2, 0, 3, 0, 2, 1, 1, 0, 1, 2, 3, 1};
     nItems += arrParams[p];
 
     CListBox::Create( ProtocolText[p], WsVisible | WsModal,
@@ -870,6 +872,9 @@ void CWndListDecode::Create(CWnd* pParent)
         _Add( "Count", g_textQuadRes, &c.quadRes, QuadResMax );
         _Add( "Direction", g_textDirection, &c.quadDir, 1 );
         _Add( "Z active", g_textActive, &c.invert[p], 1 );
+        break;
+    case Usb:
+        _Add( "Speed", UsbSpeedText, &c.usbSpeed, UsbSpeedMax );
         break;
     }
     _Add( "Band", g_textBand, &c.band, BandMax );

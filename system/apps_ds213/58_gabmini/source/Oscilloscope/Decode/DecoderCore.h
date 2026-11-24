@@ -20,7 +20,7 @@
 namespace Decoder
 {
     enum EProtocol {
-        Off, Uart, Lin, I2c, Spi, OneWire, Can, Ws2812, Nec, Ps2, Pulse, Counter, Encoder,
+        Off, Uart, Lin, I2c, Spi, OneWire, Can, Ws2812, Nec, Ps2, Pulse, Counter, Encoder, Usb,
         ProtocolCount, ProtocolMax = ProtocolCount - 1
     };
     enum EChannel { Ch1, Ch2, Ch3, Ch4, ChOff, ChMax = ChOff, ChMaxRequired = Ch4 };
@@ -58,7 +58,10 @@ namespace Decoder
         uint8_t quadRes;                     // EQuadRes
         uint8_t quadDir;                     // 1 = reverse the direction
         // invert[Encoder]: Z is active low
+        uint8_t usbSpeed;                    // EUsbSpeed
     };
+    // USB: the bit rate from the lines (auto) or full / low speed
+    enum EUsbSpeed { UsbAuto, UsbFull, UsbLow, UsbSpeedMax = UsbLow };
 
     enum EType {
         TData,          // value = word, aux = number of bits
@@ -82,6 +85,8 @@ namespace Decoder
         TQuadZ,         // index pulse, value = signed x4 steps since the previous Z
                         // (aux = 1) or since the start of the buffer (aux = 0)
         TQuadError,     // A and B changed together (sample rate too low)
+        TUsb,           // USB (common/usbdecode.h): aux = Usb::EKind, value = its value;
+                        // bytes are TData
         TWarning        // value = EWarning
     };
 
@@ -136,6 +141,7 @@ namespace Decoder
     extern const uint8_t BitsSpi[];
     extern const char* const BitsSpiText[];
     enum { BitsSpiMax = 7 };
+    extern const char* const UsbSpeedText[];
 
     extern const char* const ProtocolText[];
     extern const char* const ChannelText[];
