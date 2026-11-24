@@ -1,7 +1,8 @@
 #pragma once
 // Protocol decoders of the logic analyzer, the protocols of the oscilloscope
 // (58_gabmini Decode): UART, LIN, I2C, SPI, 1-Wire, CAN, WS2812, NEC IR,
-// PS/2, pulse width, edge counter, quadrature encoder. Input: the event
+// PS/2, pulse width, edge counter, quadrature encoder, USB (the core is
+// shared with the oscilloscope: ../../common/usbdecode.h). Input: the event
 // list of la.h (state << 28 | first sample), so a capture of up to 67 M
 // samples is decoded without a sample buffer. Output: frames (first / end
 // sample, value, lane, kind, flags). Also the text of a frame and the
@@ -11,16 +12,18 @@
 #include <stdint.h>
 #include <string.h>
 #include "la.h"
+#include "../../common/usbdecode.h"
 
 namespace Dec
 {
   enum EProto { POff, PUart, PLin, PI2c, PSpi, POneWire, PCan, PWs2812, PNec, PPs2,
-    PPulse, PCounter, PEncoder, Protos };
+    PPulse, PCounter, PEncoder, PUsb, Protos };
   enum { MaxRoles = 4 };
 
   enum EKind { Data, AddrW, AddrR, Start, Restart, Stop, Break, Sync, Pid, Checksum,
     Reset, Presence, CanId, CanDlc, CanCrc, CanAck, Color, Leader, Repeat, NecAddr,
-    NecCmd, Pulse, Count, QuadRun, QuadZ, QuadErr, StuffErr };
+    NecCmd, Pulse, Count, QuadRun, QuadZ, QuadErr, StuffErr,
+    UsbItem };                // USB: aux = Usb::EKind, v its value (bytes are Data)
   // flags; Data aux: number of bits | the bits below
   enum { FlErr = 1, FlNack = 2, FlPoint = 4, FlPar = 8, FlFirst = 16 };
   enum { AuxRom = 0x100, AuxFunc = 0x200, AuxBadSlot = 0x400 };
@@ -57,8 +60,9 @@ namespace Dec
     int8_t tThen;
     uint8_t tNth;
     uint32_t tValue, tMask, tThenValue;
+    int8_t usbSpeed;                                    // Usb::ESpeed: auto, full, low
   };
-  const uint32_t CfgMagic = 0x4c444332;   // "LDC2"
+  const uint32_t CfgMagic = 0x4c444333;   // "LDC3" (LDC2: without USB)
 
   static const uint32_t RateUart[] = { 0, 300, 600, 1200, 2400, 4800, 9600, 14400, 19200,
     28800, 31250, 38400, 57600, 76800, 115200, 230400, 250000, 460800, 500000, 921600,
@@ -71,7 +75,7 @@ namespace Dec
   enum { RateCanN = sizeof(RateCan) / sizeof(RateCan[0]) };
 
   static const char* const ProtoName[Protos] = { "Dec off", "UART", "LIN", "I2C", "SPI",
-    "1-Wire", "CAN", "WS2812", "NEC IR", "PS/2", "Pulse", "Counter", "Encoder" };
+    "1-Wire", "CAN", "WS2812", "NEC IR", "PS/2", "Pulse", "Counter", "Encoder", "USB" };
   // role names (nullptr: not used), short names (lane labels)
   static const char* const RoleName[Protos][MaxRoles] = {
     { nullptr, nullptr, nullptr, nullptr }, { "RX", "TX", nullptr, nullptr },
@@ -80,12 +84,12 @@ namespace Dec
     { "RX", nullptr, nullptr, nullptr }, { "DIN", nullptr, nullptr, nullptr },
     { "IR", nullptr, nullptr, nullptr }, { "CLK", "DATA", nullptr, nullptr },
     { "In", nullptr, nullptr, nullptr }, { "In", nullptr, nullptr, nullptr },
-    { "A", "B", "Z", nullptr } };
+    { "A", "B", "Z", nullptr }, { "D+", "D-", nullptr, nullptr } };
   static const char* const RoleShort[Protos][MaxRoles] = {
     { "", "", "", "" }, { "RX", "TX", "", "" }, { "LN", "", "", "" }, { "CL", "DA", "", "" },
     { "CK", "MO", "MI", "CS" }, { "1W", "", "", "" }, { "CN", "", "", "" }, { "WS", "", "", "" },
     { "IR", "", "", "" }, { "CK", "DA", "", "" }, { "PW", "", "", "" }, { "CT", "", "", "" },
-    { "QA", "QB", "QZ", "" } };
+    { "QA", "QB", "QZ", "" }, { "D+", "D-", "", "" } };
 
   inline bool RoleOptional(int p, int r)
   {
@@ -694,6 +698,43 @@ namespace Dec
       }
     }
 
+    // ---------------------------------------------------------- USB
+    struct TUsbIn
+    {
+      TLine dp, dm;
+      uint32_t Begin() { return 0; }
+      uint32_t End() { return dp.end; }
+      int State(uint32_t t) { return dp.L(t) | (dm.L(t) << 1); }
+      uint32_t Next(uint32_t t)
+      {
+        int i = La::Find(dp.ev, dp.n, t);
+        int s = dp.Lv(i) | (dm.Lv(i) << 1);
+        for (i++; i < dp.n; i++)
+          if ((dp.Lv(i) | (dm.Lv(i) << 1)) != s) return dp.T(i);
+        return dp.end;
+      }
+    };
+    struct TUsbOut
+    {
+      TOut& o;
+      int lane;
+      bool Add(const Usb::TItem& it)
+      {
+        if (it.kind == Usb::KData) return o.Add(it.t0, it.t1, Data, it.v, lane, 0, 8);
+        return o.Add(it.t0, it.t1, UsbItem, it.v, lane, it.err ? FlErr : 0, it.kind);
+      }
+    };
+    void UsbDecode()
+    {
+      TUsbIn in{ Line(0), Line(1) };
+      if (!in.dp.valid || !in.dm.valid || in.dp.lane == in.dm.lane) { st.noLane = true; return; }
+      TUsbOut out{ o, in.dp.lane };
+      Usb::CDecoder<TUsbIn, TUsbOut> d(in, out, fs);
+      Usb::TResult r = d.Run(c.usbSpeed);
+      if (r.slow) st.slow = true;
+      else if (o.n) st.baud = r.rate;
+    }
+
     // ---------------------------------------------------------- NEC IR
     void Nec()
     {
@@ -901,6 +942,7 @@ namespace Dec
         case PPulse: PulseW(); break;
         case PCounter: Counter(); break;
         case PEncoder: Encoder(); break;
+        case PUsb: UsbDecode(); break;
       }
     }
   };
@@ -1159,6 +1201,9 @@ namespace Dec
         break;
       case QuadErr: w.S(lng ? "A and B changed together" : "AB!"); break;
       case StuffErr: w.S(lng ? "stuff error" : "STF!"); break;
+      case UsbItem:
+        Usb::Text(w, a.aux, a.v, err, lng, a.t1 - a.t0 + 1, [fs](TText& ww, uint32_t n) { ww.Time(n / fs); });
+        break;
     }
     *w.p = 0;
     return (int)(w.p - buf);
@@ -1170,7 +1215,8 @@ namespace Dec
   struct TCond { const char* name; uint8_t id; uint8_t val; };
   enum ECond { CAny, CData, CRx, CTx, CBreak, CError, CPid, CAddrW, CAddrR, CAddr, CNack,
     CStart, CMosi, CMiso, CCmd, CReset, CRom, CFunc, CCanId, CColor, CLed, CNecAddr, CNecCmd,
-    CRepeat, CWidthGt, CWidthLt, CPeriodGt, CEdgeN, CZ, CQuadErr };
+    CRepeat, CWidthGt, CWidthLt, CPeriodGt, CEdgeN, CZ, CQuadErr,
+    CUsbPid, CUsbAddr, CUsbReq };
 
   // the conditions of a protocol, [0] is "off"
   inline const TCond* Conds(int proto, int& n)
@@ -1197,6 +1243,8 @@ namespace Dec
       { "period >", CPeriodGt, VUs } };
     static const TCond cnt[] = { { "off", 0, VNone }, { "edge number", CEdgeN, VNum } };
     static const TCond enc[] = { { "off", 0, VNone }, { "index Z", CZ, VNone }, { "A/B error", CQuadErr, VNone } };
+    static const TCond usb[] = { { "off", 0, VNone }, { "PID", CUsbPid, VHex }, { "token address", CUsbAddr, VHex },
+      { "setup request", CUsbReq, VHex }, { "data", CData, VHex }, { "reset", CReset, VNone }, { "error", CError, VNone } };
     switch (proto)
     {
       case PUart: n = 6; return uart;
@@ -1211,6 +1259,7 @@ namespace Dec
       case PPulse: n = 4; return pulse;
       case PCounter: n = 2; return cnt;
       case PEncoder: n = 3; return enc;
+      case PUsb: n = 7; return usb;
     }
     n = 1;
     return off;
@@ -1246,7 +1295,7 @@ namespace Dec
       case CMosi: return f.kind == Data && f.lane == ln[1] && hex;
       case CMiso: return f.kind == Data && f.lane == ln[2] && hex;
       case CCmd: return f.kind == Data && (f.flags & FlFirst) && (ln[1] < 0 || f.lane == ln[1]) && hex;
-      case CReset: return f.kind == Reset;
+      case CReset: return f.kind == Reset || (f.kind == UsbItem && f.aux == Usb::KReset);
       case CRom: return f.kind == Data && (f.aux & AuxRom) && hex;
       case CFunc: return f.kind == Data && (f.aux & AuxFunc) && hex;
       case CCanId: return f.kind == CanId && hex;
@@ -1266,6 +1315,11 @@ namespace Dec
       case CEdgeN: return f.kind == Count && f.v == c.tValue;
       case CZ: return f.kind == QuadZ;
       case CQuadErr: return f.kind == QuadErr;
+      // the PID (4 bits), address | endpoint << 7 of IN / OUT / SETUP / PING,
+      // bRequest of a setup packet
+      case CUsbPid: return f.kind == UsbItem && f.aux == Usb::KPid && !(f.flags & FlErr) && hex;
+      case CUsbAddr: return f.kind == UsbItem && f.aux == Usb::KAddr && hex;
+      case CUsbReq: return f.kind == UsbItem && f.aux == Usb::KRequest && (((f.v & 0xff) ^ c.tValue) & c.tMask) == 0;
     }
     return false;
   }
@@ -1320,6 +1374,8 @@ namespace Dec
       case PPulse: lane = ln[0]; rise = !inv; break;
       case PCounter: lane = ln[0]; rise = c.cntEdge != EdgeFall; break;
       case PEncoder: lane = ln[0]; rise = true; break;
+      // SYNC: J -> K, D+ falls at full speed, rises at low speed
+      case PUsb: lane = ln[0]; rise = c.usbSpeed == Usb::SpeedLow; break;
       default: return false;
     }
     return lane >= 0 && lane < 4;

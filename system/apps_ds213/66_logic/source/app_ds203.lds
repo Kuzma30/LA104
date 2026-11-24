@@ -3,9 +3,10 @@ MEMORY
   null (rwx): ORIGIN = 0x00001000, LENGTH = 4K
   /* above the oscilloscope (0x08040000..0x08067FFF), below 67_freq: no flashing of the
      other application when switching between them; 512 KB flash (VE) */
-  rom (rx) : ORIGIN = 0x08068000, LENGTH = 52K
-  /* the compiled translation (common/lang.h), written by the application */
-  lang (r) : ORIGIN = 0x08075000, LENGTH = 12K
+  rom (rx) : ORIGIN = 0x08068000, LENGTH = 56K
+  /* the compiled translation (common/lang.h), written by the application
+     (LOGIC.TXT takes about 5 KB; 12 KB at 0x08075000 before the USB decoder) */
+  lang (r) : ORIGIN = 0x08076000, LENGTH = 8K
   /* as the other applications: 0x20004400.., >= 1.5 KB stack below the OS */
   ram (rwx) : ORIGIN = 0x20004400, LENGTH = 0x6200
   /* RAM above the OS (64 KB RAM of the STM32F103VE), zeroed by the loader */

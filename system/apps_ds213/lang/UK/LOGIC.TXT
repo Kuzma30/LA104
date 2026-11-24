@@ -95,6 +95,7 @@
 "Resolution" = "Роздільність"
 "Direction" = "Напрямок"
 "Index Z" = "Індекс Z"
+"Speed" = "Швидкість"
 "Format" = "Формат"
 "-- Trigger (Trig: Decoder)" = "-- Тригер (Trig: Декодер)"
 "Condition" = "Умова"
@@ -110,6 +111,8 @@
 "Duty %" = "Заповнення %"
 "Data" = "Дані"
 "With capture" = "Із захопленням"
+"LEDs" = "Світлодіоди"
+"Colors" = "Кольори"
 
 # ---- значення
 "even" = "парна"
@@ -144,6 +147,10 @@
 "active low" = "активний низький"
 "text Hello DS203!" = "текст Hello DS203!"
 "4 bytes of Value" = "4 байти Значення"
+"test colors" = "тестові кольори"
+"Value 0xRRGGBB" = "Значення 0xRRGGBB"
+"full 12 Mbit/s" = "повна 12 Mbit/s"
+"low 1.5 Mbit/s" = "низька 1.5 Mbit/s"
 
 # ---- умови тригера
 "start" = "старт"
@@ -172,6 +179,8 @@
 "MISO word" = "слово MISO"
 "ROM command" = "команда ROM"
 "function cmd" = "функц. команда"
+"token address" = "адреса токена"
+"setup request" = "запит SETUP"
 
 # ---- генератор
 " low" = " низький"
@@ -183,7 +192,7 @@
 "too long" = "задовго"
 "no pulses" = "немає імпульсів"
 "too fast" = "зашвидко"
-"WS2812: too fast" = "WS2812: зашвидко"
+"LEDs: 1 .. 14" = "LED: 1 .. 14"
 "needs 2+ lines" = "потрібно 2+ лінії"
 "not a one-shot mode" = "не одноразовий режим"
 

@@ -23,7 +23,7 @@ conversions in the same order. Keys with a context (`"gen:Pulse"`) are for
 words with two meanings.
 
 At its start an application compiles its file into a table in its own flash
-area (logic: 0x08075000, 12 KB; oscilloscope: 0x08064000, 16 KB); the area
+area (logic: 0x08076000, 8 KB; oscilloscope: 0x08064000, 16 KB); the area
 is written again only when the file changed (size and checksum are kept),
 so the flash is not worn. An error is shown in the status line
 (`no LANG/UK/LOGIC.TXT`, `translation too long`).

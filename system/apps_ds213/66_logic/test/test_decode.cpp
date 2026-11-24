@@ -4,7 +4,9 @@
 #include <cstdlib>
 #include <vector>
 #include <algorithm>
+#include <string>
 #include "decode.h"
+#include "../../common/test/usbsignal.h"
 
 // state bits: 0 C, 1 D, 2 A, 3 B; lanes A 0, B 1, C 2, D 3
 enum { MC = 1, MD = 2, MA = 4, MB = 8 };
@@ -479,6 +481,102 @@ void TestEncoder()
   Check(k >= 0 && frames[k].kind == Dec::QuadZ && frames[k].v == 40, "encoder trigger 2nd Z");
 }
 
+// ------------------------------------------------------------------ USB
+// D+ on C, D- on D; the samples of usbsignal.h as events
+void RunUsb(const UsbSig& u, double rate, const Dec::TCfg& c)
+{
+  std::vector<uint32_t> ev;
+  int prev = -1;
+  for (size_t i = 0; i < u.st.size(); i++)
+    if (u.st[i] != prev) { prev = u.st[i]; ev.push_back(La::Event(prev | 12, (uint32_t)i)); }
+  bool ovf;
+  nf = Dec::Decode(ev.data(), ev.size(), (uint32_t)u.st.size(), rate, c, frames, 1024, st, ovf);
+}
+
+std::vector<std::string> Texts(const Dec::TCfg& c, double rate, bool lng = false)
+{
+  std::vector<std::string> v;
+  char b[96];
+  for (int i = 0; i < nf; i++) { Dec::Format(frames, i, nf, c, rate, b, sizeof b, lng); v.push_back(b); }
+  return v;
+}
+
+void TestUsb()
+{
+  const double rate = 72e6;
+  UsbSig u(rate, 12e6, 1);
+  u.Idle(20);
+  u.Se0(12e6 * 10e-6);                    // reset 10 us
+  u.Idle(30);
+  u.Sof(0x2a5);
+  u.Idle(30);
+  u.Token(Usb::PidSetup, 0, 0);
+  u.Idle(4);
+  u.Data(Usb::PidData0, { 0x00, 0x05, 0x0b, 0x00, 0x00, 0x00, 0x00, 0x00 });
+  u.Idle(4);
+  u.Handshake(Usb::PidAck);
+  u.Idle(30);
+  u.Token(Usb::PidIn, 11, 0);
+  u.Idle(4);
+  u.Handshake(Usb::PidNak);
+  u.Idle(30);
+  u.Token(Usb::PidOut, 11, 2);
+  u.Idle(4);
+  u.Data(Usb::PidData1, { 'h', 'i' }, 0xbeef);
+  u.Idle(40);
+  Dec::TCfg c = Cfg(Dec::PUsb);
+  RunUsb(u, rate, c);
+  std::vector<std::string> e = { "RESET", "SOF", "F677", "CRC", "SETUP", "A0.0", "CRC", "DATA0", "OUT std dev",
+    "SET_ADDRESS", "addr 11", "I:0000", "L:0", "CRC", "ACK", "IN", "A11.0", "CRC", "NAK", "OUT", "A11.2", "CRC",
+    "DATA1", "68", "69", "CRC!" };
+  auto v = Texts(c, rate);
+  bool ok = v == e;
+  if (!ok) { for (auto& x : v) printf("[%s] ", x.c_str()); printf("\n"); }
+  Check(ok, "usb frames");
+  Check(st.baud == 12000000, "usb rate");
+  auto l = Texts(c, rate, true);
+  Check(l[0] == "reset (SE0 10.0us)", "usb reset text");
+  Check(l[10] == "wValue 0x000B: address 11", "usb set address text");
+  // the trigger conditions
+  c.tCond[Dec::PUsb] = 1; c.tValue = Usb::PidNak; c.tMask = 15;
+  Check(Trig(c, rate) == 18, "usb trigger PID NAK");
+  c.tCond[Dec::PUsb] = 2; c.tValue = 11 | 2 << 7; c.tMask = 0x7ff;
+  Check(Trig(c, rate) == 20, "usb trigger address 11 endpoint 2");
+  c.tMask = 0x7f; c.tNth = 2;
+  Check(Trig(c, rate) == 20, "usb trigger address 11, 2nd");
+  c.tNth = 1;
+  c.tCond[Dec::PUsb] = 3; c.tValue = 5; c.tMask = 0xff;
+  Check(Trig(c, rate) == 9, "usb trigger SET_ADDRESS");
+  c.tCond[Dec::PUsb] = 5;
+  Check(Trig(c, rate) == 0, "usb trigger reset");
+  c.tCond[Dec::PUsb] = 6;
+  Check(Trig(c, rate) == 25, "usb trigger error (CRC16)");
+  c.tCond[Dec::PUsb] = 1; c.tValue = Usb::PidSetup; c.tMask = 15; c.tThen = 1; c.tThenValue = 0;
+  Check(Trig(c, rate) == 4, "usb trigger SETUP then address 0");
+  int lane; bool rise;
+  Check(Dec::StartEdge(c, lane, rise) && lane == 2 && !rise, "usb start edge");
+  // low speed at 12 MS/s; too slow at 24 MS/s for full speed
+  UsbSig ls(12e6, 1.5e6, 1, true);
+  ls.Idle(10);
+  ls.Token(Usb::PidIn, 1, 1);
+  ls.Idle(4);
+  ls.Data(Usb::PidData0, { 1, 2, 3 });
+  ls.Idle(10);
+  Dec::TCfg c2 = Cfg(Dec::PUsb);
+  RunUsb(ls, 12e6, c2);
+  v = Texts(c2, 12e6);
+  ok = v == std::vector<std::string>{ "IN", "A1.1", "CRC", "DATA0", "01", "02", "03", "CRC" };
+  if (!ok) { for (auto& x : v) printf("[%s] ", x.c_str()); printf("\n"); }
+  Check(ok && st.baud == 1500000, "usb low speed");
+  UsbSig f(24e6, 12e6, 0);
+  f.Idle(10); f.Handshake(Usb::PidAck); f.Idle(10);
+  RunUsb(f, 24e6, c2);
+  Check(st.slow, "usb full speed at 24 MS/s: too slow");
+  c2.lane[Dec::PUsb][1] = 2;
+  RunUsb(u, rate, c2);
+  Check(st.noLane, "usb D+ and D- on one lane");
+}
+
 int main()
 {
   srand(1);
@@ -493,6 +591,7 @@ int main()
   TestPs2();
   TestPulseCounter();
   TestEncoder();
+  TestUsb();
   printf(fails ? "%d FAILED\n" : "all passed\n", fails);
   return fails != 0;
 }

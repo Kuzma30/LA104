@@ -443,7 +443,7 @@ namespace
         if (decoded)
         {
           // the roles with frames
-          static const uint8_t frameRoles[Dec::Protos] = { 0, 3, 1, 2, 6, 1, 1, 1, 1, 2, 1, 1, 7 };
+          static const uint8_t frameRoles[Dec::Protos] = { 0, 3, 1, 2, 6, 1, 1, 1, 1, 2, 1, 1, 7, 1 };
           *decoded = (frameRoles[(int)dc.proto] >> r) & 1;
         }
         return Dec::RoleShort[(int)dc.proto][r];
@@ -467,6 +467,14 @@ namespace
       case Dec::Sync: case Dec::QuadZ: return clrOk;
       case Dec::Stop: case Dec::Presence: case Dec::Repeat: case Dec::CanDlc: case Dec::CanCrc:
       case Dec::CanAck: case Dec::Checksum: return clrWarn;
+      case Dec::UsbItem:
+        switch (f.aux)
+        {
+          case Usb::KPid: case Usb::KReset: case Usb::KKeepAlive: return clrOk;
+          case Usb::KAddr: case Usb::KFrame: case Usb::KRequest: return clrX2;
+          case Usb::KCrc5: case Usb::KCrc16: return clrWarn;
+        }
+        return clrText;
       case Dec::Color:
       {
         // the LED color itself, at least a bit bright
@@ -1243,6 +1251,9 @@ namespace
       case Dec::PUart: case Dec::PLin: case Dec::PCan:
         if (gStats.baud) { p = PutU(p, gStats.baud); Put(p, dc.proto == Dec::PCan ? " bit/s" : " Bd"); }
         break;
+      case Dec::PUsb:
+        if (gStats.baud) { p = PutSI(p, (float)gStats.baud, "bit/s"); Put(p, gStats.baud > 2000000 ? " FS" : " LS"); }
+        break;
       case Dec::PCounter:
         p = PutU(p, gStats.edges); Put(p, " edges");
         break;
@@ -1347,6 +1358,7 @@ namespace
   const char* const lstDir[] = { "A leads B: +", "A leads B: -" };
   const char* const lstZ[] = { "Z active high", "Z active low" };
   const char* const lstFmt[] = { "hex", "decimal", "ASCII" };
+  const char* const lstUsb[] = { "auto", "full 12 Mbit/s", "low 1.5 Mbit/s" };
   const char* const lstOnOff[] = { "off", "on" };
   const char* const lstBaudU[] = { "auto", "300", "600", "1200", "2400", "4800", "9600", "14400",
     "19200", "28800", "31250", "38400", "57600", "76800", "115200", "230400", "250000", "460800",
@@ -1406,6 +1418,7 @@ namespace
         add("Direction", PkList, &dc.quadDir, 0, 1, lstDir);
         add("Index Z", PkList, &dc.inv[pr], 0, 1, lstZ);
         break;
+      case Dec::PUsb: add("Speed", PkList, &dc.usbSpeed, 0, 2, lstUsb); break;
     }
     if (pr != Dec::PPulse && pr != Dec::PCounter && pr != Dec::PEncoder && pr != Dec::PWs2812)
       add("Format", PkList, &dc.fmt, 0, 2, lstFmt);
@@ -1520,6 +1533,14 @@ namespace
         }
         if (dc.proto == Dec::PNec)
           add("Polarity", PkList, &dc.inv[Dec::PNec], 0, 1, lstNec);
+        if (dc.proto == Dec::PWs2812)
+        {
+          static const char* const lstWsPay[] = { "test colors", "Value 0xRRGGBB" };
+          add32("LEDs", PkDec, &gc.count);
+          add("Colors", PkList, &gc.payload, 0, 1, lstWsPay);
+          if (gc.payload) add32("Value", PkHex, &gc.value);
+          add("Color order", PkList, &dc.wsOrder, 0, 1, lstWs);
+        }
         if (dc.proto == Dec::PPulse || dc.proto == Dec::PCounter)
         {
           add32("Pulses", PkDec, &gc.count);
@@ -1752,7 +1773,7 @@ namespace
     cl(dc.uartStop, 1, 2, 1); cl(dc.linBaud, 0, Dec::RateLinN - 1, 0); cl(dc.spiMode, 0, 3, 0);
     cl(dc.spiBits, 4, 32, 8); cl(dc.spiLsb, 0, 1, 0); cl(dc.canRate, 0, Dec::RateCanN - 1, 0);
     cl(dc.wsOrder, 0, 1, 0); cl(dc.cntEdge, 0, 2, 0); cl(dc.quadRes, 0, 2, 0); cl(dc.quadDir, 0, 1, 0);
-    cl(dc.fmt, 0, 2, 0); cl(dc.tThen, 0, 1, 0);
+    cl(dc.fmt, 0, 2, 0); cl(dc.tThen, 0, 1, 0); cl(dc.usbSpeed, 0, 2, 0);
     if (dc.tNth < 1 || dc.tNth > 99) { dc.tNth = 1; fixed = true; }
     cl(gc.mode, 0, Gen::GModes - 1, 0); cl(gc.pol, 0, 1, 0); cl(gc.autoFire, 0, 1, 0);
     cl(gc.payload, 0, 1, 0); cl(gc.duty, 1, 99, 50);
