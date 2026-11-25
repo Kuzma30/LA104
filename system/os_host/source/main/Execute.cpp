@@ -166,16 +166,40 @@ void ZeroRom( CBufferedReader& f, Elf32_Shdr& elfSection )
 	BIOS::MEMORY::LinearFinish();
 }
 
+// a section of the application must not be written over the OS itself
+// (an application linked for an older, smaller OS overwrote the running
+// code and the OS crashed while flashing it)
+extern unsigned long _addressRomBegin;
+extern unsigned long _addressRomEnd;
+
+static bool OverlapsOs( Elf32_Shdr& elfSection )
+{
+	if ( (elfSection.addr >> 24) != 0x08 || elfSection.size == 0 )
+		return false;
+	uint32_t nBegin = (uint32_t)&_addressRomBegin, nEnd = (uint32_t)&_addressRomEnd;
+	if ( elfSection.addr >= nEnd || elfSection.addr + elfSection.size <= nBegin )
+		return false;
+	char message[80];
+	sprintf(message, "\n%08x..%08x overlaps the OS (up to %08x):\nthe application needs a new build.\n",
+		elfSection.addr, elfSection.addr + elfSection.size, nEnd);
+	Show(message);
+	BIOS::DBG::Print(message);
+	return true;
+}
+
 //LINKERSECTION(".gbios")
-void /*CWndUserManager::*/FlashData( CBufferedReader& f, Elf32_Shdr& elfSection )
+bool /*CWndUserManager::*/FlashData( CBufferedReader& f, Elf32_Shdr& elfSection )
 {
       	char message[64];
+
+	if ( OverlapsOs( elfSection ) )
+		return false;
 
 	if ( Verify( f, elfSection ) )
 	{
 		sprintf(message, "Ignoring %d bytes at %08x.", elfSection.size, elfSection.addr);
 		Show(message);
-		return;
+		return true;
 	}
 
       	sprintf(message, "Flashing %d bytes at %08x.", elfSection.size, elfSection.addr);
@@ -192,18 +216,22 @@ void /*CWndUserManager::*/FlashData( CBufferedReader& f, Elf32_Shdr& elfSection 
 	} else
 		_ASSERT(!!!"Unrecognized memory location");
 #endif
+	return true;
 }
 
 //LINKERSECTION(".gbios")
-void /*CWndUserManager::*/FlashBss( CBufferedReader& f, Elf32_Shdr& elfSection )
+bool /*CWndUserManager::*/FlashBss( CBufferedReader& f, Elf32_Shdr& elfSection )
 {
       	char message[64];
+
+	if ( OverlapsOs( elfSection ) )
+		return false;
 
 	if ( VerifyZero( f, elfSection ) )
 	{
 	      	sprintf(message, "Ignoring %d bytes at %08x.", elfSection.size, elfSection.addr);
 	      	Show(message);
-		return;
+		return true;
 	}
 	sprintf(message, "Filling %d bytes at %08x.", elfSection.size, elfSection.addr);
      	Show(message);
@@ -218,6 +246,7 @@ void /*CWndUserManager::*/FlashBss( CBufferedReader& f, Elf32_Shdr& elfSection )
 	} else
 		_ASSERT(!!!"Unrecognized memory location");
 #endif
+	return true;
 }
 
 bool BIOS::OS::LoadExecutable(char* filename, uint32_t& entry, bool quiet)
@@ -305,7 +334,8 @@ bool BIOS::OS::LoadExecutable(char* filename, uint32_t& entry, bool quiet)
 			sprintf(message, "%s>", strSectionName);
 			Show(message);
 			// flash code
-			FlashData( fw, elfSection );
+			if ( !FlashData( fw, elfSection ) )
+				return false;
 			Show("\n");
 			continue;
 		}
@@ -315,7 +345,8 @@ bool BIOS::OS::LoadExecutable(char* filename, uint32_t& entry, bool quiet)
 			sprintf(message, "%s>", strSectionName);
 			Show(message);
 			// flash data
-			FlashData( fw, elfSection );
+			if ( !FlashData( fw, elfSection ) )
+				return false;
 			Show("\n");
 			continue;
 		}
@@ -325,7 +356,8 @@ bool BIOS::OS::LoadExecutable(char* filename, uint32_t& entry, bool quiet)
 			sprintf(message, "%s>", strSectionName);
 			Show(message);
 			// flash data
-			FlashData( fw, elfSection );
+			if ( !FlashData( fw, elfSection ) )
+				return false;
 			Show("\n");
 			continue;
 		}
@@ -335,7 +367,8 @@ bool BIOS::OS::LoadExecutable(char* filename, uint32_t& entry, bool quiet)
 			sprintf(message, "%s>", strSectionName);
 			Show(message);
 			// flash bss
-			FlashBss( fw, elfSection );
+			if ( !FlashBss( fw, elfSection ) )
+				return false;
 			Show("\n");
 			continue;
 		}
@@ -378,20 +411,23 @@ bool BIOS::OS::LoadExecutable(char* filename, uint32_t& entry, bool quiet)
 			case SecData:
 			{
 				_ASSERT( 0 );
-				FlashData( fw, elfSection );
+				if ( !FlashData( fw, elfSection ) )
+					return false;
 				break;	
 			}
 			case SecPlt:
 			case SecGot:
 			case SecDynamic:
 			{
-				FlashData( fw, elfSection );
+				if ( !FlashData( fw, elfSection ) )
+					return false;
 				break;
 			}
 			case SecBss:
 			{
 				_ASSERT( 0 );
-				FlashBss( fw, elfSection );
+				if ( !FlashBss( fw, elfSection ) )
+					return false;
 				break;
 			}
 			case SecDynStr:
