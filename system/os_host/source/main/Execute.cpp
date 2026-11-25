@@ -176,7 +176,10 @@ static bool OverlapsOs( Elf32_Shdr& elfSection )
 {
 	if ( (elfSection.addr >> 24) != 0x08 || elfSection.size == 0 )
 		return false;
-	uint32_t nBegin = (uint32_t)&_addressRomBegin, nEnd = (uint32_t)&_addressRomEnd;
+	// the flash is erased in pages of 2 KB: the page with the end of the
+	// OS belongs to the OS
+	uint32_t nBegin = (uint32_t)&_addressRomBegin & ~0x7ffu;
+	uint32_t nEnd = ( (uint32_t)&_addressRomEnd + 0x7ffu ) & ~0x7ffu;
 	if ( elfSection.addr >= nEnd || elfSection.addr + elfSection.size <= nBegin )
 		return false;
 	char message[80];
