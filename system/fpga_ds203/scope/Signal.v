@@ -5,15 +5,13 @@
 
 module Signal( Reset, Mclk, Trigg_Mode, Vthreshold, Tthreshold, Din, DinP,
                Sampled, CtrlReg,
-               Start, ClkA, ClkB, 
-               A_Edge, A_TL, A_TH, B_Edge, B_TL, B_TH, 
-               C_Edge, C_TL, C_TH, D_Edge, D_TL, D_TH, );
+               Start, ClkA, ClkB );
 
   input   Reset;              // Trigger status rst    -> Active high 
   input   Mclk;               // main clock
   input   [ 7:0]Trigg_Mode;   // Trigger Mode 
   input   [ 7:0]Vthreshold;   // Trigger voltage threshold 
-  input   [15:0]Tthreshold;   // Trigger time threshold 
+  input   [31:0]Tthreshold;   // Trigger time threshold (LA104 2.68: 32 bits)
   input   [17:0]Din;          // 0~7:CH_A, 8~15:CH_B, 16:CH_C, 17:CH_D
   input   [17:0]DinP;         // LA104: Din one sample before (Din = DinP delayed)
   input   Sampled;
@@ -23,22 +21,21 @@ module Signal( Reset, Mclk, Trigg_Mode, Vthreshold, Tthreshold, Din, DinP,
   output  ClkA;               // Clock_A for ADC CH_A
   output  ClkB;               // Clock_B for ADC CH_B
   
-  output  [15:0]A_Edge;       // CH_A edge counter
-  output  [15:0]A_TL;         // CH_A 
-  output  [15:0]A_TH;         // CH_A 
   
-  output  [15:0]B_Edge;       // CH_B edge counter
-  output  [15:0]B_TL;         // CH_B 
-  output  [15:0]B_TH;         // CH_B 
   
-  output  [15:0]C_Edge;       // CH_C edge counter
-  output  [15:0]C_TL;         // CH_C 
-  output  [15:0]C_TH;         // CH_C 
   
-  output  [15:0]D_Edge;       // CH_D edge counter
-  output  [15:0]D_TL;         // CH_D 
-  output  [15:0]D_TH;         // CH_D 
   
+  // LA104 (FPGA 2.68): the measurement registers of the original (edges and
+  // sum of the widths of every channel, Select 0x00..0x0E) are removed, no
+  // program of the LA104 OS reads them (the edge counters of EdgeCnt.v are
+  // exact); the counters of the pulse triggers have 32 bits as in the Wildcat
+  // FPGA W1.1 (12 bits wrapped after 4096 samples, wrong pulse triggers for
+  // long pulses and with peak detection, where they count the fast samples)
+  // The pulse counters count down from Tthreshold - 1 (loaded at every
+  // edge) and stop below 0: bit 32 = 0 at the next edge is the original
+  // "count < Tthreshold" (a 32 bit compare was the longest path)
+  wire    [32:0]TLoad = { 1'b0, Tthreshold } - 33'd1;
+
   reg     Start;
   wire    [ 8:0]Delta_V1;
   wire    [ 8:0]Delta_V2;
@@ -51,10 +48,7 @@ module Signal( Reset, Mclk, Trigg_Mode, Vthreshold, Tthreshold, Din, DinP,
   reg     A_Dt_H;
   reg     A_Ut_L;
   reg     A_Ut_H;
-  reg     [11:0]A_Cnt;
-  reg     [15:0]A_Edge;
-  reg     [15:0]A_TL;
-  reg     [15:0]A_TH; 
+  reg     [32:0]A_Cnt;
    
   reg     B_Flag;
   reg     B_Status;
@@ -62,30 +56,21 @@ module Signal( Reset, Mclk, Trigg_Mode, Vthreshold, Tthreshold, Din, DinP,
   reg     B_Dt_H;
   reg     B_Ut_L;
   reg     B_Ut_H;
-  reg     [11:0]B_Cnt;
-  reg     [15:0]B_Edge;
-  reg     [15:0]B_TL;
-  reg     [15:0]B_TH; 
+  reg     [32:0]B_Cnt;
   
   reg     C_Flag;
   reg     C_Dt_L;
   reg     C_Dt_H;
   reg     C_Ut_L;
   reg     C_Ut_H;
-  reg     [11:0]C_Cnt;
-  reg     [15:0]C_Edge;
-  reg     [15:0]C_TL;
-  reg     [15:0]C_TH; 
+  reg     [32:0]C_Cnt;
   
   reg     D_Flag;
   reg     D_Dt_L;
   reg     D_Dt_H;
   reg     D_Ut_L;
   reg     D_Ut_H;
-  reg     [11:0]D_Cnt;
-  reg     [15:0]D_Edge;
-  reg     [15:0]D_TL;
-  reg     [15:0]D_TH; 
+  reg     [32:0]D_Cnt;
   
   assign ClkA = Mclk; 
   assign ClkB = CtrlReg[1] ? ( ~Mclk ) : ( Mclk );
@@ -117,101 +102,75 @@ module Signal( Reset, Mclk, Trigg_Mode, Vthreshold, Tthreshold, Din, DinP,
       A_Dt_H   <= 0;
       A_Ut_L   <= 0;
       A_Ut_H   <= 0;
-      A_Edge   <= 0;
-      A_TL     <= 0;
-      A_TH     <= 0;
       B_Dt_L   <= 0;
       B_Dt_H   <= 0;
       B_Ut_L   <= 0;
       B_Ut_H   <= 0;
-      B_Edge   <= 0;
-      B_TL     <= 0;
-      B_TH     <= 0;
       C_Dt_L   <= 0;
       C_Dt_H   <= 0;
       C_Ut_L   <= 0;
       C_Ut_H   <= 0;
-      C_Edge   <= 0;
-      C_TL     <= 0;
-      C_TH     <= 0;
       D_Dt_L   <= 0;
       D_Dt_H   <= 0;
       D_Ut_L   <= 0;
       D_Ut_H   <= 0;
-      D_Edge   <= 0;
-      D_TL     <= 0;
-      D_TH     <= 0;
     end else begin
       // For CH_A Trigger
       if ( A_Gt3 )  A_Status <= 1;
       if ( A_Lt4 )  A_Status <= 0;
       if (( A_Gt1 )&&( ~A_Flag )) begin
-        if ( A_Cnt < Tthreshold )  A_Dt_L <= Sampled; 
+        if ( !A_Cnt[32] )  A_Dt_L <= Sampled; 
         else                       A_Ut_L <= Sampled; 
         A_Flag <= 1;
-        A_Cnt  <= 0;
-        A_Edge <= A_Edge + 1;
-        A_TL   <= A_TL + A_Cnt;
+        A_Cnt  <= TLoad;
       end else
       if (( A_Lt2 )&&(  A_Flag )) begin
-        if ( A_Cnt < Tthreshold )  A_Dt_H <= Sampled; 
+        if ( !A_Cnt[32] )  A_Dt_H <= Sampled; 
         else                       A_Ut_H <= Sampled; 
         A_Flag <= 0;
-        A_Cnt  <= 0;
-        A_Edge <= A_Edge + 1;
-        A_TH   <= A_TH + A_Cnt;
-      end  else  A_Cnt <= A_Cnt + 1; 
+        A_Cnt  <= TLoad;
+      end  else if ( !A_Cnt[32] ) A_Cnt <= A_Cnt - 1; 
       
       // For CH_B Trigger
       if ( B_Gt3 )  B_Status <= 1;
       if ( B_Lt4 )  B_Status <= 0;
       if (( B_Gt1 )&&( ~B_Flag )) begin
-        if ( B_Cnt < Tthreshold )  B_Dt_L <= Sampled;
+        if ( !B_Cnt[32] )  B_Dt_L <= Sampled;
         else                       B_Ut_L <= Sampled;
         B_Flag <= 1;
-        B_Cnt  <= 0;
-        B_Edge <= B_Edge + 1;
-        B_TL   <= B_TL + B_Cnt;
+        B_Cnt  <= TLoad;
       end else
       if (( B_Lt2 )&&(  B_Flag )) begin
-        if ( B_Cnt < Tthreshold )  B_Dt_H <= Sampled;
+        if ( !B_Cnt[32] )  B_Dt_H <= Sampled;
         else                       B_Ut_H <= Sampled;
         B_Flag <= 0;
-        B_Cnt  <= 0;
-        B_Edge <= B_Edge + 1;
-        B_TH   <= B_TH + B_Cnt;
-      end  else  B_Cnt <= B_Cnt + 1; 
+        B_Cnt  <= TLoad;
+      end  else if ( !B_Cnt[32] ) B_Cnt <= B_Cnt - 1; 
     
       // For CH_C Trigger
       if ( Din[16] != C_Flag ) begin
-        if ( C_Cnt < Tthreshold ) begin
+        if ( !C_Cnt[32] ) begin
           if ( Din[16] )  C_Dt_L <= Sampled;
           else            C_Dt_H <= Sampled;
         end else begin
           if ( Din[16] )  C_Ut_L <= Sampled;
           else            C_Ut_H <= Sampled;
         end 
-        C_Cnt <= 0;
-        C_Edge <= C_Edge + 1;
-        if ( ~C_Flag )  C_TL <= C_TL + C_Cnt;
-        else            C_TH <= C_TH + C_Cnt;
-      end else  C_Cnt <= C_Cnt + 1; 
+        C_Cnt <= TLoad;
+      end else if ( !C_Cnt[32] ) C_Cnt <= C_Cnt - 1; 
       C_Flag <= Din[16]; 
        
       // For CH_D Trigger
       if ( Din[17] != D_Flag ) begin
-        if ( D_Cnt < Tthreshold ) begin
+        if ( !D_Cnt[32] ) begin
           if ( Din[17] )  D_Dt_L <= Sampled;
           else            D_Dt_H <= Sampled;
         end else begin
           if ( Din[17] )  D_Ut_L <= Sampled;
           else            D_Ut_H <= Sampled;
         end  
-        D_Cnt <= 0;
-        D_Edge <= D_Edge + 1;
-        if ( ~D_Flag )  D_TL <= D_TL + D_Cnt;
-        else            D_TH <= D_TH + D_Cnt;
-      end else  D_Cnt <= D_Cnt + 1; 
+        D_Cnt <= TLoad;
+      end else if ( !D_Cnt[32] ) D_Cnt <= D_Cnt - 1; 
       D_Flag <= Din[17]; 
     
       case( Trigg_Mode )

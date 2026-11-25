@@ -67,6 +67,7 @@ module tb_scope;
         dut.U3.B_Cnt = 0;
         dut.U3.C_Cnt = 0;
         dut.U3.D_Cnt = 0;
+`ifdef STOCK_DIN_REG
         dut.U3.A_Edge = 0;
         dut.U3.A_TH = 0;
         dut.U3.A_TL = 0;
@@ -79,6 +80,7 @@ module tb_scope;
         dut.U3.D_Edge = 0;
         dut.U3.D_TH = 0;
         dut.U3.D_TL = 0;
+`endif
         dut.U4.CtrlReg = 0;
         dut.U4.DataBuff = 0;
         dut.U4.RegAddr = 0;
@@ -89,7 +91,9 @@ module tb_scope;
         dut.U4.PerCnt = 0;
         dut.U4.Data = 0;
         dut.U4.Tthreshold = 0;
+`ifdef STOCK_DIN_REG
         dut.U4.Delay = 0;
+`endif
         for (k = 0; k < 4096; k = k + 1) dut.U2.Mem_data[k] = 0;
 `ifdef COUNTERS
         // Din = 0 at time 0 is an x -> 0 edge for the simulator
@@ -225,6 +229,15 @@ module tb_scope;
             set_param(5, sel);
             C_D = 1; H_L = 0; #GPIO;
             log_read("meas", 16'hffff);
+            C_D = 0; #GPIO;
+        end
+    endtask
+
+    task skip_meas(input [7:0] sel);
+        begin
+            set_param(5, sel);
+            C_D = 1; H_L = 0; #GPIO;
+            bus_read(w);
             C_D = 0; #GPIO;
         end
     endtask
@@ -401,6 +414,8 @@ module tb_scope;
         end
     endtask
     reg [31:0] q0, q1, qz, qz0, sp0;
+    reg [15:0] w2;
+    integer guard, npair, nstep, prevmin;
     reg [15:0] se0, sz0;
     reg [15:0] zc, zc0;
     integer qbase;
@@ -421,9 +436,12 @@ module tb_scope;
         acquire(8'h11, 8'd0,   16'd10, 40);   // CH_C rising
         acquire(8'h18, 8'd0,   16'd10, 40);   // CH_D falling
         acquire(8'h1d, 8'd0,   16'd50, 20);   // CH_D pulse > Tt
-        read_meas(8'h08);                     // CH_C edges
-        read_meas(8'h0c);                     // CH_D edges
-        read_meas(8'h00);                     // CH_A edges
+        // the measurement registers of the original (Select 0x00..0x0E) are
+        // removed in FPGA 2.68: the same bus accesses, not compared (the
+        // timing of the tests that follow stays the same)
+        skip_meas(8'h08);
+        skip_meas(8'h0c);
+        skip_meas(8'h00);
         // slower sampling clock
         mci_half = 6944 * 12;
         acquire(8'h11, 8'd0, 16'd10, 30);
@@ -441,7 +459,7 @@ module tb_scope;
         set_param(5, 8'h18); C_D = 1; H_L = 0; #GPIO; bus_read(w); C_D = 0;
         check("id 0xC0D2", w == 16'hC0D2);
         H_L = 0; #GPIO; bus_read(w);
-        check("version 2.67 in status", (w >> 6) == 267);
+        check("version 2.68 in status", (w >> 6) == 268);
 
         // counts since power up equal the model
         read_cnt(8'h10, cr); read_cnt(8'h12, cf); read_cnt(8'h14, dr); read_cnt(8'h16, df);
@@ -682,6 +700,58 @@ module tb_scope;
         check("A/B: clear", cr == 0 && cf == 0);
         mci_half = 6944;
         adrive = 0; qmode = 0;
+
+        // ---- peak detection and 32 bit pulse triggers (FPGA 2.68)
+        $display("---- peak detection, pulse triggers of 32 bits");
+        set_param(5, 8'h1B); C_D = 1; H_L = 0; #GPIO; bus_read(w); C_D = 0; #GPIO;
+        check("id 0xC0D8", w == 16'hC0D8);
+        mci_half = 6944;
+        // K = 8: CH_A rises by 3 per sample, CH_B by 5 (saw waves)
+        set_param(1, 128);
+        set_param(0, 8'h01);                      // CH_A rising: pretrigger part filled
+        set_param(8'h0a, 7); set_param(8'h0b, 0);
+        clr_w;
+        guard = 0;
+        H_L = 0; #GPIO; bus_read(w);
+        while (!(w & 16'h0008) && guard < 2000) begin #(1000000); bus_read(w); guard = guard + 1; end
+        check("peak: full", (w & 16'h0008) != 0);
+        ok = 1; npair = 0; nstep = 0; prevmin = -1;
+        // the first read is the old read pointer (as in the original)
+        H_L = 0; #GPIO; bus_read(hi); H_L = 1; #GPIO; bus_read(lo);
+        for (i = 0; i < 60; i = i + 1) begin
+            H_L = 0; #GPIO; bus_read(hi); H_L = 1; #GPIO; bus_read(lo);
+            H_L = 0; #GPIO; bus_read(w);  H_L = 1; #GPIO; bus_read(w2);
+
+            if ((hi & 3) != 0 || (w & 3) != 1) ok = 0;        // pair: min, max
+            if (lo[7:0] > w2[7:0] || lo[15:8] > w2[15:8]) ok = 0;
+            if (w2[7:0] - lo[7:0] == 21 && w2[15:8] - lo[15:8] == 35) begin
+                npair = npair + 1;
+                if (prevmin >= 0 && ((lo[7:0] - prevmin) & 8'hff) == 24) nstep = nstep + 1;
+                prevmin = lo[7:0];
+            end else prevmin = -1;
+        end
+        $display("     pairs %0d of 60 with max - min = 7 steps, %0d periods of 8 samples", npair, nstep);
+        check("peak: min / max of 8 samples, words 00 / 01", ok && npair >= 40 && nstep >= 30);
+        // off again with the trigger mode: samples as before
+        set_param(0, 8'h01);
+        clr_w; #(1000000);
+        H_L = 0; #GPIO; bus_read(w); while (!(w & 16'h0008)) begin #(1000000); bus_read(w); end
+        H_L = 0; #GPIO; bus_read(hi); H_L = 1; #GPIO; bus_read(lo);
+        H_L = 0; #GPIO; bus_read(hi); H_L = 1; #GPIO; bus_read(lo);
+        H_L = 0; #GPIO; bus_read(w);  H_L = 1; #GPIO; bus_read(w2);
+        check("peak: off after the trigger mode", ((w2[7:0] - lo[7:0]) & 8'hff) == 3 && ((w2[15:8] - lo[15:8]) & 8'hff) == 5);
+        // pulse trigger of CH_C: low longer than 70000 samples (0x011170)
+        half_c = 0; #100000; Din[16] = 1; #100000;
+        set_param(2, 8'h70); set_param(3, 8'h11); set_param(1, 0);
+        set_param(0, 8'h15);                      // CH_C pulse 0 > Tt
+        set_param(8'h0c, 8'h01); set_param(8'h0d, 0);
+        clr_w; #(300 * 13888);
+        Din[16] = 0; #(60000 * 13888); Din[16] = 1; #(100 * 13888);
+        H_L = 0; #GPIO; bus_read(w);
+        check("pulse 60000 < 70000: no trigger", (w & 16'h0020) == 0);
+        Din[16] = 0; #(80000 * 13888); Din[16] = 1; #(100 * 13888);
+        H_L = 0; #GPIO; bus_read(w);
+        check("pulse 80000 > 70000: trigger", (w & 16'h0020) != 0);
 
         // the FIFO still works after the counter accesses
         mci_half = 6944;

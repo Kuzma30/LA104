@@ -40,28 +40,19 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
   wire	  [17:0]Din_Bus;      // Internal data input Bus 
   wire	  [ 7:0]Tm_Link;  
   wire	  [ 7:0]Vt_Link;      
-  wire	  [15:0]Tt_Link;     
+  wire	  [31:0]Tt_Link;     
   wire	  [ 7:0]Ctrl_Link;
   wire	  Start_Link;
   wire	  Full_Link;
   wire	  Empty_Link;
   wire	  Sampled_Link;
   wire	  Ready_Link;
-  wire	  [15:0]A_Edge_Link;
-  wire	  [15:0]A_TL_Link;
-  wire	  [15:0]A_TH_Link;   
-  wire	  [15:0]B_Edge_Link;
-  wire	  [15:0]B_TL_Link;
-  wire	  [15:0]B_TH_Link;  
-  wire	  [15:0]C_Edge_Link;
-  wire	  [15:0]C_TL_Link;
-  wire	  [15:0]C_TH_Link; 
-  wire	  [15:0]D_Edge_Link;
-  wire	  [15:0]D_TL_Link;
-  wire	  [15:0]D_TH_Link; 
   wire	  [11:0]Depth_Link; 
   wire	  [11:0]PerCnt_Link; 
-  wire	  [31:0]Delay_Link;
+  // LA104 (FPGA 2.68): peak detection (PeakDet.v)
+  wire	  [15:0]OsSize_Link;
+  wire	  OsOn_Link, Ph0_Link, Adv_Link, PEnd_Link, Delay1_Link;
+  wire	  [17:0]WData_Link;
   // LA104: edge counters of CH_C and CH_D
   wire	  CntClr_Link;
   wire	  [31:0]CR_Link;
@@ -131,7 +122,11 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
     .H_L( H_L ),
     .Depth( Depth_Link ), 
     .PerCnt( PerCnt_Link ), 
-    .Delay( Delay_Link ),
+    .Delay1( Delay1_Link ),
+    .OsOn( OsOn_Link ),
+    .Ph0( Ph0_Link ),
+    .Adv( Adv_Link ),
+    .PEnd( PEnd_Link ),
     .Ready( Ready_Link ), 
     .Sampled(Sampled_Link),
     .Full( Full_Link ),
@@ -140,10 +135,14 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
     .Wptr( W_Addr_Bus )
   );
   
+  PeakDet U10( .Mclk( MCI ), .OsSize( OsSize_Link ), .Din( Din_Bus ),
+    .OsOn( OsOn_Link ), .Ph0( Ph0_Link ), .Adv( Adv_Link ), .PEnd( PEnd_Link ),
+    .WData( WData_Link ) );
+
   DP_RAM	U2(
     .Wclk( MCI ),
     .nRclk( nRD ),
-    .Din( Din_Bus ),
+    .Din( WData_Link ),
     .Raddr( R_Addr_Bus ),
     .Waddr( W_Addr_Bus ),
     .Dout( Dout_Bus )
@@ -161,19 +160,7 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
     .CtrlReg( Ctrl_Link ),
     .Start( Start_Link ),
     .ClkA( CKA ),
-    .ClkB( CKB ),
-    .A_Edge( A_Edge_Link ),
-    .A_TL( A_TL_Link ),
-    .A_TH( A_TH_Link ),   
-    .B_Edge( B_Edge_Link ),
-    .B_TL( B_TL_Link ),
-    .B_TH( B_TH_Link ),   
-    .C_Edge( C_Edge_Link ),
-    .C_TL( C_TL_Link ),
-    .C_TH( C_TH_Link ),   
-    .D_Edge( D_Edge_Link ),
-    .D_TL( D_TL_Link ),
-    .D_TH( D_TH_Link )   
+    .ClkB( CKB )
   );
 
   EdgeCnt U5( .Pin( Din[16] ), .Clr( CntClr_Link ), .GrayR( CR_Link ), .GrayF( CF_Link ) );
@@ -205,21 +192,10 @@ module FIFO( ClrW, MCI, nRD, CE, H_L, C_D, SCK, SDA, Din,
     .H_L( H_L ), 
     .C_D( C_D ), 
     .Ready( Ready_Link ), 
-    .A_Edge( A_Edge_Link ),
-    .A_TL( A_TL_Link ),
-    .A_TH( A_TH_Link ),   
-    .B_Edge( B_Edge_Link ),
-    .B_TL( B_TL_Link ),
-    .B_TH( B_TH_Link ),   
-    .C_Edge( C_Edge_Link ),
-    .C_TL( C_TL_Link ),
-    .C_TH( C_TH_Link ),   
-    .D_Edge( D_Edge_Link ),
-    .D_TL( D_TL_Link ),
-    .D_TH( D_TH_Link ),   
     .Depth( Depth_Link ), 
     .PerCnt( PerCnt_Link ), 
-    .Delay( Delay_Link ),
+    .OsSize( OsSize_Link ),
+    .Delay1( Delay1_Link ),
     .nPD( nPD ),
     .Trigg_Mode( Tm_Link ), 
     .Vthreshold( Vt_Link ), 

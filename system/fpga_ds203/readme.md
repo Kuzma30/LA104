@@ -1,4 +1,4 @@
-# DS203 FPGA (HW 2.6x, iCE65L04) with edge counters and a quadrature decoder (FPGA 2.67)
+# DS203 FPGA (HW 2.6x, iCE65L04) with edge counters, a quadrature decoder and peak detection (FPGA 2.68)
 
 - `stock_v25/` original FPGA source of e-Design (FPGA CFG Ver 2.5, MIT
   license, from [matthiasbock/dso203](https://github.com/matthiasbock/dso203),
@@ -29,11 +29,53 @@ Reading the low word latches the whole 32 bit value, the high word comes
 from the latch. The values are in Gray code (converted by the MCU), so a
 value read while the input toggles is always the old or the new one.
 
-The status word (H_L = 0, C_D = 0) has the version 267 in bits 15..6,
-SYS `__Get(FPGAVER)` shows "2.67". The other bits are as in the original.
+The status word (H_L = 0, C_D = 0) has the version 268 in bits 15..6,
+SYS `__Get(FPGAVER)` shows "2.68". The other bits are as in the original.
 (2.64: without the counters of CH_A / CH_B; 2.65 was a variant with a
 smaller buffer, not part of this line; 2.66: the trigger fails at 36 / 72
 MHz sampling, see below.)
+
+## Peak detection, 32 bit pulse triggers (FPGA 2.68, `scope/PeakDet.v`)
+
+Taken from the Wildcat FPGA W1.1 (written for HW 2.81 and its iCE40,
+[MotoMaxis/DS203-DSOQuad](https://github.com/MotoMaxis/DS203-DSOQuad),
+`WildcatV6.5/W1.1 FPGA`) and adapted to this design; the register
+addresses are different (0x0E..0x13 are used by the counters here).
+
+| what | how |
+|------|-----|
+| peak detection | registers `0x0A` / `0x0B`: K - 1 (low / high byte), 0 = off. The ADC is clocked K times faster than the time base needs; every K samples give two FIFO words: the minimum (bits 17..16 = `00`) and the maximum (`01`) of CH_A (bits 7..0) and CH_B (15..8). CH_C / CH_D are not stored then. Depth (`0x06` / `0x07`) and the read start stay in words: 151 pairs before the trigger. |
+| pulse triggers | time threshold of 32 bits: `0x02` / `0x03` bits 0..15 as before, `0x0C` / `0x0D` bits 16..31. With peak detection the time is counted in fast samples (time base samples x K). |
+| reset | writing the trigger mode (`0x00`) clears both (as it sets Depth and PerCnt), SYS and the programs that do not know them work as before |
+| ID | Select `0x1B` returns `0xC0D8`; version 268 in the status word |
+
+The pulse counters count down from the threshold - 1 (loaded at every edge,
+stopped below 0): the sign bit at the next edge is the original "count <
+threshold" without a 32 bit compare (that was the longest path). The
+original counted with 12 bits and wrapped after 4096 samples (wrong pulse
+triggers for long pulses).
+
+Removed to make room and to shorten the paths (no program of the LA104 OS
+uses them): the measurement registers of the original (edges and width
+sums of every channel, Select `0x00`..`0x0E`) and the trigger delay
+(`0x0A`..`0x0D` of the original; the start is on the 2nd sample with the
+trigger as with its default 1, and with the delay 0 after the
+configuration, as the original).
+
+Not taken from W1.1: the free-run mode (the oscilloscope uses the
+unconditional trigger without a condition) and its trigger buffer (2.67
+already registers the inputs before the trigger logic).
+
+The testbench (`tb/run.sh`) compares the oscilloscope with the original
+V2.5 as before (270 bus reads, the 3 reads of the removed measurement
+registers are not compared any more) and tests the peak pairs (K = 8, saw
+waves: min / max of 8 samples, marks 00 / 01, off after the trigger mode)
+and a pulse trigger above 16 bits (low for 60000 samples: no trigger with
+70000, 80000: trigger).
+
+Build (`ice65/build_l04.sh`, seed 3): 3378 of 3520 logic cells (2.67:
+3450), estimate MCI 48.4 MHz (2.67: 47.5), paths from the input pins 8.3
+ns (2.67: 11.9). `ice65/test_l04.sh`: the three levels pass.
 
 ## Input registers (FPGA 2.67)
 
@@ -111,14 +153,14 @@ CH_C and CH_D are digital.
 | MCI decoder | Select `0x38` latches: `0x38` / `0x39` position, `0x3A` errors (8 bit), `0x3B` / `0x3C` position at Z, `0x3D` Z counter |
 | ID | Select `0x19` returns `0xC0D4` |
 
-Version 267 in the status word ("2.67").
+Version 268 in the status word ("2.68").
 
 ## Tests (`tb/run.sh`)
 
 1. The same stimulus (Set_Param of the triggers, ClrW, reading the FIFO as
-   BIOS::ADC of the LA104 OS does, measurement registers, slow clock,
+   BIOS::ADC of the LA104 OS does, slow clock,
    interlace mode) on the original V2.5 and on the version with counters:
-   all 273 bus reads are equal (version bits masked).
+   all 270 bus reads are equal (version bits masked).
 2. Counters: ID, version, counts equal to the edges of the stimulus, clear,
    reading while the inputs toggle (20 MHz / 7 MHz) with a slow sampling
    clock, wrap of 32 bits.
@@ -153,8 +195,9 @@ then the new image renamed for example to `V264FPGA.BIN`. The original
 (`tools/fpga/ds203_8mb_hwV272-V261FPGA`).
 
 The image built with the open tools (`ice65/`) is in
-`tools/fpga/ds203_hw26x_V267FPGA` (`CFG_FPGA.ADR` + `V267FPGA.BIN`); the
-previous versions in `tools/fpga/ds203_hw26x_V264FPGA` and `..._V266FPGA`.
+`tools/fpga/ds203_hw26x_V268FPGA` (`CFG_FPGA.ADR` + `V268FPGA.BIN`); the
+previous versions in `tools/fpga/ds203_hw26x_V264FPGA`, `..._V266FPGA` and
+`..._V267FPGA`.
 The functions are tested on the device with `apps_ds213/64_fpgatest`.
 
 Note: the published source is version 2.5, the image of HW 2.60 is 2.61.
@@ -173,7 +216,7 @@ On the device (DS203 HW 2.7, SYS 1.52, LA104 OS): the image is loaded, SYS
 shows the FPGA version 2.64, the oscilloscope shows the signal of Wave Out
 on CH2, the counters of CH_C are exact up to 6 MHz
 (`apps_ds213/64_fpgatest`). 2.66 on the device: the trigger fails at
-36 / 72 MHz sampling (fixed in 2.67, not yet tested on the device).
+36 / 72 MHz sampling (fixed in 2.67, tested on the device). 2.68 is not yet tested on the device.
 
 The sources of `scope/` are used unchanged (FIFO of 4096 samples). Two
 files replace or wrap them:
@@ -184,14 +227,14 @@ files replace or wrap them:
 - `FIFO_L04.v`: top level, MCI enters its global network from the pad of
   pin 15 (`SB_GB_IO`).
 
-`./build_l04.sh` writes `build/V267L04.BIN` (seed 4, the image in
-`tools/fpga/ds203_hw26x_V267FPGA`; the best of seeds 1..10 for MCI).
+`./build_l04.sh` writes `build/V268L04.BIN` (`SEED=3` for the image in
+`tools/fpga/ds203_hw26x_V268FPGA`; 2.67 was seed 4).
 Result: 3450 of 3520 logic cells (2.64: 3122), 18 of 20 RAM blocks, 45 pins.
 
 `./test_l04.sh` runs the testbench of `tb/` on three levels: the sources
 with the new memory, the netlist after the synthesis, and the netlist
 recovered from the bitstream itself (`iceunpack -6`, `icebox_vlog`). On all
-three the oscilloscope function equals the original V2.5 (273 bus reads) and
+three the oscilloscope function equals the original V2.5 (270 bus reads) and
 the counter and quadrature tests pass. The wrap of 32 bits is checked on the
 sources only (it forces the counter). The netlists get the same stimulus
 timing as the sources: the test "Z on CH_C latched" depends on the phase of

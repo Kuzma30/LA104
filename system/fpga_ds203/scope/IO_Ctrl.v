@@ -4,9 +4,7 @@
 *******************************************************************************/
 
 module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,  
-                A_Edge, A_TL, A_TH, B_Edge, B_TL, B_TH, 
-                C_Edge, C_TL, C_TH, D_Edge, D_TL, D_TH, 
-                Depth, PerCnt, Delay,
+                Depth, PerCnt, OsSize, Delay1,
                 nPD, Trigg_Mode, Vthreshold, Tthreshold, CtrlReg, 
                 C_Rise, C_Fall, D_Rise, D_Fall, CntClr,
                 A_Edges, B_Edges, InitA, InitB,
@@ -25,30 +23,30 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
   input     H_L;                // 0/1 = Status/[15:0]Din -> [15:0]DB
   input     C_D;                // 1 = [15:0]Data        -> [15:0]DB
                                 
-  input     [15:0]A_Edge;       // CH_A edge counter
-  input     [15:0]A_TL;         // CH_A 
-  input     [15:0]A_TH;         // CH_A 
   
-  input     [15:0]B_Edge;       // CH_B edge counter
-  input     [15:0]B_TL;         // CH_B 
-  input     [15:0]B_TH;         // CH_B 
   
-  input     [15:0]C_Edge;       // CH_C edge counter
-  input     [15:0]C_TL;         // CH_C 
-  input     [15:0]C_TH;         // CH_C 
   
-  input     [15:0]D_Edge;       // CH_D edge counter
-  input     [15:0]D_TL;         // CH_D 
-  input     [15:0]D_TH;         // CH_D 
   
   output    [11:0]Depth;        // Sampling depth
   output    [11:0]PerCnt;       // Per-sampling counter                        
-  output    [31:0]Delay;        // Sampling delay
+  // LA104 (FPGA 2.68), from the Wildcat FPGA W1.1 (other addresses here):
+  //   0x0A / 0x0B: peak detection K - 1 (PeakDet.v), low / high byte, 0 = off
+  //   0x0C / 0x0D: bits 23..16 / 31..24 of the time threshold of the pulse
+  //   triggers (0x02 / 0x03 bits 7..0 / 15..8), with peak detection in fast
+  //   samples (the time base value x K)
+  //   writing the trigger mode (0x00) clears both, as Depth and PerCnt, so
+  //   SYS and the programs that do not know them work as before
+  //   Select 0x1B: ID 0xC0D8. The trigger delay (0x0A..0x0D of the original)
+  //   and the measurement registers (Select 0x00..0x0E) are removed.
+  output    [15:0]OsSize;       // peak detection, K - 1
+  // the trigger delay of the original is 0 after the configuration and 1
+  // after a write of the trigger mode (0x00); only these two values are kept
+  output    Delay1;
 
   output    nPD;                // ADC power down        -> Active low
   output    [ 7:0]Trigg_Mode;   // Trigger Mode 
   output    [ 7:0]Vthreshold;   // Trigger voltage threshold 
-  output    [15:0]Tthreshold;   // Trigger time threshold 
+  output    [31:0]Tthreshold;   // Trigger time threshold 
   output    [ 7:0]CtrlReg;      // bit0=nPD, bit1=Mode, 
 
   // LA104: 32 bit edge counters of CH_C and CH_D (EdgeCnt.v, Gray code)
@@ -114,7 +112,7 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
 
   reg       [ 7:0]Trigg_Mode;   // Trigger Mode 
   reg       [ 7:0]Vthreshold;   // Trigger voltage threshold 
-  reg       [15:0]Tthreshold;   // Trigger time threshold 
+  reg       [31:0]Tthreshold;   // Trigger time threshold 
   reg       [ 7:0]CtrlReg;
   reg       [ 7:0]RegAddr;
   reg       [ 7:0]DataBuff;
@@ -126,7 +124,8 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
 
   reg       [11:0]Depth;       
   reg       [11:0]PerCnt;                         
-  reg       [31:0]Delay;      
+  reg       [15:0]OsSize;
+  reg       Delay1;
 
   reg       [ 7:0]CntCtrl;
   reg       [31:0]Hold;
@@ -139,12 +138,12 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
   reg      [127:0]HoldQ;
   reg       [15:0]HoldZ;
   wire      [15:0]HoldW;
-  // version in the status word (SYS: FPGAVER = status >> 6): "2.67"
+  // version in the status word (SYS: FPGAVER = status >> 6): "2.68"
   // (2.65 was a variant with a smaller buffer, not this line)
-  wire      [ 9:0]Version = 10'd267;
+  wire      [ 9:0]Version = 10'd268;
 
   initial begin
-    CntCtrl = 0;
+    CntCtrl = 0; OsSize = 0; Tthreshold = 0; Delay1 = 0;
     QCtrl = 8'h0e; AThr = 128; AHys = 8; BThr = 128; BHys = 8;   // A = CH_C, B = CH_D
     HoldQ = 0; HoldZ = 0;
   end
@@ -203,18 +202,6 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
      endcase
    end else
    case( Select )
-     4'b0000: Data <= A_Edge;
-     4'b0001: Data <= A_TL;
-     4'b0010: Data <= A_TH;
-     4'b0100: Data <= B_Edge;
-     4'b0101: Data <= B_TL;
-     4'b0110: Data <= B_TH;
-     4'b1000: Data <= C_Edge;
-     4'b1001: Data <= C_TL;
-     4'b1010: Data <= C_TH;
-     4'b1100: Data <= D_Edge;
-     4'b1101: Data <= D_TL;
-     4'b1110: Data <= D_TH;
      8'h10, 8'h12, 8'h14, 8'h16,
      8'h40, 8'h42: Data <= CntMux[15:0];
      8'h11, 8'h13, 8'h15, 8'h17,
@@ -223,6 +210,7 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
      8'h18:   Data <= 16'hC0D2;
      8'h19:   Data <= 16'hC0D4;
      8'h1A:   Data <= 16'hC0D6;
+     8'h1B:   Data <= 16'hC0D8;
      default: Data <= 0;
    endcase 
   end
@@ -237,7 +225,9 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
             Trigg_Mode <= DataBuff;    
             Depth      <= 4095;
             PerCnt     <= 150;
-            Delay      <= 1;
+            OsSize     <= 0;
+            Delay1     <= 1;
+            Tthreshold[31:16] <= 0;
           end
           8'h01:  Vthreshold       <= DataBuff;    
           8'h02:  Tthreshold[ 7:0] <= DataBuff;    
@@ -248,10 +238,10 @@ module IO_Ctrl( CE, nRD, SCK, SDA, Dout, Start, Full, Empty, H_L, C_D, Ready,
           8'h07:  Depth     [11:8] <= DataBuff;      
           8'h08:  PerCnt    [ 7:0] <= DataBuff;                         
           8'h09:  PerCnt    [11:8] <= DataBuff;                         
-          8'h0A:  Delay     [ 7:0] <= DataBuff;      
-          8'h0B:  Delay     [15:8] <= DataBuff;      
-          8'h0C:  Delay    [23:16] <= DataBuff;      
-          8'h0D:  Delay    [31:24] <= DataBuff;      
+          8'h0A:  OsSize    [ 7:0] <= DataBuff;
+          8'h0B:  OsSize    [15:8] <= DataBuff;
+          8'h0C:  Tthreshold[23:16] <= DataBuff;
+          8'h0D:  Tthreshold[31:24] <= DataBuff;
           8'h0E:  CntCtrl   [ 7:0] <= DataBuff;
           8'h0F:  QCtrl     [ 7:0] <= DataBuff;
           8'h10:  AThr      [ 7:0] <= DataBuff;
