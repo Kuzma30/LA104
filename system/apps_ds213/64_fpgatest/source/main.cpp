@@ -1,10 +1,11 @@
-// FPGA 2.67 tester for the DS203: edge counters of CH_A..CH_D and the
+// FPGA 2.67 / 2.68 tester for the DS203: edge counters of CH_A..CH_D and the
 // quadrature decoders, with the signal of Wave Out.
 //
 // Pages (Left / Right):
 //   Tests  automatic tests, groups with their own wiring (A-C, A-D, A-A,
 //          A-B: edge counters of one channel, B: quadrature, T-A, T-B:
-//          triggers of the oscilloscope; Up / Down chooses the group, F1
+//          triggers of the oscilloscope, P-A: peak detection of 2.68;
+//          Up / Down chooses the group, F1
 //          runs it)
 //   Edges  the eight edge counters live, rates, generator (Up / Down),
 //          F3 clears the counters, F4 measures the thresholds of CH_A/CH_B
@@ -54,7 +55,7 @@ namespace
   {
     const char* names[] = {"Tests", "Edges", "Quad"};
     LCD::Bar(0, 0, LCD::Width, 16, clrTitle);
-    int x = 4 + LCD::Print(4, 1, clrText, clrTitle, "FPGA 2.67 test");   // Print returns the width
+    int x = 4 + LCD::Print(4, 1, clrText, clrTitle, "FPGA 2.68 test");   // Print returns the width
     x += 16;
     for (int i = 0; i < (int)EPage::Total; i++)
     {
@@ -176,9 +177,12 @@ namespace
   void TestIdentity()
   {
     uint16_t status = Fpga::Status();
-    Check((status >> 6) == 267, "version %d (status %04x)", status >> 6, status);
+    int ver = status >> 6;
+    Check(ver == 267 || ver == 268, "version %d (status %04x)", ver, status);
     uint16_t id1 = Fpga::Read(0x18), id2 = Fpga::Read(0x19), id3 = Fpga::Read(0x1A);
-    Check(id1 == 0xC0D2 && id2 == 0xC0D4 && id3 == 0xC0D6, "ID %04x %04x %04x", id1, id2, id3);
+    uint16_t id4 = ver >= 268 ? Fpga::Read(0x1B) : 0xC0D8;
+    Check(id1 == 0xC0D2 && id2 == 0xC0D4 && id3 == 0xC0D6 && id4 == 0xC0D8,
+          "ID %04x %04x %04x %04x", id1, id2, id3, id4);
   }
 
   // groups A-C / A-D: Wave Out -> CH_C or CH_D (one connection)
@@ -406,7 +410,7 @@ namespace
 
   void DrawTests()
   {
-    const char* groups[] = {"A-C", "A-D", "A-A", "A-B", "B", "T-A", "T-B"};
+    const char* groups[] = {"A-C", "A-D", "A-A", "A-B", "B", "T-A", "T-B", "P-A"};
     const char chs[] = {'C', 'D', 'A', 'B'};
     Line(0, clrText, "Group %s (Up/Down), F1 runs it", groups[testGroup]);
     if (testGroup < 4)
@@ -418,6 +422,11 @@ namespace
     {
       Line(1, clrDim, "B: quadrature. Wave Out -> CH_A, CH_C;");
       Line(2, clrDim, "   Wave Out -10k- CH_B, CH_D, 33n to GND");
+    }
+    else if (testGroup == 7)
+    {
+      Line(1, clrDim, "P: peak detection, 32 bit pulse trigger");
+      Line(2, clrDim, "   (FPGA 2.68). Wave Out -> CH_A");
     }
     else
     {
@@ -636,6 +645,122 @@ namespace
     ADC::ConfigureTrigger(0, 0, ADC::ETriggerType::None, ADC::EInput::CH1);
   }
 
+  // ------------------------------------------------------------ peak (2.68)
+  // group P-A: Wave Out -> CH_A. Peak detection (registers 0x0A / 0x0B =
+  // K - 1): the ADC at 36 MHz, K = 1200 samples give one pair (min, max),
+  // a pair every 33 us (1 ms/div). A 1 MHz square is seen in every pair
+  // with its whole swing; without a signal the band is narrow. Then the
+  // pulse trigger with a time above 16 bits (0x0C / 0x0D).
+  void Fast36()
+  {
+    *(volatile uint32_t*)0x40012C28 = 0;      // TIM1_PSC
+    *(volatile uint32_t*)0x40012C2C = 1;      // TIM1_ARR: 36 MHz
+    *(volatile uint32_t*)0x40012C34 = 1;      // TIM1_CCR1
+    *(volatile uint32_t*)0x40012C24 = 0;
+  }
+
+  // one peak capture: pairs of CH_A into trigBuf (min) / trigMax
+  uint8_t trigMax[200];
+  int PeakAcquire(int k, int& badMarks)
+  {
+    Fpga::SetParam(0x01, 128);
+    Fpga::SetParam(0x00, 0x20);               // unconditional (clears 0x0A..0x0D)
+    Fpga::SetParam(0x0A, (k - 1) & 0xff);
+    Fpga::SetParam(0x0B, (k - 1) >> 8);
+    ADC::Restart(0);
+    uint32_t t0 = SYS::GetTick();
+    while (!(Fpga::Status() & StatusFull) && SYS::GetTick() - t0 < 500);
+    if (!(Fpga::Status() & StatusFull))
+      return 0;
+    badMarks = 0;
+    ADC::Get();                               // the old read pointer
+    for (int i = 0; i < (int)COUNT(trigMax); i++)
+    {
+      uint32_t lo = ADC::Get(), hi = ADC::Get();
+      if (((lo >> 16) & 3) != 0 || ((hi >> 16) & 3) != 1)
+        badMarks++;
+      trigBuf[i] = lo & 0xff;
+      trigMax[i] = hi & 0xff;
+    }
+    return COUNT(trigMax);
+  }
+
+  void TestPeak()
+  {
+    if ((Fpga::Status() >> 6) < 268)
+    {
+      Check(false, "peak detection needs FPGA 2.68");
+      return;
+    }
+    Wave::Square(1000);
+    MeasureThresholds();
+    int lo = thresholds.minA, hi = thresholds.maxA;
+    if (hi - lo < 40)
+    {
+      Check(false, "levels A %d..%d", lo, hi);
+      Result(0, "     Wave Out -> CH_A? (40 needed)");
+      return;
+    }
+    int swing = hi - lo;
+
+    // 1 MHz square: every pair has (almost) the whole swing
+    ADC::ConfigureTimebase(1e-3f);
+    Fast36();
+    Wave::Square(1000000);
+    SYS::DelayMs(5);
+    int bad = 0, full = 0;
+    int n = PeakAcquire(1200, bad);
+    for (int i = 4; i < n; i++)
+      if (trigMax[i] - trigBuf[i] >= swing * 3 / 4)
+        full++;
+    Check(n > 0 && bad == 0 && full >= (n - 4) * 95 / 100,
+          "1 MHz: %d/%d pairs full swing, marks %d", full, n - 4, bad);
+
+    // no signal: narrow band
+    Wave::Low();
+    SYS::DelayMs(5);
+    int narrow = 0;
+    n = PeakAcquire(1200, bad);
+    for (int i = 4; i < n; i++)
+      if (trigMax[i] - trigBuf[i] <= 10)
+        narrow++;
+    Check(n > 0 && bad == 0 && narrow >= (n - 4) * 95 / 100,
+          "low: %d/%d pairs narrow, marks %d", narrow, n - 4, bad);
+
+    // off again with the trigger mode: CH3 / CH4 bits back, no pairs
+    Fpga::SetParam(0x00, 0x20);
+    ADC::Restart(0);
+    SYS::DelayMs(5);
+    uint16_t st = Fpga::Status();
+    Check(st & StatusFull, "peak off after the trigger mode (status %04x)", st);
+
+    // pulse trigger "0 > t" with 32 bit times: 200 Hz square at 36 MHz,
+    // a low level lasts 90000 samples
+    uint8_t level = (lo + hi) / 2;
+    Fast36();
+    Wave::Square(200);
+    SYS::DelayMs(20);
+    bool f1 = false, f2 = true;
+    for (int pass = 0; pass < 2; pass++)
+    {
+      uint32_t t = pass == 0 ? 60000 : 120000;   // 120000: 54464 in 16 bits
+      Fpga::SetParam(0x02, t & 0xff);
+      Fpga::SetParam(0x03, (t >> 8) & 0xff);
+      Fpga::SetParam(0x01, level);
+      Fpga::SetParam(0x00, 0x05);                 // CH_A pulse 0 > Tt
+      Fpga::SetParam(0x0C, (t >> 16) & 0xff);
+      Fpga::SetParam(0x0D, t >> 24);
+      ADC::Restart(0);
+      uint32_t t0 = SYS::GetTick();
+      while (!(Fpga::Status() & StatusFull) && SYS::GetTick() - t0 < 100);
+      bool f = Fpga::Status() & StatusFull;
+      if (pass == 0) f1 = f; else f2 = f;
+    }
+    Check(f1 && !f2, "pulse 0 > 60000: %s, > 120000: %s", f1 ? "fired" : "no", f2 ? "fired" : "no");
+    Wave::Low();
+    Fpga::SetParam(0x00, 0x20);
+  }
+
   void RunTests()
   {
     resultCount = 0;
@@ -651,8 +776,10 @@ namespace
       TestEdgesAnalog(testGroup - 2);
     else if (testGroup == 4)
       TestQuadrature();
-    else
+    else if (testGroup < 7)
       TestTriggers(testGroup - 5);
+    else
+      TestPeak();
     AdcFast();
     Fpga::SetThresholds(thresholds.thrA, thresholds.hysA, thresholds.thrB, thresholds.hysB);
   }
@@ -776,7 +903,7 @@ namespace
       case EPage::Tests:
         if (key == KEY::Up || key == KEY::Down)
         {
-          testGroup = (testGroup + (key == KEY::Up ? 1 : 6)) % 7;   // A-C, A-D, A-A, A-B, B, T-A, T-B
+          testGroup = (testGroup + (key == KEY::Up ? 1 : 7)) % 8;   // A-C, A-D, A-A, A-B, B, T-A, T-B, P-A
           testsRun = false;
         }
         if (key == KEY::F1)

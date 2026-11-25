@@ -1,6 +1,7 @@
-# 64_fpgatest: tester of the DS203 FPGA 2.67
+# 64_fpgatest: tester of the DS203 FPGA 2.67 / 2.68
 
-DS203 only, needs the FPGA image 2.67 (`tools/fpga/ds203_hw26x_V267FPGA`,
+DS203 only, needs the FPGA image 2.68 (`tools/fpga/ds203_hw26x_V268FPGA`;
+2.67 passes all groups except P-A,
 sources in `system/fpga_ds203`). Build: `./build_ds203.sh` (needs
 `system/os_library/build/libbios_ds203.so` and `tools/elfstrip/elfstrip`),
 copy `build/64fpgtst.elf` to the device.
@@ -14,7 +15,7 @@ Keys: Left / Right page, F2 exit.
 
 ## Page Tests
 
-Up / Down chooses the group (A-C, A-D, A-A, A-B, B, T-A, T-B), F1 runs it. Every
+Up / Down chooses the group (A-C, A-D, A-A, A-B, B, T-A, T-B, P-A), F1 runs it. Every
 line is OK, FAIL or info.
 
 Groups A-C and A-D, edge counters of one channel. Wiring: Wave Out -> CH_C
@@ -87,6 +88,18 @@ FIFO is read as the oscilloscope does.
   - FAIL lists the cases that went wrong
 - the same rising trigger at 3 MHz through BIOS::ADC::ConfigureTrigger
   (the path of the oscilloscope app through SYS)
+
+Group P-A, peak detection and pulse triggers of 32 bits (FPGA 2.68).
+Wiring: Wave Out -> CH_A. The first line also checks the ID 0xC0D8.
+- levels of CH_A (swing > 40)
+- 1 ms/div with the ADC at 36 MHz, K = 1200 (registers 0x0A / 0x0B): a
+  1 MHz square, at least 95 % of the pairs (min, max) have 3/4 of the
+  swing; the marks of the words (bits 16, 17 = 0 / 1) are checked
+- no signal: at least 95 % of the pairs are narrow (max - min <= 10)
+- the trigger mode (0x00) switches the peak detection off
+- pulse trigger "0 > t" of CH_A at 36 MHz, 200 Hz square (a low level of
+  90000 samples): time 60000 fires, 120000 does not (with 16 bits only it
+  would be 54464 and fire)
 
 If the cases fail only at the fast rates, the FPGA does not meet the
 timing there; if the direct registers work and the BIOS line fails, the
