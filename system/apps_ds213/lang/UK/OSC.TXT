@@ -33,6 +33,8 @@
 "Buf:Full" = "Буф:Повн"
 "Buf:Scr" = "Буф:Екр"
 "Buf:Scr*" = "Буф:Екр*"
+"Buf:Peak" = "Буф:Пік"
+"Buf:Pk*" = "Буф:Пік*"
 "Trig" = "Триг"
 
 # ---- списки каналів (ListAnalog.h, ListDigital.h)

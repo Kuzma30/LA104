@@ -5,8 +5,9 @@ Keys: F1 run / stop, F2 back, F3 automatic setup (oscilloscope tabs), F4 enter.
 ## Oscilloscope tabs
 
 - **Input**: channels, time base (up to 1 s/div), window, trigger (F3 on
-  the trigger item changes its source), Buf: Full (4096 samples) or Scr (one
-  screen, frames come much faster at slow time bases). Trigger modes:
+  the trigger item changes its source), Buf: Full (4096 samples), Scr (one
+  screen, frames come much faster at slow time bases) or Peak (peak
+  detection, see below). Trigger modes:
   Auto (triggered, without a trigger the screen is updated anyway after a
   timeout), Norm (only triggered), Single (one capture, then stop), Scan
   (no trigger; at 50 ms/div and slower a roll display), None (no trigger
@@ -14,6 +15,17 @@ Keys: F1 run / stop, F2 back, F3 automatic setup (oscilloscope tabs), F4 enter.
   TRIG (green) or WAIT (yellow) at the top right of the graph. Channel list (Enter on CH1 /
   CH2): coupling, V/div, probe, position, Beam (trace width 1..3 px, like
   the focus of an analog scope), color.
+- **Peak detection** (Input, Buf:Peak; needs FPGA 2.68, 5 us/div and
+  slower): the ADC samples at 36 MHz (100 ms/div 18 MHz, 200 ms 9 MHz,
+  500 ms 3.6 MHz, 1 s 1.8 MHz) and the FPGA keeps the minimum and the maximum of
+  every period of the time base. CH1 / CH2 are drawn as the band between
+  them, so spikes and glitches shorter than a sample are seen, and noise
+  shows its real width. 2048 samples per capture. Vmax / Vmin / Vpp come
+  from the ends of the bands, the other measurements, cursors, FFT and CSV
+  use the middle of the band. CH3 / CH4 are not captured in this mode. The
+  pulse triggers count the fast samples (32 bit times in the FPGA). "Buf:Pk*":
+  selected but not possible here (faster time base, roll mode of Scan,
+  older FPGA), the buffer is Full then.
 - **V/div and position while stopped**: a new V/div or position of CH1 /
   CH2 shows the stored samples at that V/div and position (the ADC values
   are converted with the calibration of both settings): the trace grows,

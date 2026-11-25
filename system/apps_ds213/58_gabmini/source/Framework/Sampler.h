@@ -11,6 +11,20 @@ namespace Sampler
 	// the sample memory as scratch before the first capture
 	uint8_t* Scratch(int& size);
 
+	// peak detection (FPGA 2.68): every sample is a pair of FIFO words, the
+	// minimum and the maximum of CH1 / CH2 over the fast samples of its
+	// period (no CH3 / CH4). At most PeakSamples; the maxima are kept in the
+	// upper half of the memory. Set before SetLength.
+	enum { PeakSamples = Samples / 2 };
+	void SetPeak(bool bPeak);
+	// the stored samples are peak pairs: GetAt gives the middle of the
+	// band, GetMinAt / GetMaxAt its ends (same layout as GetAt)
+	bool Peak();
+	BIOS::ADC::TSample::SampleType GetMinAt(int);
+	BIOS::ADC::TSample::SampleType GetMaxAt(int);
+	// sample period of a time base (DS203: in 72 MHz clocks)
+	int64_t Period(int nRes);
+
 	// samples taken by one acquisition (Samples or ScreenSamples); the
 	// memory after them is free for the persistence history
 	void SetLength(int nLength);

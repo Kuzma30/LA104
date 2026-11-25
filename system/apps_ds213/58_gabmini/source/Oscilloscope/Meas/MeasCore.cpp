@@ -112,11 +112,21 @@ namespace MeasCore
 		a.nMin = 255; a.nMax = 0; a.nCount = 0;
 		uint32_t nSum = 0;
 		uint64_t nSumSq = 0;
+		// peak detection: the extremes from the ends of the bands (spikes
+		// shorter than a sample), the mean from their middle
+		bool bPeak = Sampler::Peak() && ( nSource == CH1 || nSource == CH2 );
+		int nShift = nSource == CH1 ? 0 : 8;
 		for ( int i = Begin(); i < End(); i++ )
 		{
 			int v = Raw( i, nSource );
-			a.nMin = min( a.nMin, v );
-			a.nMax = max( a.nMax, v );
+			int vMin = v, vMax = v;
+			if ( bPeak )
+			{
+				vMin = ( Sampler::GetMinAt( i ) >> nShift ) & 0xff;
+				vMax = ( Sampler::GetMaxAt( i ) >> nShift ) & 0xff;
+			}
+			a.nMin = min( a.nMin, vMin );
+			a.nMax = max( a.nMax, vMax );
 			nSum += v;
 			nSumSq += (uint32_t)( v * v );
 			a.nCount++;

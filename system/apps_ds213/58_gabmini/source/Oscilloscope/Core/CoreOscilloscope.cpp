@@ -28,13 +28,44 @@ static uint32_t s_nConfigGeneration = 0;
 	return Sampler::Samples;
 }
 
+/*static*/ int CCoreOscilloscope::PeakFactor()
+{
+#ifdef DS203
+	if ( Settings.Time.Buffer != CSettings::TimeBase::_BufPeak || Rolling() || !FpgaBus::PeakAvailable() )
+		return 0;
+	// sample period of the time base in 72 MHz clocks; the fast samples at
+	// p clocks (36 MHz or slower), K = n / p fast samples per sample
+	uint32_t n = (uint32_t)Sampler::Period( (int)Settings.Time.Resolution );
+	if ( n < 12 )
+		return 0;
+	uint32_t p = 2;
+	while ( n % p != 0 || n / p > 65536 )
+		p++;
+	return (int)( n / p );
+#else
+	return 0;
+#endif
+}
+
 /*static*/ void CCoreOscilloscope::ApplyBuffer()
 {
 	// one screen: the FPGA stops writing (Full) after the screen
+	int nK = PeakFactor();
+	Sampler::SetPeak( nK > 0 );
 	int nLength = BufferLength();
 	Sampler::SetLength( nLength );
 	int nCapture = Sampler::CaptureLength();
-	FpgaBus::SetDepth( nCapture >= Sampler::Samples ? 4095 : nCapture );
+	if ( nK > 0 )
+	{
+		// two FIFO words (min, max) per sample; after the trigger mode, it
+		// clears the peak detection and the upper bits of the time threshold
+		FpgaBus::SetDepth( 2 * nCapture >= 4095 ? 4095 : 2 * nCapture );
+		FpgaBus::SetPeak( nK, (uint32_t)Settings.Trig.nTime * (uint32_t)nK );
+	} else
+	{
+		FpgaBus::SetDepth( nCapture >= Sampler::Samples ? 4095 : nCapture );
+		FpgaBus::SetPeak( 0, 0 );
+	}
 	int nMaxShift = nLength - CWndGraph::MaxX;
 	if ( Settings.Time.Shift > nMaxShift )
 		Settings.Time.Shift = nMaxShift;
@@ -82,6 +113,17 @@ static uint32_t s_nConfigGeneration = 0;
 		*(volatile uint32_t*)0x40012C28 = 1000-1;  // TIM1_PSC
 		*(volatile uint32_t*)0x40012C2C = 2400-1;  // TIM1_ARR
 		*(volatile uint32_t*)0x40012C34 = 1200;    // TIM1_CCR1
+	}
+	// peak detection: the ADC runs K times faster (TIM1 = sampling clock),
+	// the FPGA keeps the minimum and maximum of every K samples
+	int nK = PeakFactor();
+	if ( nK > 0 )
+	{
+		uint32_t p = Sampler::Period( (int)Settings.Time.Resolution ) / nK;
+		*(volatile uint32_t*)0x40012C28 = 0;        // TIM1_PSC
+		*(volatile uint32_t*)0x40012C2C = p - 1;    // TIM1_ARR
+		*(volatile uint32_t*)0x40012C34 = p / 2;    // TIM1_CCR1
+		*(volatile uint32_t*)0x40012C24 = 0;        // TIM1_CNT
 	}
 #endif
 //	BIOS::ADC::ConfigureBuffer( arrLen[ (NATIVEENUM)Settings.Time.Resolution ] );

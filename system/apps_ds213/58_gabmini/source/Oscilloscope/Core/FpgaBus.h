@@ -9,6 +9,8 @@
 // Registers (FPGA 2.5+): 0 trigger mode (also sets Depth to 4095), 1 Vt,
 // 2/3 Tt, 4 control, 5 select, 6/7 depth (samples until Full),
 // 8/9 pre-sampling, 0x0A..0x0D delay, 0x0E counters (2.62).
+// FPGA 2.68: 0x0A/0x0B peak detection K - 1, 0x0C/0x0D Tt bits 16..31
+// (the delay is removed), Select 0x1B ID 0xC0D8; cleared by register 0.
 namespace FpgaBus
 {
     bool Available();                       // DS203 only
@@ -27,4 +29,11 @@ namespace FpgaBus
 
     // register selected by 'select', read with C_D high
     uint16_t ReadSelected(uint8_t nSelect);
+
+    // FPGA 2.68 or newer with peak detection (checked once)
+    bool PeakAvailable();
+    // peak detection: nK fast samples give one pair (min, max), 0 = off;
+    // the time threshold of the pulse triggers in fast samples (32 bits).
+    // Written after the trigger mode (register 0 clears both).
+    void SetPeak(int nK, uint32_t nTime);
 }

@@ -477,6 +477,10 @@ void CWndOscGraph::OnPaintTY()
 	bool bAverage1 = Settings.Disp.Average == CSettings::Display::_AvgCh1;
 	bool bAverage2 = Settings.Disp.Average == CSettings::Display::_AvgCh2;
 	int nPrev1 = -1, nPrev2 = -1, nPrevm = -1, nPrev3 = -1, nPrev4 = -1;
+	// peak detection: CH1 / CH2 are drawn as the band between the minimum
+	// and the maximum of every sample (not with averaging)
+	bool bPeak = Sampler::Peak();
+	int nPrevLo1 = -1, nPrevHi1 = -1, nPrevLo2 = -1, nPrevHi2 = -1;
 	TBeam beam1, beam2;
 	beam1.bInit = beam2.bInit = false;
 	int nBeam1 = Settings.Extra.arrBeam[0] + 1, nBeam2 = Settings.Extra.arrBeam[1] + 1;
@@ -588,6 +592,7 @@ void CWndOscGraph::OnPaintTY()
 		{
 			en1 = en2 = en3 = en4 = false;
 			nPrev1 = nPrev2 = nPrev3 = nPrev4 = -1;
+			nPrevLo1 = nPrevLo2 = -1;
 			beam1.bInit = beam2.bInit = false;
 		}
 
@@ -630,6 +635,32 @@ void CWndOscGraph::OnPaintTY()
 		if ( en4 )
 		{
 			nSampleY4 = Sample.CH4 ? nY4High : nY4Low;
+		}
+
+		int nLoY1 = nSampleY1, nHiY1 = nSampleY1, nLoY2 = nSampleY2, nHiY2 = nSampleY2;
+		if ( bPeak && ( en1 || en2 ) )
+		{
+			BIOS::ADC::TSample lo, hi;
+			lo.value = Sampler::GetMinAt( nIndex );
+			hi.value = Sampler::GetMaxAt( nIndex );
+			if ( en1 && !bAverage1 )
+			{
+				si16 a = Settings.CH1Calib.Correct( Ch1fast, (si16)lo.CH1 );
+				si16 b = Settings.CH1Calib.Correct( Ch1fast, (si16)hi.CH1 );
+				CUtils::Clamp<si16>( a, 0, 255 );
+				CUtils::Clamp<si16>( b, 0, 255 );
+				a = (a*(DivsY*BlkY))>>8; b = (b*(DivsY*BlkY))>>8;
+				nLoY1 = min( a, b ); nHiY1 = max( a, b );
+			}
+			if ( en2 && !bAverage2 )
+			{
+				si16 a = Settings.CH2Calib.Correct( Ch2fast, (si16)lo.CH2 );
+				si16 b = Settings.CH2Calib.Correct( Ch2fast, (si16)hi.CH2 );
+				CUtils::Clamp<si16>( a, 0, 255 );
+				CUtils::Clamp<si16>( b, 0, 255 );
+				a = (a*(DivsY*BlkY))>>8; b = (b*(DivsY*BlkY))>>8;
+				nLoY2 = min( a, b ); nHiY2 = max( a, b );
+			}
 		}
 
 		if ( bHist && bStore )
@@ -724,6 +755,18 @@ void CWndOscGraph::OnPaintTY()
 			_PhosphorColumn( column, x, bLines, bGraded, bHistEn1, bHistEn2, clr1, clr2 );
 		} else
 		{
+		if ( en2 && bPeak && !bAverage2 )
+		{
+			// the band, joined to the band of the previous column
+			int nBottom = nLoY2, nTop = nHiY2;
+			if ( bLines && nPrevLo2 >= 0 )
+			{
+				nBottom = min( nBottom, nPrevHi2 );
+				nTop = max( nTop, nPrevLo2 );
+			}
+			nPrevLo2 = nLoY2; nPrevHi2 = nHiY2;
+			DrawBeam( column, beam2, nBottom, nTop, nBeam2, clr2 );
+		} else
 		if ( en2 )
 		{
 			int nBottom = nSampleY2, nTop = nSampleY2;
@@ -738,6 +781,17 @@ void CWndOscGraph::OnPaintTY()
 			DrawBeam( column, beam2, nBottom, nTop, nBeam2, clr2 );
 		}
 
+		if ( en1 && bPeak && !bAverage1 )
+		{
+			int nBottom = nLoY1, nTop = nHiY1;
+			if ( bLines && nPrevLo1 >= 0 )
+			{
+				nBottom = min( nBottom, nPrevHi1 );
+				nTop = max( nTop, nPrevLo1 );
+			}
+			nPrevLo1 = nLoY1; nPrevHi1 = nHiY1;
+			DrawBeam( column, beam1, nBottom, nTop, nBeam1, clr1 );
+		} else
 		if ( en1 )
 		{
 			int nBottom = nSampleY1, nTop = nSampleY1;

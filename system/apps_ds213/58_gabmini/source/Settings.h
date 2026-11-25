@@ -91,8 +91,10 @@ class AnalogChannel : public CSerialize
 			Resolution;
 		// Full: whole 4096 sample buffer (several screens, Window moves in it)
 		// Screen: acquisition stops after one screen, much faster refresh
+		// Peak: peak detection (FPGA 2.68, 5 us/div and slower): every sample
+		// is the minimum and maximum of many fast samples, 2048 samples
 		static const char* const ppszTextBuffer[];
-		enum EBuffer { _BufFull, _BufScreen, _BufferMax = _BufScreen }
+		enum EBuffer { _BufFull, _BufScreen, _BufPeak, _BufferMax = _BufPeak }
 			Buffer;
 		enum {
 			_1, _2, _4, _FULL}

@@ -197,6 +197,8 @@ CWndMenuInput::CWndMenuInput()
 	}
 	if ( code == ToWord('b', 'u') )
 	{
+		// peak detection changes the sampling clock as well
+		CCoreOscilloscope::ConfigureAdc();
 		CCoreOscilloscope::ConfigureTrigger();
 		MainWnd.m_wndGraph.ClearPersist();
 		MainWnd.m_wndZoomBar.Invalidate();

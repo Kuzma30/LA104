@@ -85,7 +85,33 @@ namespace FpgaBus
         Reg(GPIOC_BRR) = C_D;
         return n;
     }
+
+    bool PeakAvailable()
+    {
+        static int nAvail = -1;
+        if ( nAvail < 0 )
+            nAvail = ReadSelected( 0x1B ) == 0xC0D8 ? 1 : 0;
+        return nAvail == 1;
+    }
+
+    void SetPeak(int nK, uint32_t nTime)
+    {
+        if ( !PeakAvailable() )
+            return;     // older images: 0x0A..0x0D is the trigger delay
+        int n = nK > 1 ? nK - 1 : 0;
+        SetParam( 0x0A, n & 0xff );
+        SetParam( 0x0B, n >> 8 );
+        if ( n )
+        {
+            SetParam( 0x02, nTime & 0xff );
+            SetParam( 0x03, (nTime >> 8) & 0xff );
+            SetParam( 0x0C, (nTime >> 16) & 0xff );
+            SetParam( 0x0D, nTime >> 24 );
+        }
+    }
 #else
+    bool PeakAvailable() { return false; }
+    void SetPeak(int, uint32_t) {}
     bool Available() { return false; }
     void SetParam(uint8_t, uint8_t) {}
     void SetDepth(int) {}

@@ -39,7 +39,7 @@ CSettings* CSettings::m_pInstance = NULL;
 		"1s" };
 		
 /*static*/ const char* const CSettings::TimeBase::ppszTextBuffer[] =
-		{"Full", "Scr"};
+		{"Full", "Scr", "Peak"};
 
 /*static*/ const int CSettings::TimeBase::pfValueResolutionCorrection[] = // florian
 		{/*246,*/ 492, 614,

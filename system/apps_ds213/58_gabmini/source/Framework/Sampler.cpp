@@ -17,8 +17,11 @@ namespace Sampler
 	// samples to the left, the end of the screen stays filled
 	enum { AlignMargin = 48 };
 	static int nValidAll = 0;       // samples read by the last Copy (with the margin)
-	static inline int _CaptureLen() { return nLength + AlignMargin < Samples ? nLength + AlignMargin : Samples; }
 	static int nCapRes = -1;        // time base of the samples (-1: not known)
+	static bool bPeakMode = false;  // the next capture is peak detection
+	static bool bCapPeak = false;   // the stored samples are peak pairs
+	static inline int _Limit() { return bPeakMode ? (int)PeakSamples : (int)Samples; }
+	static inline int _CaptureLen() { return nLength + AlignMargin < _Limit() ? nLength + AlignMargin : _Limit(); }
 	// V/div and position of CH1 / CH2 when the samples were taken
 	static int arrCapVRes[2] = { -1, -1 }, arrCapPos[2] = { 0, 0 };
 
@@ -31,6 +34,7 @@ namespace Sampler
 
 	static inline void _Captured()
 	{
+		bCapPeak = bPeakMode;
 		nCapRes = (int)Settings.Time.Resolution;
 		arrCapVRes[0] = (int)Settings.CH1.Resolution; arrCapPos[0] = Settings.CH1.u16Position;
 		arrCapVRes[1] = (int)Settings.CH2.Resolution; arrCapPos[1] = Settings.CH2.u16Position;
@@ -104,6 +108,11 @@ namespace Sampler
 #endif
 	}
 
+	int64_t Period(int nRes)
+	{
+		return _Period( nRes );
+	}
+
 	bool Scaled()
 	{
 		return nCapRes >= 0 && nCapRes != (int)Settings.Time.Resolution &&
@@ -144,10 +153,20 @@ namespace Sampler
 		p[2] = (value >> 16) & 0x03;
 	}
 
+	void SetPeak(bool bPeak)
+	{
+		bPeakMode = bPeak;
+	}
+
+	bool Peak()
+	{
+		return bCapPeak;
+	}
+
 	void SetLength(int n)
 	{
 		if ( n < 16 ) n = 16;
-		if ( n > Samples ) n = Samples;
+		if ( n > _Limit() ) n = _Limit();
 		nLength = n;
 		if ( nValid > nLength )
 			nValid = nLength;
@@ -166,6 +185,8 @@ namespace Sampler
 	uint8_t* HistoryArea(int& nBytes)
 	{
 		int n = _CaptureLen();
+		if ( bPeakMode )
+			n += PeakSamples;       // after the maxima
 		nBytes = (Samples - n) * BytesPerSample;
 		return memory + n * BytesPerSample;
 	}
@@ -204,6 +225,31 @@ namespace Sampler
 			_Store( memory + (nValid++) * BytesPerSample, pSamples[i] );
 	}
 
+	// peak pairs: the first word read is the old read pointer of the FPGA
+	// (as sample 0 without peak detection), it is replaced by the first
+	// pair, so the trigger stays at the same index. The marks of the words
+	// (bits 16, 17: 0 minimum, 1 maximum) keep the pairs in step.
+	static void _CopyPeak(int nCap)
+	{
+		uint8_t* pMin = memory;
+		uint8_t* pMax = memory + PeakSamples * BytesPerSample;
+		BIOS::ADC::Get();
+		for ( int i = 1; i < nCap; i++ )
+		{
+			uint32_t lo = BIOS::ADC::Get();
+			uint32_t hi = BIOS::ADC::Get();
+			if ( ( (lo >> 16) & 3 ) != 0 || ( (hi >> 16) & 3 ) != 1 )
+			{
+				lo = hi;
+				hi = BIOS::ADC::Get();
+			}
+			_Store( pMin + i * BytesPerSample, lo & 0xffff );
+			_Store( pMax + i * BytesPerSample, hi & 0xffff );
+		}
+		memcpy( pMin, pMin + BytesPerSample, BytesPerSample );
+		memcpy( pMax, pMax + BytesPerSample, BytesPerSample );
+	}
+
 	void Copy(bool bNew)
 	{
 		_Captured();
@@ -212,6 +258,14 @@ namespace Sampler
 		nValid = nCap;
 		if ( bNew )
 			nSequence++;
+		if ( bCapPeak )
+		{
+			_CopyPeak( nCap );
+			nValidAll = nValid;
+			if ( nValid > nLength )
+				nValid = nLength;
+			return;
+		}
 		for (int i=0; i<nCap; i++, p += BytesPerSample)
 		{
 			uint32_t value = BIOS::ADC::Get();
@@ -254,6 +308,8 @@ namespace Sampler
 	int AlignTrigger(int nSource, bool bRising, int nLevel)
 	{
 		nLastAlign = AlignNone;
+		if ( bCapPeak )
+			return 0;       // 5 us/div and slower: the FPGA mark is exact
 		if ( nValidAll < nValid )
 			nValidAll = nValid;
 		if ( nSource < 0 || nSource > 3 || nValidAll < Anchor + 2 )
@@ -325,26 +381,47 @@ namespace Sampler
 		return nSequence;
 	}
 
-	static inline BIOS::ADC::TSample::SampleType _Raw(int i)
+	// which: 0 the sample (peak: middle of the band), 1 minimum, 2 maximum
+	static inline BIOS::ADC::TSample::SampleType _RawOf(int i, int which)
 	{
 		i = (unsigned)i % Samples;
 		if ( i >= nValid )
 			return BIOS::ADC::NoData;
 		const uint8_t* p = memory + i * BytesPerSample;
-		return p[0] | (p[1] << 8) | ((p[2] & 0x03) << 16);
+		if ( !bCapPeak || which == 1 )
+			return p[0] | (p[1] << 8) | ((p[2] & 0x03) << 16);
+		const uint8_t* q = p + PeakSamples * BytesPerSample;
+		if ( which == 2 )
+			return q[0] | (q[1] << 8);
+		return ( ( p[0] + q[0] + 1 ) >> 1 ) | ( ( ( p[1] + q[1] + 1 ) >> 1 ) << 8 );
 	}
 
-	static BIOS::ADC::TSample::SampleType _GetAtTime(int i);
+	static inline BIOS::ADC::TSample::SampleType _Raw(int i)
+	{
+		return _RawOf( i, 0 );
+	}
+
+	static BIOS::ADC::TSample::SampleType _GetAtTime(int i, int which);
 
 	BIOS::ADC::TSample::SampleType GetAt(int i)
 	{
-		return _Volts( _GetAtTime( i ) );
+		return _Volts( _GetAtTime( i, 0 ) );
 	}
 
-	static BIOS::ADC::TSample::SampleType _GetAtTime(int i)
+	BIOS::ADC::TSample::SampleType GetMinAt(int i)
+	{
+		return _Volts( _GetAtTime( i, bCapPeak ? 1 : 0 ) );
+	}
+
+	BIOS::ADC::TSample::SampleType GetMaxAt(int i)
+	{
+		return _Volts( _GetAtTime( i, bCapPeak ? 2 : 0 ) );
+	}
+
+	static BIOS::ADC::TSample::SampleType _GetAtTime(int i, int which)
 	{
 		if ( !Scaled() )
-			return _Raw( i );
+			return _RawOf( i, which );
 		if ( i < 0 || i >= nLength )
 			return BIOS::ADC::NoData;
 		// position in the buffer: p0 + frac / den
@@ -355,11 +432,11 @@ namespace Sampler
 		int64_t frac = num - q * den;
 		if ( p0 < 0 || p0 >= nValid )
 			return BIOS::ADC::NoData;
-		uint32_t a = _Raw( p0 );
+		uint32_t a = _RawOf( p0, which );
 		if ( frac == 0 || p0 + 1 >= nValid )
 			return a;
 		// stretched: CH1 / CH2 linear between two samples, CH3 / CH4 of the first
-		uint32_t b = _Raw( p0 + 1 );
+		uint32_t b = _RawOf( p0 + 1, which );
 		int a1 = a & 0xff, b1 = b & 0xff, a2 = (a >> 8) & 0xff, b2 = (b >> 8) & 0xff;
 		int c1 = a1 + (int)((b1 - a1) * frac / den), c2 = a2 + (int)((b2 - a2) * frac / den);
 		return (uint32_t)c1 | ((uint32_t)c2 << 8) | (a & 0x30000);
