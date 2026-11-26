@@ -216,9 +216,31 @@ namespace Tools
 		Sampler::Copy();
 	}
 
+	// MiniCal stores the DAC calibration in a trailer after the ADC data
+	// (magic "GDAC", 20 bytes); the zero calibration keeps it
+	enum { DacMagic = 0x43414447, DacTail = 20 };
+
 	static bool SaveCalibration()
 	{
 		uint8_t* p = MainWnd.m_wndGraph.GetScratch();
+		uint8_t arrTail[DacTail];
+		bool bTail = false;
+		if ( BIOS::FAT::Open( CalFile, BIOS::FAT::IoRead ) == BIOS::FAT::EOk )
+		{
+			uint32_t nHead[2], nMagic;
+			const int nTailAt = 12 + 2 * ( CSettings::AnalogChannel::_ResolutionMax + 1 ) * ( QinSize + QoutSize + 4 );
+			if ( BIOS::FAT::Read( p ) == BIOS::FAT::EOk )
+			{
+				memcpy( nHead, p, 8 );
+				memcpy( &nMagic, p + nTailAt, 4 );
+				if ( nHead[0] == CalMagic && nHead[1] == 3 && nMagic == DacMagic )
+				{
+					memcpy( arrTail, p + nTailAt, DacTail );
+					bTail = true;
+				}
+			}
+			BIOS::FAT::Close();
+		}
 		memset( p, 0, BIOS::FAT::SectorSize );
 		uint32_t* pHead = (uint32_t*)p;
 		pHead[0] = CalMagic;
@@ -236,6 +258,11 @@ namespace Tools
 		for ( uint8_t* i = p + 12; i < q; i++ )
 			nSum = nSum * 33 + *i;
 		pHead[2] = nSum;
+		if ( bTail )
+		{
+			memcpy( q, arrTail, DacTail );
+			q += DacTail;
+		}
 		bool bOk = BIOS::FAT::Open( CalFile, BIOS::FAT::IoWrite ) == BIOS::FAT::EOk &&
 			BIOS::FAT::Write( p ) == BIOS::FAT::EOk;
 		if ( BIOS::FAT::Close( q - p ) != BIOS::FAT::EOk )

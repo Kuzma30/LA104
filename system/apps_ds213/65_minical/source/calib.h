@@ -10,6 +10,13 @@
 //   2 channels x 8 ranges: s16 qin[3], s32 qout[3], s32 K
 // Version 2 (the oscilloscope before the gain) has no K, it is read with
 // K = 2048.
+//
+// DAC (Wave Out) calibration, a trailer right after the ADC data:
+//   u32 magic "GDAC", s16 code[2], s32 uv[2], u32 checksum (djb2 of the
+//   code/uv bytes). The line through (code[i], uv[i]) gives the output
+//   voltage (microvolts) of a 12 bit DAC code. The oscilloscope checks the
+//   checksum of the ADC data only, so it ignores the trailer; a file without
+//   the trailer has the default DAC calibration.
 
 #pragma once
 #include <stdint.h>
@@ -19,6 +26,9 @@ namespace Cal
 {
   enum { Ranges = 8, Points = 3, KOne = 2048, KMin = 1024, KMax = 4096 };
   enum { Magic = 0x41434d47, Version = 3 };
+  // DAC: 12 bit code, reference and the supply of the output amplifier 2.8 V
+  enum { DacMax = 4095, DacMagic = 0x43414447, DacTail = 20, DacMinSpan = 256 };
+  enum { DacDefaultFullUv = 2800000, DacSlopeMinUv = 150, DacSlopeMaxUv = 2200 };
   static const char* const FileName = "MINICAL.CFG";
   static const char* const RangeName[Ranges] = {"50mV", "100mV", "200mV", "500mV", "1V", "2V", "5V", "10V"};
   static const int32_t RangeMv[Ranges] = {50, 100, 200, 500, 1000, 2000, 5000, 10000};
@@ -30,9 +40,17 @@ namespace Cal
     int32_t k;
   };
 
+  // output voltage of the DAC: line through (code[0], uv[0]), (code[1], uv[1])
+  struct TDac
+  {
+    int16_t code[2];
+    int32_t uv[2];          // microvolts, measured with an external voltmeter
+  };
+
   struct TData
   {
     TCurve c[2][Ranges];
+    TDac dac;
   };
 
   // DS203 defaults of the oscilloscope (Settings.cpp): 0 V at the position
@@ -47,11 +65,20 @@ namespace Cal
     c.k = KOne;
   }
 
+  inline void Default(TDac& d)
+  {
+    d.code[0] = 0;
+    d.code[1] = DacMax;
+    d.uv[0] = 0;
+    d.uv[1] = DacDefaultFullUv;
+  }
+
   inline void Default(TData& d)
   {
     for (int ch = 0; ch < 2; ch++)
       for (int r = 0; r < Ranges; r++)
         Default(d.c[ch][r]);
+    Default(d.dac);
   }
 
   // as CalibrationCurve::Get of gabmini (also outside the points)
@@ -154,6 +181,75 @@ namespace Cal
     return c.k >= KMin && c.k <= KMax;
   }
 
+  // ---- DAC: code <-> output voltage -------------------------------------
+  // The two points can be anywhere on the linear part of the output (the
+  // amplifier does not reach the rails, so 0 and the full scale are not the
+  // best choice); in any order of the codes.
+  inline bool Valid(const TDac& d)
+  {
+    if (d.code[0] < 0 || d.code[0] > DacMax || d.code[1] < 0 || d.code[1] > DacMax)
+      return false;
+    int64_t span = (int64_t)d.code[1] - d.code[0];
+    int64_t dv = (int64_t)d.uv[1] - d.uv[0];
+    if (span < 0)
+    {
+      span = -span;
+      dv = -dv;
+    }
+    if (span < DacMinSpan)
+      return false;
+    if (d.uv[0] < -1000000 || d.uv[0] > 4000000 || d.uv[1] < -1000000 || d.uv[1] > 4000000)
+      return false;
+    return dv >= span * DacSlopeMinUv && dv <= span * DacSlopeMaxUv;
+  }
+
+  // output voltage in microvolts of a DAC code (also outside the points)
+  inline int32_t DacUv(const TDac& d, int code)
+  {
+    int64_t n = (int64_t)(d.uv[1] - d.uv[0]) * (code - d.code[0]);
+    int64_t den = d.code[1] - d.code[0];
+    if (den < 0)
+    {
+      n = -n;
+      den = -den;
+    }
+    return d.uv[0] + (int32_t)(n >= 0 ? (n + den / 2) / den : -((-n + den / 2) / den));
+  }
+
+  // DAC code for the wanted voltage in microvolts, limited to 0..DacMax
+  inline int DacCode(const TDac& d, int32_t uv)
+  {
+    int64_t n = (int64_t)(uv - d.uv[0]) * (d.code[1] - d.code[0]);
+    int64_t den = (int64_t)d.uv[1] - d.uv[0];
+    if (den < 0)
+    {
+      n = -n;
+      den = -den;
+    }
+    int64_t c = d.code[0] + (n >= 0 ? (n + den / 2) / den : -((-n + den / 2) / den));
+    return c < 0 ? 0 : c > DacMax ? DacMax : (int)c;
+  }
+
+  // microvolts per DAC code
+  inline float DacSlope(const TDac& d)
+  {
+    return (float)((int64_t)d.uv[1] - d.uv[0]) / ((int64_t)d.code[1] - d.code[0]);
+  }
+
+  // point idx (0 low, 1 high) from the code on the output and the voltage
+  // measured there; false (nothing changed): points too close or a gain that
+  // is not plausible
+  inline bool SetDacPoint(TDac& d, int idx, int code, int32_t uv)
+  {
+    TDac t = d;
+    t.code[idx] = (int16_t)code;
+    t.uv[idx] = uv;
+    if (!Valid(t))
+      return false;
+    d = t;
+    return true;
+  }
+
   inline uint32_t Sum(const uint8_t* p, int n)
   {
     uint32_t s = 5381;
@@ -177,6 +273,14 @@ namespace Cal
       }
     uint32_t head[3] = {Magic, Version, Sum(p + 12, (int)(q - p - 12))};
     memcpy(p, head, 12);
+    // DAC trailer, outside the checksum of the ADC data
+    uint32_t magic = DacMagic;
+    memcpy(q, &magic, 4); q += 4;
+    uint8_t* body = q;
+    memcpy(q, d.dac.code, sizeof(d.dac.code)); q += sizeof(d.dac.code);
+    memcpy(q, d.dac.uv, sizeof(d.dac.uv)); q += sizeof(d.dac.uv);
+    uint32_t sum = Sum(body, (int)(q - body));
+    memcpy(q, &sum, 4); q += 4;
     return (int)(q - p);
   }
 
@@ -206,6 +310,23 @@ namespace Cal
         if (!Valid(c))
           Default(c);
       }
+    // DAC trailer after the ADC data (absent or damaged: default DAC)
+    Default(t.dac);
+    uint32_t magic;
+    memcpy(&magic, q, 4);
+    if (magic == DacMagic && (q - p) + DacTail <= 512)
+    {
+      uint32_t sum;
+      memcpy(&sum, q + DacTail - 4, 4);
+      if (Sum(q + 4, DacTail - 8) == sum)
+      {
+        TDac dac;
+        memcpy(dac.code, q + 4, sizeof(dac.code));
+        memcpy(dac.uv, q + 4 + sizeof(dac.code), sizeof(dac.uv));
+        if (Valid(dac))
+          t.dac = dac;
+      }
+    }
     d = t;
     return true;
   }
